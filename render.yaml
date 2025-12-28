@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: branded-uk-backend
+    env: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DB_HOST
+        value: dpg-d584brm3jp1c73bagb40-a.oregon-postgres.render.com
+      - key: DB_PORT
+        value: 5432
+      - key: DB_NAME
+        value: brandeduk
+      - key: DB_USER
+        value: brandeduk_user
+      - key: DB_PASSWORD
+        sync: false  # Set this manually in Render dashboard
+      - key: DB_SSL
+        value: "true"
+      - key: DB_POOL_MAX
+        value: "50"
+      - key: DB_POOL_MIN
+        value: "5"
+      - key: CORS_ORIGIN
+        value: "*"  # Update this with your frontend domain
+
+
