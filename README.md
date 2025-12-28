@@ -1,5 +1,9 @@
 # brandeduk-backend
 
+## Deployment
+
+🚀 **Ready to deploy?** See [DEPLOYMENT.md](./DEPLOYMENT.md) for complete step-by-step instructions to deploy to Render.
+
 ## Setup
 
 1. Install dependencies:

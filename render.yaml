@@ -3,8 +3,10 @@ services:
     name: branded-uk-backend
     env: node
     plan: starter
+    region: oregon
     buildCommand: npm install
     startCommand: npm start
+    healthCheckPath: /health/live
     envVars:
       - key: NODE_ENV
         value: production
@@ -19,7 +21,7 @@ services:
       - key: DB_USER
         value: brandeduk_user
       - key: DB_PASSWORD
-        sync: false  # Set this manually in Render dashboard
+        sync: false  # IMPORTANT: Set this manually in Render dashboard
       - key: DB_SSL
         value: "true"
       - key: DB_POOL_MAX
@@ -27,6 +29,6 @@ services:
       - key: DB_POOL_MIN
         value: "5"
       - key: CORS_ORIGIN
-        value: "*"  # Update this with your frontend domain
+        value: "*"  # Update this with your frontend domain when ready
 
 
