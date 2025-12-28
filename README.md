@@ -43,6 +43,8 @@ Product list with filtering, search, and pagination.
 - `priceMin`, `priceMax` - Price range filter
 - `gender`, `ageGroup`, `size`, `fabric`, `accreditations`, `tag`, `effect`, `sector`, `sport`, `style` - Array filters
 - `primaryColour`, `colourShade` - Color filters
+- `productType` or `productTypes` - Filter by product type name(s) (e.g., "T-Shirts", "Hoodies", "Polos")
+- `category` or `categories` - Filter by category (slugs or IDs)
 - `sort` (price|name|newest) - Sort field
 - `order` (asc|desc) - Sort order
 
@@ -54,6 +56,26 @@ Product list with filtering, search, and pagination.
   "limit": 25,
   "total": 97000,
   "priceRange": { "min": 9.99, "max": 189.00 }
+}
+```
+
+### GET /api/products/types
+Get all product types with product counts and percentages.
+
+**Response:**
+```json
+{
+  "productTypes": [
+    {
+      "id": 1,
+      "name": "T-Shirts",
+      "count": 22606,
+      "percentage": "22.67%",
+      "displayOrder": 1
+    },
+    ...
+  ],
+  "total": 99700
 }
 ```
 

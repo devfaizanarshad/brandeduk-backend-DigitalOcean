@@ -299,6 +299,21 @@ async function buildProductListQuery(filters, page, limit) {
     }
   }
 
+  // Product type filter - matches product type names (e.g., "T-Shirts", "Hoodies")
+  if (hasItems(filters.productType)) {
+    // Normalize product type names - handle case-insensitive matching
+    const normalizedProductTypes = filters.productType.map(pt => pt.trim());
+    conditions.push(`EXISTS (
+      SELECT 1 
+      FROM styles s 
+      INNER JOIN product_types pt ON s.product_type_id = pt.id 
+      WHERE s.style_code = ${viewAlias}.style_code 
+      AND LOWER(TRIM(pt.name)) = ANY($${paramIndex}::text[])
+    )`);
+    params.push(normalizedProductTypes.map(pt => pt.toLowerCase()));
+    paramIndex++;
+  }
+
   // Always filter by Live status
   conditions.push(`${viewAlias}.sku_status = 'Live'`);
 

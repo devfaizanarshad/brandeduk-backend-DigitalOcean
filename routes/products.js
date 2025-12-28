@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const pool = require('../config/database');
+const { pool, queryWithTimeout } = require('../config/database');
 const { buildProductListQuery, buildProductDetailQuery } = require('../services/productService');
 
 /**
@@ -38,6 +38,8 @@ router.get('/', async (req, res) => {
       effect,
       category, // Category filter - accepts slugs or IDs
       categories, // Accept both 'category' and 'categories' parameters
+      productType, // Product type filter - accepts product type names
+      productTypes, // Accept both 'productType' and 'productTypes' parameters
       sort = 'newest',
       order = 'desc'
     } = req.query;
@@ -103,6 +105,7 @@ router.get('/', async (req, res) => {
       tag: parseArray(tag),
       effect: parseArray(effect),
       category: parseArray(category || categories), // Accept both 'category' and 'categories', supports slugs or IDs
+      productType: parseArray(productType || productTypes), // Accept both 'productType' and 'productTypes', supports product type names
       sort: sort || 'newest', // Ensure default
       order: order ? (order.toLowerCase() === 'asc' ? 'ASC' : 'DESC') : 'DESC' // Ensure default
     };
@@ -154,6 +157,72 @@ router.get('/', async (req, res) => {
     res.status(500).json({ 
       error: 'Internal server error', 
       message: process.env.NODE_ENV === 'production' ? 'An error occurred' : error.message 
+    });
+  }
+});
+
+/**
+ * GET /api/products/types
+ * Get all product types with product counts
+ * Useful for displaying product type filters in the frontend
+ */
+router.get('/types', async (req, res) => {
+  try {
+    
+    const query = `
+      SELECT 
+        pt.id,
+        pt.name,
+        pt.display_order,
+        COUNT(DISTINCT s.style_code) as product_count
+      FROM product_types pt
+      INNER JOIN styles s ON pt.id = s.product_type_id
+      INNER JOIN products p ON s.style_code = p.style_code AND p.sku_status = 'Live'
+      GROUP BY pt.id, pt.name, pt.display_order
+      HAVING COUNT(DISTINCT s.style_code) > 0
+      ORDER BY pt.display_order ASC, pt.name ASC
+    `;
+
+    const countQuery = `
+      SELECT COUNT(DISTINCT s.style_code) as total
+      FROM styles s
+      INNER JOIN products p ON s.style_code = p.style_code AND p.sku_status = 'Live'
+    `;
+
+    const [result, countResult] = await Promise.all([
+      queryWithTimeout(query, [], 10000),
+      queryWithTimeout(countQuery, [], 10000)
+    ]);
+    
+    const totalProducts = parseInt(countResult.rows[0]?.total || 0);
+    
+    const productTypes = result.rows.map(row => {
+      const count = parseInt(row.product_count || 0);
+      const percentage = totalProducts > 0 
+        ? ((count / totalProducts) * 100).toFixed(2) 
+        : '0.00';
+      
+      return {
+        id: row.id,
+        name: row.name,
+        count: count,
+        percentage: percentage + '%',
+        displayOrder: row.display_order
+      };
+    });
+
+    res.json({
+      productTypes,
+      total: totalProducts
+    });
+  } catch (error) {
+    console.error('[ERROR] Failed to fetch product types:', {
+      message: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ 
+      error: 'Internal server error', 
+      message: error.message 
     });
   }
 });
