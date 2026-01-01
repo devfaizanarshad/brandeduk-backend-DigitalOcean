@@ -302,7 +302,6 @@ async function buildProductListQuery(filters, page, limit) {
   // Product type filter - matches product type names (e.g., "T-Shirts", "Hoodies")
   // Store product type filter info for use in query CTE
   let productTypeJoin = '';
-  let productTypeCondition = '';
   if (hasItems(filters.productType)) {
     // Normalize product type names - handle case-insensitive matching
     const normalizedProductTypes = filters.productType.map(pt => pt.trim().toLowerCase());
@@ -310,8 +309,8 @@ async function buildProductListQuery(filters, page, limit) {
     productTypeJoin = `
       INNER JOIN styles s_pt ON ${viewAlias}.style_code = s_pt.style_code
       INNER JOIN product_types pt_pt ON s_pt.product_type_id = pt_pt.id`;
-    // Build condition for WHERE clause
-    productTypeCondition = `AND LOWER(TRIM(pt_pt.name)) = ANY($${paramIndex}::text[])`;
+    // Add product type condition to WHERE clause
+    conditions.push(`LOWER(TRIM(pt_pt.name)) = ANY($${paramIndex}::text[])`);
     params.push(normalizedProductTypes);
     paramIndex++;
   }
@@ -338,7 +337,6 @@ async function buildProductListQuery(filters, page, limit) {
       FROM product_search_materialized ${viewAlias}
       ${productTypeJoin}
       ${whereClause}
-      ${productTypeCondition}
     ),
     style_codes_with_meta AS (
       SELECT 
@@ -406,7 +404,6 @@ async function buildProductListQuery(filters, page, limit) {
           FROM product_search_materialized ${viewAlias}
           ${productTypeJoin}
           ${whereClause}
-          ${productTypeCondition}
         ),
         style_codes_with_meta AS (
       SELECT 
