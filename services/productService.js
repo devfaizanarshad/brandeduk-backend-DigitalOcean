@@ -674,7 +674,11 @@ async function buildFilterAggregations(filters, viewAlias = 'psm') {
     
     return aggregations;
   } catch (error) {
-    console.error('[ERROR] buildFilterAggregations failed:', error);
+    console.error('[ERROR] buildFilterAggregations failed:', {
+      message: error.message,
+      stack: error.stack,
+      filters: JSON.stringify(filters)
+    });
     // Return empty aggregations on error (don't break the main query)
     return {};
   }
