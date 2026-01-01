@@ -306,11 +306,11 @@ async function buildProductListQuery(filters, page, limit) {
     // Normalize product type names - handle case-insensitive matching
     const normalizedProductTypes = filters.productType.map(pt => pt.trim().toLowerCase());
     // Build JOIN clause for first CTE - this ensures strict filtering at source
+    // Apply filter directly in JOIN ON clause for stricter filtering
     productTypeJoin = `
       INNER JOIN styles s_pt ON ${viewAlias}.style_code = s_pt.style_code
-      INNER JOIN product_types pt_pt ON s_pt.product_type_id = pt_pt.id`;
-    // Add product type condition to WHERE clause
-    conditions.push(`LOWER(TRIM(pt_pt.name)) = ANY($${paramIndex}::text[])`);
+      INNER JOIN product_types pt_pt ON s_pt.product_type_id = pt_pt.id 
+        AND LOWER(TRIM(pt_pt.name)) = ANY($${paramIndex}::text[])`;
     params.push(normalizedProductTypes);
     paramIndex++;
   }
