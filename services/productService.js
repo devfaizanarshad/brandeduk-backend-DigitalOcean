@@ -92,6 +92,379 @@ async function getCategoryIdsWithChildrenCached(categoryIds) {
   return result.rows.map(row => row.child_id);
 }
 
+// Build filter aggregations - counts for each filter option based on current filtered set
+async function buildFilterAggregations(filters, viewAlias = 'psm') {
+  const aggregations = {};
+  
+  // Helper to build base conditions (all filters except the one being aggregated)
+  const buildBaseConditions = (excludeFilter) => {
+    const conditions = [];
+    const params = [];
+    let paramIndex = 1;
+    
+    // Always filter by Live status
+    conditions.push(`${viewAlias}.sku_status = 'Live'`);
+    
+    // Search condition
+    const searchText = filters.q || filters.text;
+    if (searchText && excludeFilter !== 'search') {
+      const trimmedSearch = searchText.trim();
+      const searchLength = trimmedSearch.length;
+      
+      if (searchLength <= 2) {
+        conditions.push(`(${viewAlias}.style_code = UPPER($${paramIndex}) OR ${viewAlias}.style_code ILIKE $${paramIndex + 1})`);
+        params.push(trimmedSearch);
+        params.push(`${trimmedSearch}%`);
+        paramIndex += 2;
+      } else {
+        const searchTerms = trimmedSearch.split(/\s+/).filter(t => t.length > 0);
+        const normalizedSearch = searchTerms.join(' ');
+        const searchUpper = normalizedSearch.toUpperCase();
+        
+        const normalizeTerm = (term) => term.toLowerCase().replace(/[^a-z0-9]/g, '-');
+        const colorTerms = searchTerms.map(normalizeTerm);
+        const fabricTerms = searchTerms.map(normalizeTerm);
+        const necklineTerms = searchTerms.map(t => {
+          const lower = t.toLowerCase();
+          if (lower.includes('crew')) return 'crew-neck';
+          if (lower.includes('vneck') || lower.includes('v-neck')) return 'v-neck';
+          return normalizeTerm(t);
+        });
+        const sleeveTerms = searchTerms.map(t => {
+          const lower = t.toLowerCase();
+          if (lower.includes('long')) return 'long-sleeve';
+          if (lower.includes('short')) return 'short-sleeve';
+          return normalizeTerm(t);
+        });
+        const styleTerms = searchTerms.map(normalizeTerm);
+        
+        conditions.push(`(
+          ${viewAlias}.search_vector @@ plainto_tsquery('english', $${paramIndex}) OR
+          ${viewAlias}.style_code = $${paramIndex + 1} OR
+          ${viewAlias}.style_code ILIKE $${paramIndex + 2} OR
+          ${viewAlias}.style_name ILIKE $${paramIndex + 3} OR
+          (${viewAlias}.colour_slugs && $${paramIndex + 4}::text[]) OR
+          (${viewAlias}.fabric_slugs && $${paramIndex + 5}::text[]) OR
+          (${viewAlias}.neckline_slugs && $${paramIndex + 6}::text[]) OR
+          (${viewAlias}.sleeve_slugs && $${paramIndex + 7}::text[]) OR
+          (${viewAlias}.style_keyword_slugs && $${paramIndex + 8}::text[])
+        )`);
+        params.push(normalizedSearch, searchUpper, `${searchUpper}%`, `%${normalizedSearch}%`, 
+                   colorTerms, fabricTerms, necklineTerms, sleeveTerms, styleTerms);
+        paramIndex += 9;
+      }
+    }
+    
+    // Product type filter
+    let productTypeJoin = '';
+    if (hasItems(filters.productType) && excludeFilter !== 'productType') {
+      const normalizedProductTypes = filters.productType.map(pt => pt.trim().toLowerCase());
+      productTypeJoin = `
+        INNER JOIN styles s_pt ON ${viewAlias}.style_code = s_pt.style_code
+        INNER JOIN product_types pt_pt ON s_pt.product_type_id = pt_pt.id 
+          AND LOWER(TRIM(pt_pt.name)) = ANY($${paramIndex}::text[])`;
+      params.push(normalizedProductTypes);
+      paramIndex++;
+    }
+    
+    // Price filters
+    if (filters.priceMin !== null && filters.priceMin !== undefined) {
+      conditions.push(`${viewAlias}.single_price >= $${paramIndex}`);
+      params.push(filters.priceMin);
+      paramIndex++;
+    }
+    if (filters.priceMax !== null && filters.priceMax !== undefined) {
+      conditions.push(`${viewAlias}.single_price <= $${paramIndex}`);
+      params.push(filters.priceMax);
+      paramIndex++;
+    }
+    
+    // Other filters (exclude the one being aggregated)
+    if (hasItems(filters.gender) && excludeFilter !== 'gender') {
+      conditions.push(`${viewAlias}.gender_slug = ANY($${paramIndex})`);
+      params.push(filters.gender.map(g => g.toLowerCase()));
+      paramIndex++;
+    }
+    
+    if (hasItems(filters.ageGroup) && excludeFilter !== 'ageGroup') {
+      conditions.push(`${viewAlias}.age_group_slug = ANY($${paramIndex})`);
+      params.push(filters.ageGroup.map(a => a.toLowerCase()));
+      paramIndex++;
+    }
+    
+    if (hasItems(filters.primaryColour) && excludeFilter !== 'primaryColour') {
+      conditions.push(`${viewAlias}.primary_colour IS NOT NULL AND LOWER(${viewAlias}.primary_colour) = ANY($${paramIndex})`);
+      params.push(filters.primaryColour.map(c => c.toLowerCase()));
+      paramIndex++;
+    }
+    
+    if (hasItems(filters.sleeve) && excludeFilter !== 'sleeve') {
+      const normalizedSlugs = filters.sleeve.map(normalizeSlug);
+      conditions.push(`${viewAlias}.sleeve_slugs && $${paramIndex}::text[]`);
+      params.push(normalizedSlugs);
+      paramIndex++;
+    }
+    
+    if (hasItems(filters.neckline) && excludeFilter !== 'neckline') {
+      const normalizedSlugs = filters.neckline.map(normalizeSlug);
+      conditions.push(`${viewAlias}.neckline_slugs && $${paramIndex}::text[]`);
+      params.push(normalizedSlugs);
+      paramIndex++;
+    }
+    
+    if (hasItems(filters.fabric) && excludeFilter !== 'fabric') {
+      conditions.push(`${viewAlias}.fabric_slugs && $${paramIndex}::text[]`);
+      params.push(filters.fabric.map(f => f.toLowerCase()));
+      paramIndex++;
+    }
+    
+    if (hasItems(filters.size) && excludeFilter !== 'size') {
+      conditions.push(`${viewAlias}.size_slugs && $${paramIndex}::text[]`);
+      params.push(filters.size.map(s => s.toLowerCase()));
+      paramIndex++;
+    }
+    
+    if (hasItems(filters.tag) && excludeFilter !== 'tag') {
+      conditions.push(`LOWER(${viewAlias}.tag_slug) = ANY($${paramIndex})`);
+      params.push(filters.tag.map(t => t.toLowerCase()));
+      paramIndex++;
+    }
+    
+    if (hasItems(filters.effect) && excludeFilter !== 'effect') {
+      const normalizedEffects = filters.effect.map(e => e.toLowerCase());
+      conditions.push(`${viewAlias}.effects_arr && $${paramIndex}::text[]`);
+      params.push(normalizedEffects);
+      paramIndex++;
+    }
+    
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    
+    return { whereClause, productTypeJoin, params };
+  };
+  
+  try {
+    // Gender aggregations
+    const genderBase = buildBaseConditions('gender');
+    const genderWhereClause = genderBase.whereClause 
+      ? `${genderBase.whereClause} AND ${viewAlias}.gender_slug IS NOT NULL`
+      : `WHERE ${viewAlias}.gender_slug IS NOT NULL`;
+    const genderQuery = `
+      SELECT 
+        ${viewAlias}.gender_slug as value,
+        COUNT(DISTINCT ${viewAlias}.style_code) as count
+      FROM product_search_materialized ${viewAlias}
+      ${genderBase.productTypeJoin}
+      ${genderWhereClause}
+      GROUP BY ${viewAlias}.gender_slug
+      ORDER BY count DESC
+    `;
+    const genderResult = await queryWithTimeout(genderQuery, genderBase.params, 15000);
+    aggregations.gender = {};
+    genderResult.rows.forEach(row => {
+      aggregations.gender[row.value] = parseInt(row.count);
+    });
+    
+    // Age group aggregations
+    const ageGroupBase = buildBaseConditions('ageGroup');
+    const ageGroupWhereClause = ageGroupBase.whereClause 
+      ? `${ageGroupBase.whereClause} AND ${viewAlias}.age_group_slug IS NOT NULL`
+      : `WHERE ${viewAlias}.age_group_slug IS NOT NULL`;
+    const ageGroupQuery = `
+      SELECT 
+        ${viewAlias}.age_group_slug as value,
+        COUNT(DISTINCT ${viewAlias}.style_code) as count
+      FROM product_search_materialized ${viewAlias}
+      ${ageGroupBase.productTypeJoin}
+      ${ageGroupWhereClause}
+      GROUP BY ${viewAlias}.age_group_slug
+      ORDER BY count DESC
+    `;
+    const ageGroupResult = await queryWithTimeout(ageGroupQuery, ageGroupBase.params, 15000);
+    aggregations.ageGroup = {};
+    ageGroupResult.rows.forEach(row => {
+      aggregations.ageGroup[row.value] = parseInt(row.count);
+    });
+    
+    // Sleeve aggregations (from array)
+    const sleeveBase = buildBaseConditions('sleeve');
+    const sleeveWhereClause = sleeveBase.whereClause 
+      ? `${sleeveBase.whereClause} AND ${viewAlias}.sleeve_slugs IS NOT NULL AND array_length(${viewAlias}.sleeve_slugs, 1) > 0`
+      : `WHERE ${viewAlias}.sleeve_slugs IS NOT NULL AND array_length(${viewAlias}.sleeve_slugs, 1) > 0`;
+    const sleeveQuery = `
+      SELECT 
+        sleeve_value as value,
+        COUNT(DISTINCT style_code) as count
+      FROM (
+        SELECT 
+          ${viewAlias}.style_code,
+          unnest(${viewAlias}.sleeve_slugs) as sleeve_value
+        FROM product_search_materialized ${viewAlias}
+        ${sleeveBase.productTypeJoin}
+        ${sleeveWhereClause}
+      ) subq
+      GROUP BY sleeve_value
+      ORDER BY count DESC
+    `;
+    const sleeveResult = await queryWithTimeout(sleeveQuery, sleeveBase.params, 15000);
+    aggregations.sleeve = {};
+    sleeveResult.rows.forEach(row => {
+      aggregations.sleeve[row.value] = parseInt(row.count);
+    });
+    
+    // Neckline aggregations (from array)
+    const necklineBase = buildBaseConditions('neckline');
+    const necklineWhereClause = necklineBase.whereClause 
+      ? `${necklineBase.whereClause} AND ${viewAlias}.neckline_slugs IS NOT NULL AND array_length(${viewAlias}.neckline_slugs, 1) > 0`
+      : `WHERE ${viewAlias}.neckline_slugs IS NOT NULL AND array_length(${viewAlias}.neckline_slugs, 1) > 0`;
+    const necklineQuery = `
+      SELECT 
+        neckline_value as value,
+        COUNT(DISTINCT style_code) as count
+      FROM (
+        SELECT 
+          ${viewAlias}.style_code,
+          unnest(${viewAlias}.neckline_slugs) as neckline_value
+        FROM product_search_materialized ${viewAlias}
+        ${necklineBase.productTypeJoin}
+        ${necklineWhereClause}
+      ) subq
+      GROUP BY neckline_value
+      ORDER BY count DESC
+    `;
+    const necklineResult = await queryWithTimeout(necklineQuery, necklineBase.params, 15000);
+    aggregations.neckline = {};
+    necklineResult.rows.forEach(row => {
+      aggregations.neckline[row.value] = parseInt(row.count);
+    });
+    
+    // Fabric aggregations (from array)
+    const fabricBase = buildBaseConditions('fabric');
+    const fabricWhereClause = fabricBase.whereClause 
+      ? `${fabricBase.whereClause} AND ${viewAlias}.fabric_slugs IS NOT NULL AND array_length(${viewAlias}.fabric_slugs, 1) > 0`
+      : `WHERE ${viewAlias}.fabric_slugs IS NOT NULL AND array_length(${viewAlias}.fabric_slugs, 1) > 0`;
+    const fabricQuery = `
+      SELECT 
+        fabric_value as value,
+        COUNT(DISTINCT style_code) as count
+      FROM (
+        SELECT 
+          ${viewAlias}.style_code,
+          unnest(${viewAlias}.fabric_slugs) as fabric_value
+        FROM product_search_materialized ${viewAlias}
+        ${fabricBase.productTypeJoin}
+        ${fabricWhereClause}
+      ) subq
+      GROUP BY fabric_value
+      ORDER BY count DESC
+    `;
+    const fabricResult = await queryWithTimeout(fabricQuery, fabricBase.params, 15000);
+    aggregations.fabric = {};
+    fabricResult.rows.forEach(row => {
+      aggregations.fabric[row.value] = parseInt(row.count);
+    });
+    
+    // Size aggregations (from array)
+    const sizeBase = buildBaseConditions('size');
+    const sizeWhereClause = sizeBase.whereClause 
+      ? `${sizeBase.whereClause} AND ${viewAlias}.size_slugs IS NOT NULL AND array_length(${viewAlias}.size_slugs, 1) > 0`
+      : `WHERE ${viewAlias}.size_slugs IS NOT NULL AND array_length(${viewAlias}.size_slugs, 1) > 0`;
+    const sizeQuery = `
+      SELECT 
+        size_value as value,
+        COUNT(DISTINCT style_code) as count
+      FROM (
+        SELECT 
+          ${viewAlias}.style_code,
+          unnest(${viewAlias}.size_slugs) as size_value
+        FROM product_search_materialized ${viewAlias}
+        ${sizeBase.productTypeJoin}
+        ${sizeWhereClause}
+      ) subq
+      GROUP BY size_value
+      ORDER BY count DESC
+    `;
+    const sizeResult = await queryWithTimeout(sizeQuery, sizeBase.params, 15000);
+    aggregations.size = {};
+    sizeResult.rows.forEach(row => {
+      aggregations.size[row.value] = parseInt(row.count);
+    });
+    
+    // Primary colour aggregations
+    const primaryColourBase = buildBaseConditions('primaryColour');
+    const primaryColourWhereClause = primaryColourBase.whereClause 
+      ? `${primaryColourBase.whereClause} AND ${viewAlias}.primary_colour IS NOT NULL`
+      : `WHERE ${viewAlias}.primary_colour IS NOT NULL`;
+    const primaryColourQuery = `
+      SELECT 
+        LOWER(${viewAlias}.primary_colour) as value,
+        COUNT(DISTINCT ${viewAlias}.style_code) as count
+      FROM product_search_materialized ${viewAlias}
+      ${primaryColourBase.productTypeJoin}
+      ${primaryColourWhereClause}
+      GROUP BY LOWER(${viewAlias}.primary_colour)
+      ORDER BY count DESC
+    `;
+    const primaryColourResult = await queryWithTimeout(primaryColourQuery, primaryColourBase.params, 15000);
+    aggregations.primaryColour = {};
+    primaryColourResult.rows.forEach(row => {
+      aggregations.primaryColour[row.value] = parseInt(row.count);
+    });
+    
+    // Tag aggregations
+    const tagBase = buildBaseConditions('tag');
+    const tagWhereClause = tagBase.whereClause 
+      ? `${tagBase.whereClause} AND ${viewAlias}.tag_slug IS NOT NULL`
+      : `WHERE ${viewAlias}.tag_slug IS NOT NULL`;
+    const tagQuery = `
+      SELECT 
+        LOWER(${viewAlias}.tag_slug) as value,
+        COUNT(DISTINCT ${viewAlias}.style_code) as count
+      FROM product_search_materialized ${viewAlias}
+      ${tagBase.productTypeJoin}
+      ${tagWhereClause}
+      GROUP BY LOWER(${viewAlias}.tag_slug)
+      ORDER BY count DESC
+    `;
+    const tagResult = await queryWithTimeout(tagQuery, tagBase.params, 15000);
+    aggregations.tag = {};
+    tagResult.rows.forEach(row => {
+      aggregations.tag[row.value] = parseInt(row.count);
+    });
+    
+    // Effect aggregations (from array)
+    const effectBase = buildBaseConditions('effect');
+    const effectWhereClause = effectBase.whereClause 
+      ? `${effectBase.whereClause} AND ${viewAlias}.effects_arr IS NOT NULL AND array_length(${viewAlias}.effects_arr, 1) > 0`
+      : `WHERE ${viewAlias}.effects_arr IS NOT NULL AND array_length(${viewAlias}.effects_arr, 1) > 0`;
+    const effectQuery = `
+      SELECT 
+        effect_value as value,
+        COUNT(DISTINCT style_code) as count
+      FROM (
+        SELECT 
+          ${viewAlias}.style_code,
+          unnest(${viewAlias}.effects_arr) as effect_value
+        FROM product_search_materialized ${viewAlias}
+        ${effectBase.productTypeJoin}
+        ${effectWhereClause}
+      ) subq
+      GROUP BY effect_value
+      ORDER BY count DESC
+    `;
+    const effectResult = await queryWithTimeout(effectQuery, effectBase.params, 15000);
+    aggregations.effect = {};
+    effectResult.rows.forEach(row => {
+      aggregations.effect[row.value] = parseInt(row.count);
+    });
+    
+    return aggregations;
+  } catch (error) {
+    console.error('[ERROR] buildFilterAggregations failed:', error);
+    // Return empty aggregations on error (don't break the main query)
+    return {};
+  }
+}
+
 async function buildProductListQuery(filters, page, limit) {
   const cacheKey = getCacheKey(filters, page, limit);
   const cached = getCached(cacheKey);
@@ -742,7 +1115,18 @@ async function buildProductListQuery(filters, page, limit) {
     const totalTime = Date.now() - startTime;
     console.log(`[QUERY] Total product list: ${totalTime}ms`);
 
-    const queryResponse = { items, total, priceRange };
+    // Build filter aggregations (run in parallel with main query for better performance)
+    const aggregationStartTime = Date.now();
+    const filterAggregations = await buildFilterAggregations(filters);
+    const aggregationTime = Date.now() - aggregationStartTime;
+    console.log(`[QUERY] Filter aggregations: ${aggregationTime}ms`);
+
+    const queryResponse = { 
+      items, 
+      total, 
+      priceRange,
+      filters: filterAggregations
+    };
     
     if (totalTime < 5000) {
       // Use longer cache TTL for search queries (they're more expensive)
