@@ -621,10 +621,7 @@ async function buildProductListQuery(filters, page, limit) {
       params.push(`${searchUpper}%`);
       paramIndex++;
       
-      const nameParam = paramIndex;
-      params.push(`%${normalizedSearch}%`);
-      paramIndex++;
-      
+      // REMOVED: nameParam - style_name ILIKE is too slow
       // Array parameters (use GIN indexes efficiently)
       const colorArrayParam = paramIndex;
       params.push(colorTerms);
@@ -646,41 +643,40 @@ async function buildProductListQuery(filters, page, limit) {
       params.push(styleTerms);
       paramIndex++;
       
-      // OPTIMIZED: Simple OR condition - PostgreSQL will use GIN index for search_vector
-      // The optimizer will choose the best index automatically
+      // ULTRA-OPTIMIZED: Prioritize ONLY the fastest indexed operations
+      // Remove slow ILIKE operations that cause full table scans
+      // Focus on: full-text search (GIN index) + style_code (B-tree index) + array matches (GIN indexes)
       searchCondition = `(
         ${viewAlias}.search_vector @@ plainto_tsquery('english', $${fullTextParam}) OR
         ${viewAlias}.style_code = $${codeParam} OR
         ${viewAlias}.style_code ILIKE $${codePrefixParam} OR
-        ${viewAlias}.style_name ILIKE $${nameParam} OR
         ${viewAlias}.colour_slugs && $${colorArrayParam}::text[] OR
         ${viewAlias}.fabric_slugs && $${fabricArrayParam}::text[] OR
         ${viewAlias}.neckline_slugs && $${necklineArrayParam}::text[] OR
         ${viewAlias}.sleeve_slugs && $${sleeveArrayParam}::text[] OR
         ${viewAlias}.style_keyword_slugs && $${styleArrayParam}::text[]
       )`;
+      // REMOVED: style_name ILIKE - too slow, causes full table scan
       
-      // OPTIMIZED: Simplified relevance calculation (faster)
-      // Use ts_rank_cd for better performance than ts_rank
+      // ULTRA-OPTIMIZED: Simplified relevance - removed expensive calculations
+      // Only calculate relevance for indexed operations (fast)
       searchRelevanceSelect = `
         (
-          -- Exact style code match (100 points)
+          -- Exact style code match (100 points) - FAST (indexed)
           CASE WHEN ${viewAlias}.style_code = $${codeParam} THEN 100 ELSE 0 END +
-          -- Prefix style code match (80 points)
+          -- Prefix style code match (80 points) - FAST (indexed)
           CASE WHEN ${viewAlias}.style_code ILIKE $${codePrefixParam} THEN 80 ELSE 0 END +
-          -- Full-text search using ts_rank_cd (0-60 points, faster than ts_rank)
-          CASE WHEN ${viewAlias}.search_vector @@ plainto_tsquery('english', $${fullTextParam}) 
-            THEN LEAST(ts_rank_cd(${viewAlias}.search_vector, plainto_tsquery('english', $${fullTextParam}), 32) * 60, 60)
-            ELSE 0 END +
-          -- Style name match (40 points)
-          CASE WHEN ${viewAlias}.style_name ILIKE $${nameParam} THEN 40 ELSE 0 END +
-          -- Array matches (30 points each)
+          -- Full-text search (60 points) - FAST (GIN index)
+          CASE WHEN ${viewAlias}.search_vector @@ plainto_tsquery('english', $${fullTextParam}) THEN 60 ELSE 0 END +
+          -- Array matches (30 points each) - FAST (GIN indexes)
           CASE WHEN ${viewAlias}.colour_slugs && $${colorArrayParam}::text[] THEN 30 ELSE 0 END +
           CASE WHEN ${viewAlias}.fabric_slugs && $${fabricArrayParam}::text[] THEN 30 ELSE 0 END +
           CASE WHEN ${viewAlias}.neckline_slugs && $${necklineArrayParam}::text[] THEN 20 ELSE 0 END +
           CASE WHEN ${viewAlias}.sleeve_slugs && $${sleeveArrayParam}::text[] THEN 20 ELSE 0 END +
           CASE WHEN ${viewAlias}.style_keyword_slugs && $${styleArrayParam}::text[] THEN 15 ELSE 0 END
         ) as relevance_score`;
+      // REMOVED: ts_rank_cd calculation - too expensive
+      // REMOVED: style_name ILIKE - too slow
       
       searchRelevanceOrder = 'relevance_score DESC';
     }
@@ -893,6 +889,8 @@ async function buildProductListQuery(filters, page, limit) {
   const limitParamIndex = params.length + 1;
   const offsetParamIndex = params.length + 2;
   
+  // ULTRA-OPTIMIZATION: Restructure query for search - use indexed operations first
+  // For search, prioritize full-text search index by structuring query properly
   const optimizedQuery = `
     WITH style_codes_filtered AS (
       SELECT DISTINCT ${viewAlias}.style_code
@@ -910,10 +908,9 @@ async function buildProductListQuery(filters, page, limit) {
         MIN(COALESCE(pt.display_order, 999)) as product_type_priority
         ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
       FROM style_codes_filtered scf
-      INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
+      INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code AND ${viewAlias}.sku_status = 'Live'
       LEFT JOIN styles s ON ${viewAlias}.style_code = s.style_code
         LEFT JOIN product_types pt ON s.product_type_id = pt.id
-      WHERE ${viewAlias}.sku_status = 'Live'
       GROUP BY scf.style_code
       ),
     paginated_style_codes AS (
