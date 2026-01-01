@@ -109,21 +109,205 @@ async function buildProductListQuery(filters, page, limit) {
   const order = filters.order || 'DESC';
   const viewAlias = 'psm';
   const searchText = filters.q || filters.text;
+  
+  // Enhanced natural language search
+  let searchCondition = '';
+  let searchRelevanceSelect = '';
+  let searchRelevanceOrder = '';
+  let hasSearch = false;
+  
   if (searchText) {
-    const searchLength = searchText.trim().length;
+    hasSearch = true;
+    const trimmedSearch = searchText.trim();
+    const searchLength = trimmedSearch.length;
+    
     if (searchLength <= 2) {
-      // Very short queries: use prefix matching on style_code and style_name (faster for short strings)
-    conditions.push(`(
-        ${viewAlias}.style_code ILIKE $${paramIndex} OR
-        ${viewAlias}.style_name ILIKE $${paramIndex}
-      )`);
-      params.push(`${searchText}%`);
+      // Very short queries: exact/prefix matching on style_code only
+      searchCondition = `(
+        ${viewAlias}.style_code = UPPER($${paramIndex}) OR
+        ${viewAlias}.style_code ILIKE $${paramIndex + 1}
+      )`;
+      params.push(trimmedSearch);
+      params.push(`${trimmedSearch}%`);
+      paramIndex += 2;
+      
+      // Relevance: exact code match = highest priority
+      searchRelevanceSelect = `
+        CASE 
+          WHEN ${viewAlias}.style_code = UPPER($${paramIndex - 2}) THEN 100
+          WHEN ${viewAlias}.style_code ILIKE $${paramIndex - 1} THEN 50
+          ELSE 0
+        END as relevance_score`;
+      
+      searchRelevanceOrder = 'relevance_score DESC';
     } else {
-      // Longer queries: use full-text search (more accurate, uses GIN index)
-      conditions.push(`${viewAlias}.search_vector @@ plainto_tsquery('english', $${paramIndex})`);
-      params.push(searchText);
+      // Natural language search: split into terms and search across multiple fields
+      const searchTerms = trimmedSearch.split(/\s+/).filter(t => t.length > 0);
+      const normalizedSearch = searchTerms.join(' ');
+      
+      // Normalize terms for array matching
+      const normalizeTerm = (term, type) => {
+        const lower = term.toLowerCase();
+        switch(type) {
+          case 'neckline':
+            if (lower.includes('crew')) return 'crew-neck';
+            if (lower.includes('vneck') || lower.includes('v-neck')) return 'v-neck';
+            if (lower.includes('round')) return 'round-neck';
+            return lower.replace(/[^a-z0-9]/g, '-');
+          case 'sleeve':
+            if (lower.includes('long')) return 'long-sleeve';
+            if (lower.includes('short')) return 'short-sleeve';
+            if (lower.includes('3/4') || lower.includes('three-quarter')) return 'three-quarter-sleeve';
+            if (lower.includes('sleeve')) return lower.replace(/\s*sleeves?\s*/i, '-sleeve');
+            return lower.replace(/[^a-z0-9]/g, '-');
+          case 'fabric':
+          case 'color':
+          case 'style':
+          default:
+            return lower.replace(/[^a-z0-9]/g, '-');
+        }
+      };
+      
+      const colorTerms = searchTerms.map(t => normalizeTerm(t, 'color'));
+      const fabricTerms = searchTerms.map(t => normalizeTerm(t, 'fabric'));
+      const necklineTerms = searchTerms.map(t => normalizeTerm(t, 'neckline'));
+      const sleeveTerms = searchTerms.map(t => normalizeTerm(t, 'sleeve'));
+      const styleTerms = searchTerms.map(t => normalizeTerm(t, 'style'));
+      
+      // Build comprehensive search condition (OR logic - any match)
+      const searchParts = [];
+      
+      // 1. Full-text search on search_vector (most flexible, uses GIN index)
+      searchParts.push(`${viewAlias}.search_vector @@ plainto_tsquery('english', $${paramIndex})`);
+      params.push(normalizedSearch);
+      paramIndex++;
+      
+      // 2. Style code exact/partial match (high priority)
+      searchParts.push(`${viewAlias}.style_code ILIKE $${paramIndex}`);
+      params.push(`%${normalizedSearch.toUpperCase()}%`);
+      paramIndex++;
+      
+      // 3. Style name contains
+      searchParts.push(`${viewAlias}.style_name ILIKE $${paramIndex}`);
+      params.push(`%${normalizedSearch}%`);
+      paramIndex++;
+      
+      // 4. Color match (check both array and text)
+      const colorSearchParam = paramIndex;
+      const colorTextParam = paramIndex + 1;
+      searchParts.push(`(
+        (${viewAlias}.colour_slugs IS NOT NULL AND ${viewAlias}.colour_slugs && $${colorSearchParam}::text[]) OR
+        (${viewAlias}.primary_colour IS NOT NULL AND LOWER(${viewAlias}.primary_colour) LIKE $${colorTextParam})
+      )`);
+      params.push(colorTerms);
+      params.push(`%${normalizedSearch.toLowerCase()}%`);
+      paramIndex += 2;
+      
+      // 5. Fabric match (array only - may be empty, but check anyway)
+      const fabricParam = paramIndex;
+      searchParts.push(`(
+        ${viewAlias}.fabric_slugs IS NOT NULL AND 
+        ${viewAlias}.fabric_slugs && $${fabricParam}::text[]
+      )`);
+      params.push(fabricTerms);
+      paramIndex++;
+      
+      // 6. Neckline match (array only)
+      const necklineParam = paramIndex;
+      searchParts.push(`(
+        ${viewAlias}.neckline_slugs IS NOT NULL AND 
+        ${viewAlias}.neckline_slugs && $${necklineParam}::text[]
+      )`);
+      params.push(necklineTerms);
+      paramIndex++;
+      
+      // 7. Sleeve match (array only)
+      const sleeveParam = paramIndex;
+      searchParts.push(`(
+        ${viewAlias}.sleeve_slugs IS NOT NULL AND 
+        ${viewAlias}.sleeve_slugs && $${sleeveParam}::text[]
+      )`);
+      params.push(sleeveTerms);
+      paramIndex++;
+      
+      // 8. Style keyword match (array - has data like {hooded})
+      const styleParam = paramIndex;
+      searchParts.push(`(
+        ${viewAlias}.style_keyword_slugs IS NOT NULL AND 
+        ${viewAlias}.style_keyword_slugs && $${styleParam}::text[]
+      )`);
+      params.push(styleTerms);
+      paramIndex++;
+      
+      // Combine all search conditions with OR
+      searchCondition = `(${searchParts.join(' OR ')})`;
+      
+      // Build relevance scoring
+      // Store parameter indices for relevance calculation
+      const exactCodeParam = paramIndex;
+      params.push(normalizedSearch.toUpperCase());
+      paramIndex++;
+      
+      const prefixCodeParam = paramIndex;
+      params.push(`${normalizedSearch.toUpperCase()}%`);
+      paramIndex++;
+      
+      const fullTextParam = paramIndex;
+      params.push(normalizedSearch);
+      paramIndex++;
+      
+      const nameParam = paramIndex;
+      params.push(`%${normalizedSearch}%`);
+      paramIndex++;
+      
+      searchRelevanceSelect = `
+        (
+          -- Exact style code match (highest priority: 100 points)
+          CASE WHEN ${viewAlias}.style_code = UPPER($${exactCodeParam}) THEN 100 ELSE 0 END +
+          -- Prefix style code match (80 points)
+          CASE WHEN ${viewAlias}.style_code ILIKE $${prefixCodeParam} THEN 80 ELSE 0 END +
+          -- Full-text search relevance (0-60 points, scaled)
+          CASE WHEN ${viewAlias}.search_vector @@ plainto_tsquery('english', $${fullTextParam}) 
+            THEN LEAST(ts_rank(${viewAlias}.search_vector, plainto_tsquery('english', $${fullTextParam})) * 60, 60)
+            ELSE 0 END +
+          -- Style name contains all terms (40 points)
+          CASE WHEN ${viewAlias}.style_name ILIKE $${nameParam} THEN 40 ELSE 0 END +
+          -- Color match - array (30 points)
+          CASE WHEN (
+            ${viewAlias}.colour_slugs IS NOT NULL AND 
+            ${viewAlias}.colour_slugs && $${colorSearchParam}::text[]
+          ) THEN 30 ELSE 0 END +
+          -- Color match - text (25 points)
+          CASE WHEN (
+            ${viewAlias}.primary_colour IS NOT NULL AND 
+            LOWER(${viewAlias}.primary_colour) LIKE $${colorTextParam}
+          ) THEN 25 ELSE 0 END +
+          -- Fabric match (25 points)
+          CASE WHEN (
+            ${viewAlias}.fabric_slugs IS NOT NULL AND 
+            ${viewAlias}.fabric_slugs && $${fabricParam}::text[]
+          ) THEN 25 ELSE 0 END +
+          -- Neckline match (20 points)
+          CASE WHEN (
+            ${viewAlias}.neckline_slugs IS NOT NULL AND 
+            ${viewAlias}.neckline_slugs && $${necklineParam}::text[]
+          ) THEN 20 ELSE 0 END +
+          -- Sleeve match (20 points)
+          CASE WHEN (
+            ${viewAlias}.sleeve_slugs IS NOT NULL AND 
+            ${viewAlias}.sleeve_slugs && $${sleeveParam}::text[]
+          ) THEN 20 ELSE 0 END +
+          -- Style keyword match (15 points)
+          CASE WHEN (
+            ${viewAlias}.style_keyword_slugs IS NOT NULL AND 
+            ${viewAlias}.style_keyword_slugs && $${styleParam}::text[]
+          ) THEN 15 ELSE 0 END
+        ) as relevance_score`;
+      
+      searchRelevanceOrder = 'relevance_score DESC';
     }
-    paramIndex++;
+    
+    conditions.push(searchCondition);
   }
 
   // Price range filter (indexed)
@@ -334,6 +518,7 @@ async function buildProductListQuery(filters, page, limit) {
   const optimizedQuery = `
     WITH style_codes_filtered AS (
       SELECT DISTINCT ${viewAlias}.style_code
+      ${hasSearch && searchRelevanceSelect ? `, ${searchRelevanceSelect}` : ''}
       FROM product_search_materialized ${viewAlias}
       ${productTypeJoin}
       ${whereClause}
@@ -345,6 +530,7 @@ async function buildProductListQuery(filters, page, limit) {
         MIN(${viewAlias}.single_price) as single_price,
         MIN(${viewAlias}.created_at) as created_at,
         MIN(COALESCE(pt.display_order, 999)) as product_type_priority
+        ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
       FROM style_codes_filtered scf
       INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
       LEFT JOIN styles s ON ${viewAlias}.style_code = s.style_code
@@ -356,6 +542,7 @@ async function buildProductListQuery(filters, page, limit) {
         SELECT style_code
       FROM style_codes_with_meta
         ORDER BY 
+          ${hasSearch && searchRelevanceOrder ? `${searchRelevanceOrder}, ` : ''}
           product_type_priority ASC,
           ${sort === 'price' ? 'single_price' : sort === 'name' ? 'style_name' : 'created_at'} ${order}
       LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
@@ -401,6 +588,7 @@ async function buildProductListQuery(filters, page, limit) {
       const simplifiedQuery = `
         WITH style_codes_filtered AS (
           SELECT DISTINCT ${viewAlias}.style_code
+          ${hasSearch && searchRelevanceSelect ? `, ${searchRelevanceSelect}` : ''}
           FROM product_search_materialized ${viewAlias}
           ${productTypeJoin}
           ${whereClause}
@@ -412,6 +600,7 @@ async function buildProductListQuery(filters, page, limit) {
             MIN(${viewAlias}.single_price) as single_price,
             MIN(${viewAlias}.created_at) as created_at,
             MIN(COALESCE(pt.display_order, 999)) as product_type_priority
+            ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
           FROM style_codes_filtered scf
           INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
           LEFT JOIN styles s ON ${viewAlias}.style_code = s.style_code
@@ -423,6 +612,7 @@ async function buildProductListQuery(filters, page, limit) {
       SELECT style_code
           FROM style_codes_with_meta
       ORDER BY 
+        ${hasSearch && searchRelevanceOrder ? `${searchRelevanceOrder}, ` : ''}
         product_type_priority ASC,
         ${sort === 'price' ? 'single_price' : sort === 'name' ? 'style_name' : 'created_at'} ${order}
       LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
