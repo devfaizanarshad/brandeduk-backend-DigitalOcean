@@ -163,6 +163,63 @@ router.get('/', async (req, res) => {
 });
 
 /**
+ * GET /api/products/filters
+ * Get filter aggregations (counts) for current filters
+ * This endpoint allows frontend to load filters separately from products for instant loading
+ */
+router.get('/filters', async (req, res) => {
+  try {
+    const {
+      q,
+      text,
+      priceMin,
+      priceMax,
+      gender,
+      ageGroup,
+      sleeve,
+      neckline,
+      fabric,
+      size,
+      tag,
+      productType,
+      productTypes
+    } = req.query;
+
+    const parseArray = (val) => {
+      if (!val) return [];
+      if (Array.isArray(val)) return val;
+      if (typeof val === 'object') return Object.values(val);
+      return [val];
+    };
+
+    const filters = {
+      q: q || text || null,
+      priceMin: priceMin ? parseFloat(priceMin) : null,
+      priceMax: priceMax ? parseFloat(priceMax) : null,
+      gender: parseArray(gender),
+      ageGroup: parseArray(ageGroup),
+      sleeve: parseArray(sleeve),
+      neckline: parseArray(neckline),
+      fabric: parseArray(fabric),
+      size: parseArray(size),
+      tag: parseArray(tag),
+      productType: parseArray(productType || productTypes)
+    };
+
+    const { buildFilterAggregations } = require('../services/productService');
+    const aggregations = await buildFilterAggregations(filters);
+
+    res.json({ filters: aggregations });
+  } catch (error) {
+    console.error('[ERROR] Failed to fetch filter aggregations:', error.message);
+    res.status(500).json({ 
+      error: 'Internal server error', 
+      message: error.message 
+    });
+  }
+});
+
+/**
  * GET /api/products/types
  * Get all product types with product counts
  * Useful for displaying product type filters in the frontend
