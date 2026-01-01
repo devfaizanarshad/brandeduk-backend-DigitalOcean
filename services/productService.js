@@ -285,392 +285,196 @@ async function buildFilterAggregations(filters, viewAlias = 'psm') {
     return { whereClause, productTypeJoin, params };
   };
   
+  // Initialize all 8 required filter types (always return all, even if empty)
+  aggregations.gender = {};
+  aggregations.ageGroup = {};
+  aggregations.sleeve = {};
+  aggregations.neckline = {};
+  aggregations.fabric = {};
+  aggregations.size = {};
+  aggregations.feature = {};
+  aggregations.tag = {};
+  
   try {
-    // Gender aggregations
-    const genderBase = buildBaseConditions('gender');
-    const genderWhereClause = genderBase.whereClause 
-      ? `${genderBase.whereClause} AND ${viewAlias}.gender_slug IS NOT NULL`
-      : `WHERE ${viewAlias}.gender_slug IS NOT NULL`;
-    const genderQuery = `
-      SELECT 
-        ${viewAlias}.gender_slug as value,
-        COUNT(DISTINCT ${viewAlias}.style_code) as count
-      FROM product_search_materialized ${viewAlias}
-      ${genderBase.productTypeJoin}
-      ${genderWhereClause}
-      GROUP BY ${viewAlias}.gender_slug
-      ORDER BY count DESC
-    `;
-    const genderResult = await queryWithTimeout(genderQuery, genderBase.params, 15000);
-    aggregations.gender = {};
-    genderResult.rows.forEach(row => {
-      aggregations.gender[row.value] = parseInt(row.count);
-    });
-    
-    // Age group aggregations
-    const ageGroupBase = buildBaseConditions('ageGroup');
-    const ageGroupWhereClause = ageGroupBase.whereClause 
-      ? `${ageGroupBase.whereClause} AND ${viewAlias}.age_group_slug IS NOT NULL`
-      : `WHERE ${viewAlias}.age_group_slug IS NOT NULL`;
-    const ageGroupQuery = `
-      SELECT 
-        ${viewAlias}.age_group_slug as value,
-        COUNT(DISTINCT ${viewAlias}.style_code) as count
-      FROM product_search_materialized ${viewAlias}
-      ${ageGroupBase.productTypeJoin}
-      ${ageGroupWhereClause}
-      GROUP BY ${viewAlias}.age_group_slug
-      ORDER BY count DESC
-    `;
-    const ageGroupResult = await queryWithTimeout(ageGroupQuery, ageGroupBase.params, 15000);
-    aggregations.ageGroup = {};
-    ageGroupResult.rows.forEach(row => {
-      aggregations.ageGroup[row.value] = parseInt(row.count);
-    });
-    
-    // Sleeve aggregations (from array)
-    const sleeveBase = buildBaseConditions('sleeve');
-    const sleeveWhereClause = sleeveBase.whereClause 
-      ? `${sleeveBase.whereClause} AND ${viewAlias}.sleeve_slugs IS NOT NULL AND array_length(${viewAlias}.sleeve_slugs, 1) > 0`
-      : `WHERE ${viewAlias}.sleeve_slugs IS NOT NULL AND array_length(${viewAlias}.sleeve_slugs, 1) > 0`;
-    const sleeveQuery = `
-      SELECT 
-        sleeve_value as value,
-        COUNT(DISTINCT style_code) as count
-      FROM (
+    // 1. Gender aggregations
+    try {
+      const genderBase = buildBaseConditions('gender');
+      const genderWhereClause = `${genderBase.whereClause} AND ${viewAlias}.gender_slug IS NOT NULL`;
+      const genderQuery = `
         SELECT 
-          ${viewAlias}.style_code,
-          unnest(${viewAlias}.sleeve_slugs) as sleeve_value
+          ${viewAlias}.gender_slug as value,
+          COUNT(DISTINCT ${viewAlias}.style_code) as count
         FROM product_search_materialized ${viewAlias}
-        ${sleeveBase.productTypeJoin}
-        ${sleeveWhereClause}
-      ) subq
-      GROUP BY sleeve_value
-      ORDER BY count DESC
-    `;
-    const sleeveResult = await queryWithTimeout(sleeveQuery, sleeveBase.params, 15000);
-    aggregations.sleeve = {};
-    sleeveResult.rows.forEach(row => {
-      aggregations.sleeve[row.value] = parseInt(row.count);
-    });
+        ${genderBase.productTypeJoin}
+        ${genderWhereClause}
+        GROUP BY ${viewAlias}.gender_slug
+        ORDER BY count DESC
+      `;
+      const genderResult = await queryWithTimeout(genderQuery, genderBase.params, 15000);
+      genderResult.rows.forEach(row => {
+        aggregations.gender[row.value] = parseInt(row.count);
+      });
+    } catch (err) {
+      console.error('[ERROR] Gender aggregation failed:', err.message);
+    }
     
-    // Neckline aggregations (from array)
-    const necklineBase = buildBaseConditions('neckline');
-    const necklineWhereClause = necklineBase.whereClause 
-      ? `${necklineBase.whereClause} AND ${viewAlias}.neckline_slugs IS NOT NULL AND array_length(${viewAlias}.neckline_slugs, 1) > 0`
-      : `WHERE ${viewAlias}.neckline_slugs IS NOT NULL AND array_length(${viewAlias}.neckline_slugs, 1) > 0`;
-    const necklineQuery = `
-      SELECT 
-        neckline_value as value,
-        COUNT(DISTINCT style_code) as count
-      FROM (
+    // 2. Age Group aggregations
+    try {
+      const ageGroupBase = buildBaseConditions('ageGroup');
+      const ageGroupWhereClause = `${ageGroupBase.whereClause} AND ${viewAlias}.age_group_slug IS NOT NULL`;
+      const ageGroupQuery = `
         SELECT 
-          ${viewAlias}.style_code,
-          unnest(${viewAlias}.neckline_slugs) as neckline_value
+          ${viewAlias}.age_group_slug as value,
+          COUNT(DISTINCT ${viewAlias}.style_code) as count
         FROM product_search_materialized ${viewAlias}
-        ${necklineBase.productTypeJoin}
-        ${necklineWhereClause}
-      ) subq
-      GROUP BY neckline_value
-      ORDER BY count DESC
-    `;
-    const necklineResult = await queryWithTimeout(necklineQuery, necklineBase.params, 15000);
-    aggregations.neckline = {};
-    necklineResult.rows.forEach(row => {
-      aggregations.neckline[row.value] = parseInt(row.count);
-    });
+        ${ageGroupBase.productTypeJoin}
+        ${ageGroupWhereClause}
+        GROUP BY ${viewAlias}.age_group_slug
+        ORDER BY count DESC
+      `;
+      const ageGroupResult = await queryWithTimeout(ageGroupQuery, ageGroupBase.params, 15000);
+      ageGroupResult.rows.forEach(row => {
+        aggregations.ageGroup[row.value] = parseInt(row.count);
+      });
+    } catch (err) {
+      console.error('[ERROR] Age Group aggregation failed:', err.message);
+    }
     
-    // Fabric aggregations (from array)
-    const fabricBase = buildBaseConditions('fabric');
-    const fabricWhereClause = fabricBase.whereClause 
-      ? `${fabricBase.whereClause} AND ${viewAlias}.fabric_slugs IS NOT NULL AND array_length(${viewAlias}.fabric_slugs, 1) > 0`
-      : `WHERE ${viewAlias}.fabric_slugs IS NOT NULL AND array_length(${viewAlias}.fabric_slugs, 1) > 0`;
-    const fabricQuery = `
-      SELECT 
-        fabric_value as value,
-        COUNT(DISTINCT style_code) as count
-      FROM (
+    // 3. Sleeve aggregations (from array)
+    try {
+      const sleeveBase = buildBaseConditions('sleeve');
+      const sleeveWhereClause = `${sleeveBase.whereClause} AND ${viewAlias}.sleeve_slugs IS NOT NULL AND array_length(${viewAlias}.sleeve_slugs, 1) > 0`;
+      const sleeveQuery = `
         SELECT 
-          ${viewAlias}.style_code,
-          unnest(${viewAlias}.fabric_slugs) as fabric_value
-        FROM product_search_materialized ${viewAlias}
-        ${fabricBase.productTypeJoin}
-        ${fabricWhereClause}
-      ) subq
-      GROUP BY fabric_value
-      ORDER BY count DESC
-    `;
-    const fabricResult = await queryWithTimeout(fabricQuery, fabricBase.params, 15000);
-    aggregations.fabric = {};
-    fabricResult.rows.forEach(row => {
-      aggregations.fabric[row.value] = parseInt(row.count);
-    });
+          sleeve_value as value,
+          COUNT(DISTINCT style_code) as count
+        FROM (
+          SELECT 
+            ${viewAlias}.style_code,
+            unnest(${viewAlias}.sleeve_slugs) as sleeve_value
+          FROM product_search_materialized ${viewAlias}
+          ${sleeveBase.productTypeJoin}
+          ${sleeveWhereClause}
+        ) subq
+        GROUP BY sleeve_value
+        ORDER BY count DESC
+      `;
+      const sleeveResult = await queryWithTimeout(sleeveQuery, sleeveBase.params, 15000);
+      sleeveResult.rows.forEach(row => {
+        aggregations.sleeve[row.value] = parseInt(row.count);
+      });
+    } catch (err) {
+      console.error('[ERROR] Sleeve aggregation failed:', err.message);
+    }
     
-    // Size aggregations (from array)
-    const sizeBase = buildBaseConditions('size');
-    const sizeWhereClause = sizeBase.whereClause 
-      ? `${sizeBase.whereClause} AND ${viewAlias}.size_slugs IS NOT NULL AND array_length(${viewAlias}.size_slugs, 1) > 0`
-      : `WHERE ${viewAlias}.size_slugs IS NOT NULL AND array_length(${viewAlias}.size_slugs, 1) > 0`;
-    const sizeQuery = `
-      SELECT 
-        size_value as value,
-        COUNT(DISTINCT style_code) as count
-      FROM (
+    // 4. Neckline aggregations (from array)
+    try {
+      const necklineBase = buildBaseConditions('neckline');
+      const necklineWhereClause = `${necklineBase.whereClause} AND ${viewAlias}.neckline_slugs IS NOT NULL AND array_length(${viewAlias}.neckline_slugs, 1) > 0`;
+      const necklineQuery = `
         SELECT 
-          ${viewAlias}.style_code,
-          unnest(${viewAlias}.size_slugs) as size_value
-        FROM product_search_materialized ${viewAlias}
-        ${sizeBase.productTypeJoin}
-        ${sizeWhereClause}
-      ) subq
-      GROUP BY size_value
-      ORDER BY count DESC
-    `;
-    const sizeResult = await queryWithTimeout(sizeQuery, sizeBase.params, 15000);
-    aggregations.size = {};
-    sizeResult.rows.forEach(row => {
-      aggregations.size[row.value] = parseInt(row.count);
-    });
+          neckline_value as value,
+          COUNT(DISTINCT style_code) as count
+        FROM (
+          SELECT 
+            ${viewAlias}.style_code,
+            unnest(${viewAlias}.neckline_slugs) as neckline_value
+          FROM product_search_materialized ${viewAlias}
+          ${necklineBase.productTypeJoin}
+          ${necklineWhereClause}
+        ) subq
+        GROUP BY neckline_value
+        ORDER BY count DESC
+      `;
+      const necklineResult = await queryWithTimeout(necklineQuery, necklineBase.params, 15000);
+      necklineResult.rows.forEach(row => {
+        aggregations.neckline[row.value] = parseInt(row.count);
+      });
+    } catch (err) {
+      console.error('[ERROR] Neckline aggregation failed:', err.message);
+    }
     
-    // Primary colour aggregations
-    const primaryColourBase = buildBaseConditions('primaryColour');
-    const primaryColourWhereClause = primaryColourBase.whereClause 
-      ? `${primaryColourBase.whereClause} AND ${viewAlias}.primary_colour IS NOT NULL`
-      : `WHERE ${viewAlias}.primary_colour IS NOT NULL`;
-    const primaryColourQuery = `
-      SELECT 
-        LOWER(${viewAlias}.primary_colour) as value,
-        COUNT(DISTINCT ${viewAlias}.style_code) as count
-      FROM product_search_materialized ${viewAlias}
-      ${primaryColourBase.productTypeJoin}
-      ${primaryColourWhereClause}
-      GROUP BY LOWER(${viewAlias}.primary_colour)
-      ORDER BY count DESC
-    `;
-    const primaryColourResult = await queryWithTimeout(primaryColourQuery, primaryColourBase.params, 15000);
-    aggregations.primaryColour = {};
-    primaryColourResult.rows.forEach(row => {
-      aggregations.primaryColour[row.value] = parseInt(row.count);
-    });
-    
-    // Tag aggregations
-    const tagBase = buildBaseConditions('tag');
-    const tagWhereClause = tagBase.whereClause 
-      ? `${tagBase.whereClause} AND ${viewAlias}.tag_slug IS NOT NULL`
-      : `WHERE ${viewAlias}.tag_slug IS NOT NULL`;
-    const tagQuery = `
-      SELECT 
-        LOWER(${viewAlias}.tag_slug) as value,
-        COUNT(DISTINCT ${viewAlias}.style_code) as count
-      FROM product_search_materialized ${viewAlias}
-      ${tagBase.productTypeJoin}
-      ${tagWhereClause}
-      GROUP BY LOWER(${viewAlias}.tag_slug)
-      ORDER BY count DESC
-    `;
-    const tagResult = await queryWithTimeout(tagQuery, tagBase.params, 15000);
-    aggregations.tag = {};
-    tagResult.rows.forEach(row => {
-      aggregations.tag[row.value] = parseInt(row.count);
-    });
-    
-    // Effect aggregations (from array)
-    const effectBase = buildBaseConditions('effect');
-    const effectWhereClause = effectBase.whereClause 
-      ? `${effectBase.whereClause} AND ${viewAlias}.effects_arr IS NOT NULL AND array_length(${viewAlias}.effects_arr, 1) > 0`
-      : `WHERE ${viewAlias}.effects_arr IS NOT NULL AND array_length(${viewAlias}.effects_arr, 1) > 0`;
-    const effectQuery = `
-      SELECT 
-        effect_value as value,
-        COUNT(DISTINCT style_code) as count
-      FROM (
+    // 5. Fabric aggregations (from array)
+    try {
+      const fabricBase = buildBaseConditions('fabric');
+      const fabricWhereClause = `${fabricBase.whereClause} AND ${viewAlias}.fabric_slugs IS NOT NULL AND array_length(${viewAlias}.fabric_slugs, 1) > 0`;
+      const fabricQuery = `
         SELECT 
-          ${viewAlias}.style_code,
-          unnest(${viewAlias}.effects_arr) as effect_value
-        FROM product_search_materialized ${viewAlias}
-        ${effectBase.productTypeJoin}
-        ${effectWhereClause}
-      ) subq
-      GROUP BY effect_value
-      ORDER BY count DESC
-    `;
-    const effectResult = await queryWithTimeout(effectQuery, effectBase.params, 15000);
-    aggregations.effect = {};
-    effectResult.rows.forEach(row => {
-      aggregations.effect[row.value] = parseInt(row.count);
-    });
+          fabric_value as value,
+          COUNT(DISTINCT style_code) as count
+        FROM (
+          SELECT 
+            ${viewAlias}.style_code,
+            unnest(${viewAlias}.fabric_slugs) as fabric_value
+          FROM product_search_materialized ${viewAlias}
+          ${fabricBase.productTypeJoin}
+          ${fabricWhereClause}
+        ) subq
+        GROUP BY fabric_value
+        ORDER BY count DESC
+      `;
+      const fabricResult = await queryWithTimeout(fabricQuery, fabricBase.params, 15000);
+      fabricResult.rows.forEach(row => {
+        aggregations.fabric[row.value] = parseInt(row.count);
+      });
+    } catch (err) {
+      console.error('[ERROR] Fabric aggregation failed:', err.message);
+    }
     
-    // Accreditations aggregations (from array)
-    const accreditationsBase = buildBaseConditions('accreditations');
-    const accreditationsWhereClause = accreditationsBase.whereClause 
-      ? `${accreditationsBase.whereClause} AND ${viewAlias}.accreditation_slugs IS NOT NULL AND array_length(${viewAlias}.accreditation_slugs, 1) > 0`
-      : `WHERE ${viewAlias}.accreditation_slugs IS NOT NULL AND array_length(${viewAlias}.accreditation_slugs, 1) > 0`;
-    const accreditationsQuery = `
-      SELECT 
-        accreditation_value as value,
-        COUNT(DISTINCT style_code) as count
-      FROM (
+    // 6. Size aggregations (from array) - OPTIMIZED with increased timeout
+    try {
+      const sizeBase = buildBaseConditions('size');
+      const sizeWhereClause = `${sizeBase.whereClause} AND ${viewAlias}.size_slugs IS NOT NULL AND array_length(${viewAlias}.size_slugs, 1) > 0`;
+      // Optimized: Filter first, then unnest to reduce data processed
+      const sizeQuery = `
         SELECT 
-          ${viewAlias}.style_code,
-          unnest(${viewAlias}.accreditation_slugs) as accreditation_value
-        FROM product_search_materialized ${viewAlias}
-        ${accreditationsBase.productTypeJoin}
-        ${accreditationsWhereClause}
-      ) subq
-      GROUP BY accreditation_value
-      ORDER BY count DESC
-    `;
-    const accreditationsResult = await queryWithTimeout(accreditationsQuery, accreditationsBase.params, 15000);
-    aggregations.accreditations = {};
-    accreditationsResult.rows.forEach(row => {
-      aggregations.accreditations[row.value] = parseInt(row.count);
-    });
+          size_value as value,
+          COUNT(DISTINCT style_code) as count
+        FROM (
+          SELECT DISTINCT
+            ${viewAlias}.style_code,
+            unnest(${viewAlias}.size_slugs) as size_value
+          FROM product_search_materialized ${viewAlias}
+          ${sizeBase.productTypeJoin}
+          ${sizeWhereClause}
+        ) subq
+        GROUP BY size_value
+        ORDER BY count DESC
+        LIMIT 50
+      `;
+      const sizeResult = await queryWithTimeout(sizeQuery, sizeBase.params, 20000);
+      sizeResult.rows.forEach(row => {
+        aggregations.size[row.value] = parseInt(row.count);
+      });
+    } catch (err) {
+      console.error('[ERROR] Size aggregation failed:', err.message);
+    }
     
-    // Colour Shade aggregations
-    const colourShadeBase = buildBaseConditions('colourShade');
-    const colourShadeWhereClause = colourShadeBase.whereClause 
-      ? `${colourShadeBase.whereClause} AND ${viewAlias}.colour_shade IS NOT NULL`
-      : `WHERE ${viewAlias}.colour_shade IS NOT NULL`;
-    const colourShadeQuery = `
-      SELECT 
-        LOWER(${viewAlias}.colour_shade) as value,
-        COUNT(DISTINCT ${viewAlias}.style_code) as count
-      FROM product_search_materialized ${viewAlias}
-      ${colourShadeBase.productTypeJoin}
-      ${colourShadeWhereClause}
-      GROUP BY LOWER(${viewAlias}.colour_shade)
-      ORDER BY count DESC
-    `;
-    const colourShadeResult = await queryWithTimeout(colourShadeQuery, colourShadeBase.params, 15000);
-    aggregations.colourShade = {};
-    colourShadeResult.rows.forEach(row => {
-      aggregations.colourShade[row.value] = parseInt(row.count);
-    });
+    // 7. Feature aggregations - SKIPPED: feature column doesn't exist in product_search_materialized
+    // Features are not available in the materialized view, return empty object
+    // TODO: Add feature_slugs array to materialized view if needed
     
-    // Weight aggregations (from array)
-    const weightBase = buildBaseConditions('weight');
-    const weightWhereClause = weightBase.whereClause 
-      ? `${weightBase.whereClause} AND ${viewAlias}.weight_slugs IS NOT NULL AND array_length(${viewAlias}.weight_slugs, 1) > 0`
-      : `WHERE ${viewAlias}.weight_slugs IS NOT NULL AND array_length(${viewAlias}.weight_slugs, 1) > 0`;
-    const weightQuery = `
-      SELECT 
-        weight_value as value,
-        COUNT(DISTINCT style_code) as count
-      FROM (
+    // 8. Tag aggregations
+    try {
+      const tagBase = buildBaseConditions('tag');
+      const tagWhereClause = `${tagBase.whereClause} AND ${viewAlias}.tag_slug IS NOT NULL`;
+      const tagQuery = `
         SELECT 
-          ${viewAlias}.style_code,
-          unnest(${viewAlias}.weight_slugs) as weight_value
+          LOWER(${viewAlias}.tag_slug) as value,
+          COUNT(DISTINCT ${viewAlias}.style_code) as count
         FROM product_search_materialized ${viewAlias}
-        ${weightBase.productTypeJoin}
-        ${weightWhereClause}
-      ) subq
-      GROUP BY weight_value
-      ORDER BY count DESC
-    `;
-    const weightResult = await queryWithTimeout(weightQuery, weightBase.params, 15000);
-    aggregations.weight = {};
-    weightResult.rows.forEach(row => {
-      aggregations.weight[row.value] = parseInt(row.count);
-    });
-    
-    // Fit aggregations
-    const fitBase = buildBaseConditions('fit');
-    const fitWhereClause = fitBase.whereClause 
-      ? `${fitBase.whereClause} AND ${viewAlias}.fit_slug IS NOT NULL`
-      : `WHERE ${viewAlias}.fit_slug IS NOT NULL`;
-    const fitQuery = `
-      SELECT 
-        LOWER(${viewAlias}.fit_slug) as value,
-        COUNT(DISTINCT ${viewAlias}.style_code) as count
-      FROM product_search_materialized ${viewAlias}
-      ${fitBase.productTypeJoin}
-      ${fitWhereClause}
-      GROUP BY LOWER(${viewAlias}.fit_slug)
-      ORDER BY count DESC
-    `;
-    const fitResult = await queryWithTimeout(fitQuery, fitBase.params, 15000);
-    aggregations.fit = {};
-    fitResult.rows.forEach(row => {
-      aggregations.fit[row.value] = parseInt(row.count);
-    });
-    
-    // Sector aggregations (from array)
-    const sectorBase = buildBaseConditions('sector');
-    const sectorWhereClause = sectorBase.whereClause 
-      ? `${sectorBase.whereClause} AND ${viewAlias}.sector_slugs IS NOT NULL AND array_length(${viewAlias}.sector_slugs, 1) > 0`
-      : `WHERE ${viewAlias}.sector_slugs IS NOT NULL AND array_length(${viewAlias}.sector_slugs, 1) > 0`;
-    const sectorQuery = `
-      SELECT 
-        sector_value as value,
-        COUNT(DISTINCT style_code) as count
-      FROM (
-        SELECT 
-          ${viewAlias}.style_code,
-          unnest(${viewAlias}.sector_slugs) as sector_value
-        FROM product_search_materialized ${viewAlias}
-        ${sectorBase.productTypeJoin}
-        ${sectorWhereClause}
-      ) subq
-      GROUP BY sector_value
-      ORDER BY count DESC
-    `;
-    const sectorResult = await queryWithTimeout(sectorQuery, sectorBase.params, 15000);
-    aggregations.sector = {};
-    sectorResult.rows.forEach(row => {
-      aggregations.sector[row.value] = parseInt(row.count);
-    });
-    
-    // Sport aggregations (from array)
-    const sportBase = buildBaseConditions('sport');
-    const sportWhereClause = sportBase.whereClause 
-      ? `${sportBase.whereClause} AND ${viewAlias}.sport_slugs IS NOT NULL AND array_length(${viewAlias}.sport_slugs, 1) > 0`
-      : `WHERE ${viewAlias}.sport_slugs IS NOT NULL AND array_length(${viewAlias}.sport_slugs, 1) > 0`;
-    const sportQuery = `
-      SELECT 
-        sport_value as value,
-        COUNT(DISTINCT style_code) as count
-      FROM (
-        SELECT 
-          ${viewAlias}.style_code,
-          unnest(${viewAlias}.sport_slugs) as sport_value
-        FROM product_search_materialized ${viewAlias}
-        ${sportBase.productTypeJoin}
-        ${sportWhereClause}
-      ) subq
-      GROUP BY sport_value
-      ORDER BY count DESC
-    `;
-    const sportResult = await queryWithTimeout(sportQuery, sportBase.params, 15000);
-    aggregations.sport = {};
-    sportResult.rows.forEach(row => {
-      aggregations.sport[row.value] = parseInt(row.count);
-    });
-    
-    // Style aggregations (from array - style_keyword_slugs)
-    const styleBase = buildBaseConditions('style');
-    const styleWhereClause = styleBase.whereClause 
-      ? `${styleBase.whereClause} AND ${viewAlias}.style_keyword_slugs IS NOT NULL AND array_length(${viewAlias}.style_keyword_slugs, 1) > 0`
-      : `WHERE ${viewAlias}.style_keyword_slugs IS NOT NULL AND array_length(${viewAlias}.style_keyword_slugs, 1) > 0`;
-    const styleQuery = `
-      SELECT 
-        style_value as value,
-        COUNT(DISTINCT style_code) as count
-      FROM (
-        SELECT 
-          ${viewAlias}.style_code,
-          unnest(${viewAlias}.style_keyword_slugs) as style_value
-        FROM product_search_materialized ${viewAlias}
-        ${styleBase.productTypeJoin}
-        ${styleWhereClause}
-      ) subq
-      GROUP BY style_value
-      ORDER BY count DESC
-    `;
-    const styleResult = await queryWithTimeout(styleQuery, styleBase.params, 15000);
-    aggregations.style = {};
-    styleResult.rows.forEach(row => {
-      aggregations.style[row.value] = parseInt(row.count);
-    });
+        ${tagBase.productTypeJoin}
+        ${tagWhereClause}
+        GROUP BY LOWER(${viewAlias}.tag_slug)
+        ORDER BY count DESC
+      `;
+      const tagResult = await queryWithTimeout(tagQuery, tagBase.params, 15000);
+      tagResult.rows.forEach(row => {
+        aggregations.tag[row.value] = parseInt(row.count);
+      });
+    } catch (err) {
+      console.error('[ERROR] Tag aggregation failed:', err.message);
+    }
     
     return aggregations;
   } catch (error) {
