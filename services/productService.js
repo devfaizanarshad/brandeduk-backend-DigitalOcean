@@ -1115,17 +1115,24 @@ async function buildProductListQuery(filters, page, limit) {
     const totalTime = Date.now() - startTime;
     console.log(`[QUERY] Total product list: ${totalTime}ms`);
 
-    // Build filter aggregations (run in parallel with main query for better performance)
-    const aggregationStartTime = Date.now();
-    const filterAggregations = await buildFilterAggregations(filters);
-    const aggregationTime = Date.now() - aggregationStartTime;
-    console.log(`[QUERY] Filter aggregations: ${aggregationTime}ms`);
+    // Build filter aggregations (run after main query)
+    let filterAggregations = {};
+    try {
+      const aggregationStartTime = Date.now();
+      filterAggregations = await buildFilterAggregations(filters);
+      const aggregationTime = Date.now() - aggregationStartTime;
+      console.log(`[QUERY] Filter aggregations: ${aggregationTime}ms`);
+    } catch (error) {
+      console.error('[ERROR] Failed to build filter aggregations:', error.message);
+      // Continue with empty filters object - don't break the main response
+      filterAggregations = {};
+    }
 
     const queryResponse = { 
       items, 
       total, 
       priceRange,
-      filters: filterAggregations
+      filters: filterAggregations || {} // Ensure filters is always present
     };
     
     if (totalTime < 5000) {
