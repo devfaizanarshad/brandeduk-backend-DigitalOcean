@@ -1175,41 +1175,54 @@ async function buildProductListQuery(filters, page, limit) {
     const totalTime = Date.now() - startTime;
     console.log(`[QUERY] Total product list: ${totalTime}ms`);
 
-    // OPTIMIZATION: Return products IMMEDIATELY, load aggregations in background (non-blocking)
-    // This makes the response instant - aggregations can load separately
-    const queryResponse = { 
-      items, 
-      total, 
-      priceRange,
-      filters: {} // Start with empty filters - will be populated in background
-    };
-    
-    // Cache the response immediately (don't wait for aggregations)
-    const cacheTTL = (filters.q || filters.text) ? SEARCH_CACHE_TTL : CACHE_TTL;
-    setCache(cacheKey, queryResponse, cacheTTL);
-    console.log(`[CACHE] Result cached (TTL: ${cacheTTL/1000}s)`);
-
-    // Load aggregations in background (non-blocking) - don't wait for them
-    // Frontend can make a separate request for filters if needed, or we can update cache later
+    // OPTIMIZATION: Load aggregations (they run in parallel, so should be fast)
+    // Check cache first, then load if needed
+    let filterAggregations = {};
     const aggregationCacheKey = getCacheKey(filters, 0, 0, 'aggregations');
     const cachedAggregations = getAggregationCache(aggregationCacheKey);
     
     if (cachedAggregations) {
       // Use cached aggregations immediately
-      queryResponse.filters = cachedAggregations;
+      filterAggregations = cachedAggregations;
       console.log('[CACHE] Using cached aggregations');
     } else {
-      // Start loading aggregations in background (don't await - return immediately)
-      buildFilterAggregations(filters, 'psm', null)
-        .then(filterAggregations => {
-          // Cache aggregations separately for future requests
-          setAggregationCache(aggregationCacheKey, filterAggregations, AGGREGATION_CACHE_TTL);
-          console.log('[CACHE] Aggregations cached for future requests');
-        })
-        .catch(error => {
-          console.error('[ERROR] Background aggregation failed:', error.message);
-        });
+      // Load aggregations (they run in parallel, so should complete quickly)
+      try {
+        const aggregationStartTime = Date.now();
+        filterAggregations = await buildFilterAggregations(filters, 'psm', null);
+        const aggregationTime = Date.now() - aggregationStartTime;
+        console.log(`[QUERY] Filter aggregations: ${aggregationTime}ms`);
+        
+        // Cache aggregations for future requests
+        setAggregationCache(aggregationCacheKey, filterAggregations, AGGREGATION_CACHE_TTL);
+        console.log('[CACHE] Aggregations cached for future requests');
+      } catch (error) {
+        console.error('[ERROR] Failed to build filter aggregations:', error.message);
+        // Return empty filters on error (don't break the main response)
+        filterAggregations = {
+          gender: {},
+          ageGroup: {},
+          sleeve: {},
+          neckline: {},
+          fabric: {},
+          size: {},
+          feature: {},
+          tag: {}
+        };
+      }
     }
+
+    const queryResponse = { 
+      items, 
+      total, 
+      priceRange,
+      filters: filterAggregations || {} // Ensure filters is always present
+    };
+    
+    // Cache the complete response
+    const cacheTTL = (filters.q || filters.text) ? SEARCH_CACHE_TTL : CACHE_TTL;
+    setCache(cacheKey, queryResponse, cacheTTL);
+    console.log(`[CACHE] Result cached (TTL: ${cacheTTL/1000}s)`);
 
     return queryResponse;
   } catch (error) {
