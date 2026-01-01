@@ -237,6 +237,49 @@ async function buildFilterAggregations(filters, viewAlias = 'psm') {
       paramIndex++;
     }
     
+    if (hasItems(filters.accreditations) && excludeFilter !== 'accreditations') {
+      conditions.push(`${viewAlias}.accreditation_slugs && $${paramIndex}::text[]`);
+      params.push(filters.accreditations.map(a => a.toLowerCase()));
+      paramIndex++;
+    }
+    
+    if (hasItems(filters.colourShade) && excludeFilter !== 'colourShade') {
+      conditions.push(`${viewAlias}.colour_shade IS NOT NULL AND LOWER(${viewAlias}.colour_shade) = ANY($${paramIndex})`);
+      params.push(filters.colourShade.map(c => c.toLowerCase()));
+      paramIndex++;
+    }
+    
+    if (hasItems(filters.weight) && excludeFilter !== 'weight') {
+      conditions.push(`${viewAlias}.weight_slugs && $${paramIndex}::text[]`);
+      params.push(filters.weight.map(w => w.toLowerCase()));
+      paramIndex++;
+    }
+    
+    if (hasItems(filters.fit) && excludeFilter !== 'fit') {
+      conditions.push(`${viewAlias}.fit_slug IS NOT NULL AND LOWER(${viewAlias}.fit_slug) = ANY($${paramIndex})`);
+      params.push(filters.fit.map(f => f.toLowerCase()));
+      paramIndex++;
+    }
+    
+    if (hasItems(filters.sector) && excludeFilter !== 'sector') {
+      conditions.push(`${viewAlias}.sector_slugs && $${paramIndex}::text[]`);
+      params.push(filters.sector.map(s => s.toLowerCase()));
+      paramIndex++;
+    }
+    
+    if (hasItems(filters.sport) && excludeFilter !== 'sport') {
+      conditions.push(`${viewAlias}.sport_slugs && $${paramIndex}::text[]`);
+      params.push(filters.sport.map(s => s.toLowerCase()));
+      paramIndex++;
+    }
+    
+    if (hasItems(filters.style) && excludeFilter !== 'style') {
+      const normalizedStyles = filters.style.map(normalizeSlug);
+      conditions.push(`${viewAlias}.style_keyword_slugs && $${paramIndex}::text[]`);
+      params.push(normalizedStyles);
+      paramIndex++;
+    }
+    
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     
     return { whereClause, productTypeJoin, params };
@@ -455,6 +498,178 @@ async function buildFilterAggregations(filters, viewAlias = 'psm') {
     aggregations.effect = {};
     effectResult.rows.forEach(row => {
       aggregations.effect[row.value] = parseInt(row.count);
+    });
+    
+    // Accreditations aggregations (from array)
+    const accreditationsBase = buildBaseConditions('accreditations');
+    const accreditationsWhereClause = accreditationsBase.whereClause 
+      ? `${accreditationsBase.whereClause} AND ${viewAlias}.accreditation_slugs IS NOT NULL AND array_length(${viewAlias}.accreditation_slugs, 1) > 0`
+      : `WHERE ${viewAlias}.accreditation_slugs IS NOT NULL AND array_length(${viewAlias}.accreditation_slugs, 1) > 0`;
+    const accreditationsQuery = `
+      SELECT 
+        accreditation_value as value,
+        COUNT(DISTINCT style_code) as count
+      FROM (
+        SELECT 
+          ${viewAlias}.style_code,
+          unnest(${viewAlias}.accreditation_slugs) as accreditation_value
+        FROM product_search_materialized ${viewAlias}
+        ${accreditationsBase.productTypeJoin}
+        ${accreditationsWhereClause}
+      ) subq
+      GROUP BY accreditation_value
+      ORDER BY count DESC
+    `;
+    const accreditationsResult = await queryWithTimeout(accreditationsQuery, accreditationsBase.params, 15000);
+    aggregations.accreditations = {};
+    accreditationsResult.rows.forEach(row => {
+      aggregations.accreditations[row.value] = parseInt(row.count);
+    });
+    
+    // Colour Shade aggregations
+    const colourShadeBase = buildBaseConditions('colourShade');
+    const colourShadeWhereClause = colourShadeBase.whereClause 
+      ? `${colourShadeBase.whereClause} AND ${viewAlias}.colour_shade IS NOT NULL`
+      : `WHERE ${viewAlias}.colour_shade IS NOT NULL`;
+    const colourShadeQuery = `
+      SELECT 
+        LOWER(${viewAlias}.colour_shade) as value,
+        COUNT(DISTINCT ${viewAlias}.style_code) as count
+      FROM product_search_materialized ${viewAlias}
+      ${colourShadeBase.productTypeJoin}
+      ${colourShadeWhereClause}
+      GROUP BY LOWER(${viewAlias}.colour_shade)
+      ORDER BY count DESC
+    `;
+    const colourShadeResult = await queryWithTimeout(colourShadeQuery, colourShadeBase.params, 15000);
+    aggregations.colourShade = {};
+    colourShadeResult.rows.forEach(row => {
+      aggregations.colourShade[row.value] = parseInt(row.count);
+    });
+    
+    // Weight aggregations (from array)
+    const weightBase = buildBaseConditions('weight');
+    const weightWhereClause = weightBase.whereClause 
+      ? `${weightBase.whereClause} AND ${viewAlias}.weight_slugs IS NOT NULL AND array_length(${viewAlias}.weight_slugs, 1) > 0`
+      : `WHERE ${viewAlias}.weight_slugs IS NOT NULL AND array_length(${viewAlias}.weight_slugs, 1) > 0`;
+    const weightQuery = `
+      SELECT 
+        weight_value as value,
+        COUNT(DISTINCT style_code) as count
+      FROM (
+        SELECT 
+          ${viewAlias}.style_code,
+          unnest(${viewAlias}.weight_slugs) as weight_value
+        FROM product_search_materialized ${viewAlias}
+        ${weightBase.productTypeJoin}
+        ${weightWhereClause}
+      ) subq
+      GROUP BY weight_value
+      ORDER BY count DESC
+    `;
+    const weightResult = await queryWithTimeout(weightQuery, weightBase.params, 15000);
+    aggregations.weight = {};
+    weightResult.rows.forEach(row => {
+      aggregations.weight[row.value] = parseInt(row.count);
+    });
+    
+    // Fit aggregations
+    const fitBase = buildBaseConditions('fit');
+    const fitWhereClause = fitBase.whereClause 
+      ? `${fitBase.whereClause} AND ${viewAlias}.fit_slug IS NOT NULL`
+      : `WHERE ${viewAlias}.fit_slug IS NOT NULL`;
+    const fitQuery = `
+      SELECT 
+        LOWER(${viewAlias}.fit_slug) as value,
+        COUNT(DISTINCT ${viewAlias}.style_code) as count
+      FROM product_search_materialized ${viewAlias}
+      ${fitBase.productTypeJoin}
+      ${fitWhereClause}
+      GROUP BY LOWER(${viewAlias}.fit_slug)
+      ORDER BY count DESC
+    `;
+    const fitResult = await queryWithTimeout(fitQuery, fitBase.params, 15000);
+    aggregations.fit = {};
+    fitResult.rows.forEach(row => {
+      aggregations.fit[row.value] = parseInt(row.count);
+    });
+    
+    // Sector aggregations (from array)
+    const sectorBase = buildBaseConditions('sector');
+    const sectorWhereClause = sectorBase.whereClause 
+      ? `${sectorBase.whereClause} AND ${viewAlias}.sector_slugs IS NOT NULL AND array_length(${viewAlias}.sector_slugs, 1) > 0`
+      : `WHERE ${viewAlias}.sector_slugs IS NOT NULL AND array_length(${viewAlias}.sector_slugs, 1) > 0`;
+    const sectorQuery = `
+      SELECT 
+        sector_value as value,
+        COUNT(DISTINCT style_code) as count
+      FROM (
+        SELECT 
+          ${viewAlias}.style_code,
+          unnest(${viewAlias}.sector_slugs) as sector_value
+        FROM product_search_materialized ${viewAlias}
+        ${sectorBase.productTypeJoin}
+        ${sectorWhereClause}
+      ) subq
+      GROUP BY sector_value
+      ORDER BY count DESC
+    `;
+    const sectorResult = await queryWithTimeout(sectorQuery, sectorBase.params, 15000);
+    aggregations.sector = {};
+    sectorResult.rows.forEach(row => {
+      aggregations.sector[row.value] = parseInt(row.count);
+    });
+    
+    // Sport aggregations (from array)
+    const sportBase = buildBaseConditions('sport');
+    const sportWhereClause = sportBase.whereClause 
+      ? `${sportBase.whereClause} AND ${viewAlias}.sport_slugs IS NOT NULL AND array_length(${viewAlias}.sport_slugs, 1) > 0`
+      : `WHERE ${viewAlias}.sport_slugs IS NOT NULL AND array_length(${viewAlias}.sport_slugs, 1) > 0`;
+    const sportQuery = `
+      SELECT 
+        sport_value as value,
+        COUNT(DISTINCT style_code) as count
+      FROM (
+        SELECT 
+          ${viewAlias}.style_code,
+          unnest(${viewAlias}.sport_slugs) as sport_value
+        FROM product_search_materialized ${viewAlias}
+        ${sportBase.productTypeJoin}
+        ${sportWhereClause}
+      ) subq
+      GROUP BY sport_value
+      ORDER BY count DESC
+    `;
+    const sportResult = await queryWithTimeout(sportQuery, sportBase.params, 15000);
+    aggregations.sport = {};
+    sportResult.rows.forEach(row => {
+      aggregations.sport[row.value] = parseInt(row.count);
+    });
+    
+    // Style aggregations (from array - style_keyword_slugs)
+    const styleBase = buildBaseConditions('style');
+    const styleWhereClause = styleBase.whereClause 
+      ? `${styleBase.whereClause} AND ${viewAlias}.style_keyword_slugs IS NOT NULL AND array_length(${viewAlias}.style_keyword_slugs, 1) > 0`
+      : `WHERE ${viewAlias}.style_keyword_slugs IS NOT NULL AND array_length(${viewAlias}.style_keyword_slugs, 1) > 0`;
+    const styleQuery = `
+      SELECT 
+        style_value as value,
+        COUNT(DISTINCT style_code) as count
+      FROM (
+        SELECT 
+          ${viewAlias}.style_code,
+          unnest(${viewAlias}.style_keyword_slugs) as style_value
+        FROM product_search_materialized ${viewAlias}
+        ${styleBase.productTypeJoin}
+        ${styleWhereClause}
+      ) subq
+      GROUP BY style_value
+      ORDER BY count DESC
+    `;
+    const styleResult = await queryWithTimeout(styleQuery, styleBase.params, 15000);
+    aggregations.style = {};
+    styleResult.rows.forEach(row => {
+      aggregations.style[row.value] = parseInt(row.count);
     });
     
     return aggregations;
