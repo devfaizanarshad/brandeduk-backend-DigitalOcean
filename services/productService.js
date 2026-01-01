@@ -300,17 +300,19 @@ async function buildProductListQuery(filters, page, limit) {
   }
 
   // Product type filter - matches product type names (e.g., "T-Shirts", "Hoodies")
+  // Store product type filter info for use in query CTE
+  let productTypeJoin = '';
+  let productTypeCondition = '';
   if (hasItems(filters.productType)) {
     // Normalize product type names - handle case-insensitive matching
-    const normalizedProductTypes = filters.productType.map(pt => pt.trim());
-    conditions.push(`EXISTS (
-      SELECT 1 
-      FROM styles s 
-      INNER JOIN product_types pt ON s.product_type_id = pt.id 
-      WHERE s.style_code = ${viewAlias}.style_code 
-      AND LOWER(TRIM(pt.name)) = ANY($${paramIndex}::text[])
-    )`);
-    params.push(normalizedProductTypes.map(pt => pt.toLowerCase()));
+    const normalizedProductTypes = filters.productType.map(pt => pt.trim().toLowerCase());
+    // Build JOIN clause for first CTE - this ensures strict filtering at source
+    productTypeJoin = `
+      INNER JOIN styles s_pt ON ${viewAlias}.style_code = s_pt.style_code
+      INNER JOIN product_types pt_pt ON s_pt.product_type_id = pt_pt.id`;
+    // Build condition for WHERE clause
+    productTypeCondition = `AND LOWER(TRIM(pt_pt.name)) = ANY($${paramIndex}::text[])`;
+    params.push(normalizedProductTypes);
     paramIndex++;
   }
 
@@ -334,7 +336,9 @@ async function buildProductListQuery(filters, page, limit) {
     WITH style_codes_filtered AS (
       SELECT DISTINCT ${viewAlias}.style_code
       FROM product_search_materialized ${viewAlias}
+      ${productTypeJoin}
       ${whereClause}
+      ${productTypeCondition}
     ),
     style_codes_with_meta AS (
       SELECT 
@@ -400,7 +404,9 @@ async function buildProductListQuery(filters, page, limit) {
         WITH style_codes_filtered AS (
           SELECT DISTINCT ${viewAlias}.style_code
           FROM product_search_materialized ${viewAlias}
+          ${productTypeJoin}
           ${whereClause}
+          ${productTypeCondition}
         ),
         style_codes_with_meta AS (
       SELECT 
