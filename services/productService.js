@@ -1042,8 +1042,9 @@ async function buildProductListQuery(filters, page, limit) {
     // STEP 2: Fetch full details for only the paginated style codes (SMALL DATASET)
     const batchStartTime = Date.now();
     // OPTIMIZED: Use indexed columns first, reduce JOIN overhead
+    // Removed DISTINCT - each product row is already unique (unique SKU per style_code + size + color)
     const batchQuery = `
-      SELECT DISTINCT
+      SELECT
         p.style_code as code,
         s.style_name as name,
         b.name as brand,
