@@ -124,15 +124,14 @@ router.get('/', async (req, res) => {
       return res.status(400).json({ error: 'priceMin cannot be greater than priceMax' });
     }
 
-    const { items, total, priceRange, filters: filterAggregations } = await buildProductListQuery(filters, pageNum, limitNum);
+    const { items, total, priceRange } = await buildProductListQuery(filters, pageNum, limitNum);
 
     res.json({
       items,
       page: pageNum,
       limit: limitNum,
       total,
-      priceRange,
-      filters: filterAggregations || {} // Add filters object with counts for each filter option
+      priceRange
     });
   } catch (error) {
     console.error('[ERROR] Failed to fetch products:', {

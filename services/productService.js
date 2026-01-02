@@ -908,9 +908,10 @@ async function buildProductListQuery(filters, page, limit) {
         MIN(COALESCE(pt.display_order, 999)) as product_type_priority
         ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
       FROM style_codes_filtered scf
-      INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code AND ${viewAlias}.sku_status = 'Live'
+      INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
       LEFT JOIN styles s ON ${viewAlias}.style_code = s.style_code
-        LEFT JOIN product_types pt ON s.product_type_id = pt.id
+      LEFT JOIN product_types pt ON s.product_type_id = pt.id
+      WHERE ${viewAlias}.sku_status = 'Live'
       GROUP BY scf.style_code
       ),
     paginated_style_codes AS (
@@ -932,7 +933,7 @@ async function buildProductListQuery(filters, page, limit) {
           MAX(${viewAlias}.single_price) as max_price
         FROM style_codes_filtered scf
         INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
-        WHERE ${viewAlias}.sku_status = 'Live'
+        WHERE ${viewAlias}.sku_status = 'Live' AND ${viewAlias}.single_price IS NOT NULL
       )
       SELECT 
       psc.style_code,
@@ -1040,6 +1041,7 @@ async function buildProductListQuery(filters, page, limit) {
 
     // STEP 2: Fetch full details for only the paginated style codes (SMALL DATASET)
     const batchStartTime = Date.now();
+    // OPTIMIZED: Use indexed columns first, reduce JOIN overhead
     const batchQuery = `
       SELECT DISTINCT
         p.style_code as code,
@@ -1064,8 +1066,8 @@ async function buildProductListQuery(filters, page, limit) {
       LEFT JOIN brands b ON s.brand_id = b.id
       LEFT JOIN sizes sz ON p.size_id = sz.id
       LEFT JOIN tags t ON p.tag_id = t.id
-      WHERE p.style_code = ANY($1) AND p.sku_status = 'Live'
-      ORDER BY p.style_code, p.colour_name, sz.size_order
+      WHERE p.style_code = ANY($1::text[]) AND p.sku_status = 'Live'
+      ORDER BY p.style_code, p.colour_name, COALESCE(sz.size_order, 999)
     `;
 
     const batchResult = await queryWithTimeout(batchQuery, [styleCodes], 30000);
@@ -1172,51 +1174,13 @@ async function buildProductListQuery(filters, page, limit) {
     const totalTime = Date.now() - startTime;
     console.log(`[QUERY] Total product list: ${totalTime}ms`);
 
-    // ULTRA-OPTIMIZATION: Return products IMMEDIATELY, don't wait for aggregations
-    // Aggregations are the bottleneck - load them separately or in background
-    const aggregationCacheKey = getCacheKey(filters, 0, 0, 'aggregations');
-    const cachedAggregations = getAggregationCache(aggregationCacheKey);
-    
-    // Initialize empty filters structure
-    let filterAggregations = {
-      gender: {},
-      ageGroup: {},
-      sleeve: {},
-      neckline: {},
-      fabric: {},
-      size: {},
-      feature: {},
-      tag: {}
-    };
-    
-    // Only use cached aggregations if available (instant)
-    if (cachedAggregations) {
-      filterAggregations = cachedAggregations;
-      console.log('[CACHE] Using cached aggregations - instant response');
-    } else {
-      // Start loading aggregations in background (NON-BLOCKING)
-      // Don't await - return products immediately
-      buildFilterAggregations(filters, 'psm', null)
-        .then(aggregations => {
-          // Cache for future requests
-          setAggregationCache(aggregationCacheKey, aggregations, AGGREGATION_CACHE_TTL);
-          console.log('[CACHE] Aggregations loaded and cached in background');
-        })
-        .catch(error => {
-          console.error('[ERROR] Background aggregation failed:', error.message);
-        });
-      
-      console.log('[QUERY] Returning products immediately, loading filters in background');
-    }
-
     const queryResponse = { 
       items, 
       total, 
-      priceRange,
-      filters: filterAggregations // Empty if not cached, will populate on next request
+      priceRange
     };
     
-    // Cache the response immediately (with empty filters if not cached)
+    // Cache the response
     const cacheTTL = (filters.q || filters.text) ? SEARCH_CACHE_TTL : CACHE_TTL;
     setCache(cacheKey, queryResponse, cacheTTL);
     console.log(`[CACHE] Result cached (TTL: ${cacheTTL/1000}s)`);
