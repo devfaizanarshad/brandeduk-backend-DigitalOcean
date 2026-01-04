@@ -1,10 +1,16 @@
 const express = require('express');
 const cors = require('cors');
+const swaggerUi = require('swagger-ui-express');
+const YAML = require('yamljs');
+const path = require('path');
 const { checkDatabaseHealth, closePool } = require('./config/database');
 require('dotenv').config();
 
 const productsRoutes = require('./routes/products');
 const categoriesRoutes = require('./routes/categories');
+
+// Load Swagger documentation
+const swaggerDocument = YAML.load(path.join(__dirname, 'swagger.yaml'));
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -90,6 +96,17 @@ app.use('/api/', (req, res, next) => {
 
 app.use('/api/products', productsRoutes);
 app.use('/api/categories', categoriesRoutes);
+
+// Swagger API Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: 'Branded UK API Documentation'
+}));
+
+// Redirect root to API docs
+app.get('/', (req, res) => {
+  res.redirect('/api-docs');
+});
 
 app.get('/health', async (req, res) => {
   const dbHealth = await checkDatabaseHealth();
