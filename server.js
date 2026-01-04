@@ -99,7 +99,11 @@ app.use('/api/categories', categoriesRoutes);
 
 // Swagger API Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
-  customCss: '.swagger-ui .topbar { display: none }',
+  customCss: `
+    .swagger-ui .topbar { display: none }
+    .swagger-ui .wrapper { max-width: 100%; padding: 0 20px; }
+    html, body { margin: 0; padding: 0; }
+  `,
   customSiteTitle: 'Branded UK API Documentation'
 }));
 
