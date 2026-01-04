@@ -611,7 +611,7 @@ async function buildProductListQuery(filters, page, limit) {
       // OPTIMIZED: Prioritize indexed operations - full-text search first (GIN index)
       const fullTextParam = paramIndex;
       params.push(normalizedSearch);
-      paramIndex++;
+    paramIndex++;
       
       const codeParam = paramIndex;
       params.push(searchUpper);
@@ -832,30 +832,7 @@ async function buildProductListQuery(filters, page, limit) {
     paramIndex++;
   }
 
-  // Category filter - OPTIMIZED: Use precomputed category_ids array + cache table
-  if (hasItems(filters.category)) {
-    const categorySlugs = filters.category.filter(c => isNaN(parseInt(c)));
-    const categoryIds = filters.category.filter(c => !isNaN(parseInt(c))).map(c => parseInt(c));
-    
-    let allCategoryIds = [...categoryIds];
-    
-    if (categorySlugs.length > 0) {
-      const slugIds = await getCategoryIdsFromSlugs(categorySlugs);
-      allCategoryIds = [...allCategoryIds, ...slugIds];
-    }
-    
-    if (allCategoryIds.length > 0) {
-      // Use cached hierarchy lookup (FAST - no recursive CTE per query)
-      const categoryIdsWithChildren = await getCategoryIdsWithChildrenCached(allCategoryIds);
-      
-      if (categoryIdsWithChildren.length > 0) {
-        // Use array overlap operator (GIN index, super fast)
-        conditions.push(`${viewAlias}.category_ids && $${paramIndex}::int[]`);
-        params.push(categoryIdsWithChildren);
-        paramIndex++;
-      }
-    }
-  }
+  // Category filter - REMOVED: Use /api/categories endpoint instead
 
   // Product type filter - matches product type names (e.g., "T-Shirts", "Hoodies")
   // Store product type filter info for use in query CTE
@@ -910,7 +887,7 @@ async function buildProductListQuery(filters, page, limit) {
       FROM style_codes_filtered scf
       INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
       LEFT JOIN styles s ON ${viewAlias}.style_code = s.style_code
-      LEFT JOIN product_types pt ON s.product_type_id = pt.id
+        LEFT JOIN product_types pt ON s.product_type_id = pt.id
       WHERE ${viewAlias}.sku_status = 'Live'
       GROUP BY scf.style_code
       ),

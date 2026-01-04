@@ -36,8 +36,6 @@ router.get('/', async (req, res) => {
       sport,
       tag,
       effect,
-      category, // Category filter - accepts slugs or IDs
-      categories, // Accept both 'category' and 'categories' parameters
       productType, // Product type filter - accepts product type names
       productTypes, // Accept both 'productType' and 'productTypes' parameters
       sort = 'newest',
@@ -104,7 +102,6 @@ router.get('/', async (req, res) => {
       sport: parseArray(sport),
       tag: parseArray(tag),
       effect: parseArray(effect),
-      category: parseArray(category || categories), // Accept both 'category' and 'categories', supports slugs or IDs
       productType: parseArray(productType || productTypes), // Accept both 'productType' and 'productTypes', supports product type names
       sort: sort || 'newest', // Ensure default
       order: order ? (order.toLowerCase() === 'asc' ? 'ASC' : 'DESC') : 'DESC' // Ensure default

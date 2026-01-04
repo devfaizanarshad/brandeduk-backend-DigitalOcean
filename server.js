@@ -8,6 +8,7 @@ require('dotenv').config();
 
 const productsRoutes = require('./routes/products');
 const categoriesRoutes = require('./routes/categories');
+const filtersRoutes = require('./routes/filters');
 
 // Load Swagger documentation
 const swaggerDocument = YAML.load(path.join(__dirname, 'swagger.yaml'));
@@ -96,6 +97,7 @@ app.use('/api/', (req, res, next) => {
 
 app.use('/api/products', productsRoutes);
 app.use('/api/categories', categoriesRoutes);
+app.use('/api/filters', filtersRoutes);
 
 // Swagger API Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
