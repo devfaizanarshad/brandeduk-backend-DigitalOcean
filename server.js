@@ -97,10 +97,53 @@ app.use('/api/', (req, res, next) => {
 app.use('/api/products', productsRoutes);
 app.use('/api/categories', categoriesRoutes);
 
-// Swagger API Documentation
+// Swagger API Documentation - Clean White Single Column Theme
+const swaggerCss = `
+  .swagger-ui .topbar { display: none }
+  .swagger-ui { max-width: 900px; margin: 0 auto; padding: 20px; }
+  body { background: #ffffff !important; }
+  .swagger-ui .scheme-container { background: #ffffff; box-shadow: none; padding: 20px 0; }
+  .swagger-ui .info { margin: 20px 0 40px 0; }
+  .swagger-ui .info .title { color: #1a1a1a; font-weight: 700; font-size: 32px; }
+  .swagger-ui .info .description { color: #444444; line-height: 1.6; }
+  .swagger-ui .info .description p { margin: 10px 0; }
+  .swagger-ui .opblock-tag { color: #1a1a1a; font-weight: 600; font-size: 18px; border-bottom: 2px solid #eeeeee; padding: 15px 0; }
+  .swagger-ui .opblock { border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.06); margin-bottom: 15px; border: 1px solid #e8e8e8; }
+  .swagger-ui .opblock .opblock-summary { border-radius: 8px; padding: 12px 15px; }
+  .swagger-ui .opblock.opblock-get { background: #ffffff; border-left: 4px solid #49cc90; }
+  .swagger-ui .opblock.opblock-get .opblock-summary-method { background: #49cc90; }
+  .swagger-ui .opblock.opblock-post { background: #ffffff; border-left: 4px solid #61affe; }
+  .swagger-ui .opblock.opblock-post .opblock-summary-method { background: #61affe; }
+  .swagger-ui .opblock.opblock-put { background: #ffffff; border-left: 4px solid #fca130; }
+  .swagger-ui .opblock.opblock-delete { background: #ffffff; border-left: 4px solid #f93e3e; }
+  .swagger-ui .btn { border-radius: 6px; font-weight: 600; }
+  .swagger-ui .btn.execute { background: #1a1a1a; border-color: #1a1a1a; }
+  .swagger-ui .btn.execute:hover { background: #333333; }
+  .swagger-ui select { border-radius: 6px; border: 1px solid #ddd; }
+  .swagger-ui input[type=text] { border-radius: 6px; border: 1px solid #ddd; }
+  .swagger-ui .model-box { background: #f9f9f9; border-radius: 6px; }
+  .swagger-ui section.models { border-radius: 8px; border: 1px solid #e8e8e8; }
+  .swagger-ui .responses-wrapper { background: #ffffff; }
+  .swagger-ui .response-col_description { color: #333; }
+  .swagger-ui .parameter__name { color: #1a1a1a; font-weight: 600; }
+  .swagger-ui .parameter__type { color: #666; }
+  .swagger-ui table tbody tr td { border-bottom: 1px solid #f0f0f0; padding: 12px 0; }
+  .swagger-ui .opblock-description-wrapper p { color: #555; line-height: 1.5; }
+  .swagger-ui .markdown code { background: #f4f4f4; padding: 2px 6px; border-radius: 4px; color: #333; }
+  .swagger-ui .servers-title { display: none; }
+  .swagger-ui .servers { padding: 10px 0; }
+`;
+
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
-  customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'Branded UK API Documentation'
+  customCss: swaggerCss,
+  customSiteTitle: 'Branded UK API Documentation',
+  swaggerOptions: {
+    docExpansion: 'list',
+    defaultModelsExpandDepth: 0,
+    displayRequestDuration: true,
+    filter: true,
+    tryItOutEnabled: true
+  }
 }));
 
 // Redirect root to API docs
