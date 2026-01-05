@@ -227,9 +227,47 @@ paths:
     get:
       tags:
         - Products
-      summary: Get product type counts
-      description: Returns product type counts for filtering sidebar
+      summary: Get filter aggregations (counts)
+      description: Returns counts for all filter types based on current filters
       operationId: getProductFilters
+      parameters:
+        - name: q
+          in: query
+          description: Search query
+          schema:
+            type: string
+        - name: productType
+          in: query
+          schema:
+            type: string
+        - name: gender
+          in: query
+          schema:
+            type: string
+        - name: ageGroup
+          in: query
+          schema:
+            type: string
+        - name: sleeve
+          in: query
+          schema:
+            type: string
+        - name: neckline
+          in: query
+          schema:
+            type: string
+        - name: fabric
+          in: query
+          schema:
+            type: string
+        - name: size
+          in: query
+          schema:
+            type: string
+        - name: tag
+          in: query
+          schema:
+            type: string
       responses:
         '200':
           description: Successful response
@@ -241,9 +279,30 @@ paths:
                   filters:
                     type: object
                     properties:
-                      productType:
+                      gender:
                         type: object
-                        description: Map of product type slug to count
+                        description: Map of gender slug to count
+                      ageGroup:
+                        type: object
+                        description: Map of age group slug to count
+                      sleeve:
+                        type: object
+                        description: Map of sleeve slug to count
+                      neckline:
+                        type: object
+                        description: Map of neckline slug to count
+                      fabric:
+                        type: object
+                        description: Map of fabric slug to count
+                      size:
+                        type: object
+                        description: Map of size slug to count
+                      feature:
+                        type: object
+                        description: Map of feature slug to count
+                      tag:
+                        type: object
+                        description: Map of tag slug to count
 
   /api/products/types:
     get:

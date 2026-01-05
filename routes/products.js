@@ -160,38 +160,52 @@ router.get('/', async (req, res) => {
 
 /**
  * GET /api/products/filters
- * Get product type counts for filtering
- * Returns only product type aggregations for the sidebar filter
+ * Get filter aggregations (counts) for current filters
+ * This endpoint allows frontend to load filters separately from products for instant loading
  */
 router.get('/filters', async (req, res) => {
   try {
-    const query = `
-      SELECT 
-        pt.id,
-        pt.name,
-        LOWER(REPLACE(pt.name, ' ', '-')) as slug,
-        pt.display_order,
-        COUNT(DISTINCT s.style_code) as product_count
-      FROM product_types pt
-      INNER JOIN styles s ON pt.id = s.product_type_id
-      INNER JOIN products p ON s.style_code = p.style_code AND p.sku_status = 'Live'
-      GROUP BY pt.id, pt.name, pt.display_order
-      HAVING COUNT(DISTINCT s.style_code) > 0
-      ORDER BY pt.display_order ASC, pt.name ASC
-    `;
+    const {
+      q,
+      text,
+      priceMin,
+      priceMax,
+      gender,
+      ageGroup,
+      sleeve,
+      neckline,
+      fabric,
+      size,
+      tag,
+      productType,
+      productTypes
+    } = req.query;
 
-    const result = await queryWithTimeout(query, [], 10000);
-    
-    const productTypes = {};
-    result.rows.forEach(row => {
-      productTypes[row.slug] = parseInt(row.product_count || 0);
-    });
+    const parseArray = (val) => {
+      if (!val) return [];
+      if (Array.isArray(val)) return val;
+      if (typeof val === 'object') return Object.values(val);
+      return [val];
+    };
 
-    res.json({ 
-      filters: {
-        productType: productTypes
-      }
-    });
+    const filters = {
+      q: q || text || null,
+      priceMin: priceMin ? parseFloat(priceMin) : null,
+      priceMax: priceMax ? parseFloat(priceMax) : null,
+      gender: parseArray(gender),
+      ageGroup: parseArray(ageGroup),
+      sleeve: parseArray(sleeve),
+      neckline: parseArray(neckline),
+      fabric: parseArray(fabric),
+      size: parseArray(size),
+      tag: parseArray(tag),
+      productType: parseArray(productType || productTypes)
+    };
+
+    const { buildFilterAggregations } = require('../services/productService');
+    const aggregations = await buildFilterAggregations(filters);
+
+    res.json({ filters: aggregations });
   } catch (error) {
     console.error('[ERROR] Failed to fetch filter aggregations:', error.message);
     res.status(500).json({ 
