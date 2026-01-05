@@ -20,7 +20,6 @@ info:
     ## Caching
     - Products: 5 minutes (search), 30 minutes (browse)
     - Filters: 30 minutes
-    - Categories: 30 minutes
     - Product Details: 60 minutes
     
     ## Performance Tips
@@ -42,9 +41,7 @@ tags:
   - name: Products
     description: Product listing, search, and details
   - name: Filters
-    description: Filter aggregations with counts
-  - name: Categories
-    description: Category hierarchy and navigation
+    description: Filter options and aggregations
   - name: Health
     description: Server health checks
 
@@ -122,17 +119,7 @@ paths:
             format: float
           example: 50.00
         
-        # Category Filters
-        - name: category
-          in: query
-          description: Category slug(s) to filter by
-          schema:
-            oneOf:
-              - type: string
-              - type: array
-                items:
-                  type: string
-          example: "t-shirts"
+        # Product Type Filter
         - name: productType
           in: query
           description: Product type name(s) to filter by
@@ -667,136 +654,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /api/categories:
+  /api/filters/product-types:
     get:
       tags:
-        - Categories
-      summary: Get all categories
-      description: |
-        Returns all categories in hierarchical or flat format.
-        
-        **Hierarchical** (default): Nested structure with subcategories
-        **Flat**: Single-level array of all categories
-      operationId: getCategories
-      parameters:
-        - name: format
-          in: query
-          description: Response format
-          schema:
-            type: string
-            enum:
-              - hierarchical
-              - flat
-            default: hierarchical
-          example: "hierarchical"
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                oneOf:
-                  - $ref: '#/components/schemas/CategoriesHierarchical'
-                  - $ref: '#/components/schemas/CategoriesFlat'
-              examples:
-                hierarchical:
-                  summary: Hierarchical format
-                  value:
-                    - id: 1
-                      name: "T-Shirts"
-                      slug: "t-shirts"
-                      parentId: null
-                      displayOrder: 0
-                      subcategories:
-                        - id: 2
-                          name: "Crew Neck"
-                          slug: "crew-neck"
-                          parentId: 1
-                          displayOrder: 0
-                          subcategories: []
-                        - id: 3
-                          name: "V-Neck"
-                          slug: "v-neck"
-                          parentId: 1
-                          displayOrder: 1
-                          subcategories: []
-                flat:
-                  summary: Flat format
-                  value:
-                    - id: 1
-                      name: "T-Shirts"
-                      slug: "t-shirts"
-                      parentId: null
-                      displayOrder: 0
-                    - id: 2
-                      name: "Crew Neck"
-                      slug: "crew-neck"
-                      parentId: 1
-                      displayOrder: 0
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
-  /api/categories/{slug}:
-    get:
-      tags:
-        - Categories
-      summary: Get category by slug
-      description: Returns a single category by its slug, including subcategories
-      operationId: getCategoryBySlug
-      parameters:
-        - name: slug
-          in: path
-          required: true
-          description: Category slug (URL-friendly name)
-          schema:
-            type: string
-          example: "t-shirts"
-      responses:
-        '200':
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Category'
-              example:
-                id: 1
-                name: "T-Shirts"
-                slug: "t-shirts"
-                parentId: null
-                displayOrder: 0
-                subcategories:
-                  - id: 2
-                    name: "Crew Neck"
-                    slug: "crew-neck"
-                    parentId: 1
-                    displayOrder: 0
-                    subcategories: []
-        '404':
-          description: Category not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error: "Category not found"
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
-  /api/categories/stats:
-    get:
-      tags:
-        - Categories
-      summary: Get category statistics
-      description: Returns diagnostic information about the category structure
-      operationId: getCategoryStats
+        - Filters
+      summary: Get all product types
+      description: Returns all product types with product counts
+      operationId: getFilterProductTypes
       responses:
         '200':
           description: Successful response
@@ -804,13 +668,613 @@ paths:
             application/json:
               schema:
                 type: object
-                additionalProperties: true
-        '500':
-          description: Internal server error
+                properties:
+                  productTypes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+                        slug:
+                          type: string
+                        count:
+                          type: integer
+                        displayOrder:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/genders:
+    get:
+      tags:
+        - Filters
+      summary: Get all genders
+      description: Returns all gender options with product counts
+      operationId: getFilterGenders
+      responses:
+        '200':
+          description: Successful response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                type: object
+                properties:
+                  genders:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/age-groups:
+    get:
+      tags:
+        - Filters
+      summary: Get all age groups
+      description: Returns all age group options with product counts
+      operationId: getFilterAgeGroups
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ageGroups:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/sleeves:
+    get:
+      tags:
+        - Filters
+      summary: Get all sleeve types
+      description: Returns all sleeve options with product counts
+      operationId: getFilterSleeves
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sleeves:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/necklines:
+    get:
+      tags:
+        - Filters
+      summary: Get all neckline types
+      description: Returns all neckline options with product counts
+      operationId: getFilterNecklines
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  necklines:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/fabrics:
+    get:
+      tags:
+        - Filters
+      summary: Get all fabric types
+      description: Returns all fabric options with product counts
+      operationId: getFilterFabrics
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fabrics:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/sizes:
+    get:
+      tags:
+        - Filters
+      summary: Get all sizes
+      description: Returns all size options with product counts
+      operationId: getFilterSizes
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sizes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/colors:
+    get:
+      tags:
+        - Filters
+      summary: Get all colors
+      description: Returns all color options with product counts
+      operationId: getFilterColors
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  colors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/primary-colors:
+    get:
+      tags:
+        - Filters
+      summary: Get all primary colors
+      description: Returns all primary color options with product counts
+      operationId: getFilterPrimaryColors
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  primaryColors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/styles:
+    get:
+      tags:
+        - Filters
+      summary: Get all style keywords
+      description: Returns all style keyword options with product counts
+      operationId: getFilterStyles
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  styles:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/tags:
+    get:
+      tags:
+        - Filters
+      summary: Get all tags
+      description: Returns all tag options with product counts
+      operationId: getFilterTags
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tags:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/weights:
+    get:
+      tags:
+        - Filters
+      summary: Get all weight ranges
+      description: Returns all weight range options with product counts
+      operationId: getFilterWeights
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  weights:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/fits:
+    get:
+      tags:
+        - Filters
+      summary: Get all fit types
+      description: Returns all fit options with product counts
+      operationId: getFilterFits
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fits:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/sectors:
+    get:
+      tags:
+        - Filters
+      summary: Get all sectors
+      description: Returns all sector options with product counts
+      operationId: getFilterSectors
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sectors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/sports:
+    get:
+      tags:
+        - Filters
+      summary: Get all sports
+      description: Returns all sport options with product counts
+      operationId: getFilterSports
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sports:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/effects:
+    get:
+      tags:
+        - Filters
+      summary: Get all effects
+      description: Returns all effect options with product counts
+      operationId: getFilterEffects
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  effects:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/accreditations:
+    get:
+      tags:
+        - Filters
+      summary: Get all accreditations
+      description: Returns all accreditation options with product counts
+      operationId: getFilterAccreditations
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accreditations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/colour-shades:
+    get:
+      tags:
+        - Filters
+      summary: Get all colour shades
+      description: Returns all colour shade options with product counts
+      operationId: getFilterColourShades
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  colourShades:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/brands:
+    get:
+      tags:
+        - Filters
+      summary: Get all brands
+      description: Returns all brand options with product counts
+      operationId: getFilterBrands
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  brands:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        name:
+                          type: string
+                        slug:
+                          type: string
+                        count:
+                          type: integer
+                  total:
+                    type: integer
+
+  /api/filters/price-range:
+    get:
+      tags:
+        - Filters
+      summary: Get price range
+      description: Returns minimum and maximum prices across all products
+      operationId: getFilterPriceRange
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  min:
+                    type: number
+                    format: float
+                  max:
+                    type: number
+                    format: float
+
+  /api/filters/all:
+    get:
+      tags:
+        - Filters
+      summary: Get all filter options
+      description: Returns all filter options in one request (optimized for initial page load)
+      operationId: getFilterAll
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  productTypes:
+                    type: array
+                  genders:
+                    type: array
+                  ageGroups:
+                    type: array
+                  sleeves:
+                    type: array
+                  necklines:
+                    type: array
+                  fabrics:
+                    type: array
+                  sizes:
+                    type: array
+                  colors:
+                    type: array
+                  tags:
+                    type: array
+                  brands:
+                    type: array
+                  priceRange:
+                    type: object
+                    properties:
+                      min:
+                        type: number
+                      max:
+                        type: number
 
   /health:
     get:
@@ -1248,59 +1712,6 @@ components:
         - count
         - percentage
         - displayOrder
-
-    Category:
-      type: object
-      properties:
-        id:
-          type: integer
-          example: 1
-        name:
-          type: string
-          example: "T-Shirts"
-        slug:
-          type: string
-          example: "t-shirts"
-        parentId:
-          type: integer
-          nullable: true
-          example: null
-        displayOrder:
-          type: integer
-          example: 0
-        subcategories:
-          type: array
-          items:
-            $ref: '#/components/schemas/Category'
-      required:
-        - id
-        - name
-        - slug
-        - parentId
-        - displayOrder
-        - subcategories
-
-    CategoriesHierarchical:
-      type: array
-      items:
-        $ref: '#/components/schemas/Category'
-
-    CategoriesFlat:
-      type: array
-      items:
-        type: object
-        properties:
-          id:
-            type: integer
-          name:
-            type: string
-          slug:
-            type: string
-          parentId:
-            type: integer
-            nullable: true
-          displayOrder:
-            type: integer
 
     HealthResponse:
       type: object
