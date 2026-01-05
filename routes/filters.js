@@ -47,8 +47,10 @@ router.get('/genders/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE psm.gender_slug = $1 AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -122,8 +124,10 @@ router.get('/age-groups/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE psm.age_group_slug = $1 AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -221,8 +225,10 @@ router.get('/sleeves/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE psm.sleeve_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -300,8 +306,10 @@ router.get('/necklines/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE psm.neckline_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -397,8 +405,10 @@ router.get('/fabrics/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE psm.fabric_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -473,8 +483,10 @@ router.get('/sizes/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE psm.size_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -548,8 +560,10 @@ router.get('/colors/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE psm.colour_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -628,8 +642,10 @@ router.get('/primary-colors/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE LOWER(psm.primary_colour) = $1 AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -707,8 +723,10 @@ router.get('/styles/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE psm.style_keyword_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -782,8 +800,10 @@ router.get('/tags/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE LOWER(psm.tag_slug) = $1 AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -857,8 +877,10 @@ router.get('/weights/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE psm.weight_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -932,8 +954,10 @@ router.get('/fits/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE LOWER(psm.fit_slug) = $1 AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -1007,8 +1031,10 @@ router.get('/sectors/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE psm.sector_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -1082,8 +1108,10 @@ router.get('/sports/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE psm.sport_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -1161,8 +1189,10 @@ router.get('/effects/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE psm.effects_arr && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -1236,8 +1266,10 @@ router.get('/accreditations/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE psm.accreditation_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -1316,8 +1348,10 @@ router.get('/colour-shades/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE LOWER(psm.colour_shade) = $1 AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -1392,17 +1426,21 @@ router.get('/brands/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
-      WHERE (LOWER(REPLACE(psm.brand_name, ' ', '-')) = $1 OR LOWER(psm.brand_name) = $1) AND psm.sku_status = 'Live'
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
+      WHERE (LOWER(REPLACE(b.name, ' ', '-')) = $1 OR LOWER(b.name) = $1) AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
     `;
 
     const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE (LOWER(REPLACE(brand_name, ' ', '-')) = $1 OR LOWER(brand_name) = $1) AND sku_status = 'Live'
+      SELECT COUNT(DISTINCT psm.style_code) as total
+      FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
+      WHERE (LOWER(REPLACE(b.name, ' ', '-')) = $1 OR LOWER(b.name) = $1) AND psm.sku_status = 'Live'
     `;
 
     const [productsResult, countResult] = await Promise.all([
@@ -1472,10 +1510,11 @@ router.get('/product-types/:slug/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
       INNER JOIN styles s ON psm.style_code = s.style_code
       INNER JOIN product_types pt ON s.product_type_id = pt.id
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE LOWER(pt.name) = $1 AND psm.sku_status = 'Live'
       ORDER BY psm.style_code
       LIMIT $2 OFFSET $3
@@ -1551,8 +1590,10 @@ router.get('/price-range/:min/:max/products', async (req, res) => {
         psm.style_name as name,
         psm.single_price as price,
         psm.primary_image_url as image,
-        psm.brand_name as brand
+        b.name as brand
       FROM product_search_materialized psm
+      LEFT JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
       WHERE psm.single_price >= $1 AND psm.single_price <= $2 AND psm.sku_status = 'Live'
       ORDER BY psm.single_price ASC, psm.style_code
       LIMIT $3 OFFSET $4
