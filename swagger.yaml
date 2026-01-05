@@ -342,6 +342,75 @@ paths:
         '404':
           description: Product not found
 
+  /api/products/{code}/related:
+    get:
+      tags:
+        - Products
+      summary: Get related products
+      description: |
+        Returns products related to the specified product.
+        Priority: Same brand AND same product type first, then same product type from other brands.
+      operationId: getRelatedProducts
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: Product style code
+          schema:
+            type: string
+          example: "JC001"
+        - name: limit
+          in: query
+          description: Maximum number of related products to return
+          schema:
+            type: integer
+            default: 12
+          example: 12
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  currentProduct:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                      brand:
+                        type: string
+                      productType:
+                        type: string
+                  related:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        code:
+                          type: string
+                        name:
+                          type: string
+                        price:
+                          type: number
+                        image:
+                          type: string
+                        brand:
+                          type: string
+                        product_type:
+                          type: string
+                  total:
+                    type: integer
+                  sameBrandAndType:
+                    type: integer
+                    description: Number of products from same brand AND type
+                  sameTypeOnly:
+                    type: integer
+                    description: Number of products from same type only (different brand)
+        '404':
+          description: Product not found
+
   # ============================================================================
   # PRODUCT TYPE ENDPOINTS
   # ============================================================================

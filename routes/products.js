@@ -282,6 +282,118 @@ router.get('/types', async (req, res) => {
 });
 
 /**
+ * GET /api/products/:code/related
+ * Get related products (same brand AND same product type)
+ */
+router.get('/:code/related', async (req, res) => {
+  try {
+    const { code } = req.params;
+    const { limit = 12 } = req.query;
+
+    // First, get the current product's brand and product type
+    const productInfoQuery = `
+      SELECT 
+        s.brand_id,
+        s.product_type_id,
+        b.name as brand_name,
+        pt.name as product_type_name
+      FROM styles s
+      LEFT JOIN brands b ON s.brand_id = b.id
+      LEFT JOIN product_types pt ON s.product_type_id = pt.id
+      WHERE s.style_code = $1
+    `;
+
+    const productInfoResult = await queryWithTimeout(productInfoQuery, [code.toUpperCase()], 10000);
+
+    if (productInfoResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    const { brand_id, product_type_id, brand_name, product_type_name } = productInfoResult.rows[0];
+
+    // Get related products: same brand AND same product type (excluding current product)
+    const relatedQuery = `
+      SELECT DISTINCT
+        psm.style_code as code,
+        psm.style_name as name,
+        psm.single_price as price,
+        psm.primary_image_url as image,
+        b.name as brand,
+        pt.name as product_type
+      FROM product_search_materialized psm
+      INNER JOIN styles s ON psm.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
+      LEFT JOIN product_types pt ON s.product_type_id = pt.id
+      WHERE s.brand_id = $1 
+        AND s.product_type_id = $2
+        AND psm.style_code != $3
+        AND psm.sku_status = 'Live'
+      ORDER BY psm.created_at DESC
+      LIMIT $4
+    `;
+
+    const relatedResult = await queryWithTimeout(
+      relatedQuery, 
+      [brand_id, product_type_id, code.toUpperCase(), parseInt(limit)], 
+      15000
+    );
+
+    // If not enough related products from same brand+type, get more from same product type
+    let additionalProducts = [];
+    if (relatedResult.rows.length < parseInt(limit)) {
+      const remainingLimit = parseInt(limit) - relatedResult.rows.length;
+      const existingCodes = [code.toUpperCase(), ...relatedResult.rows.map(r => r.code)];
+      
+      const additionalQuery = `
+        SELECT DISTINCT
+          psm.style_code as code,
+          psm.style_name as name,
+          psm.single_price as price,
+          psm.primary_image_url as image,
+          b.name as brand,
+          pt.name as product_type
+        FROM product_search_materialized psm
+        INNER JOIN styles s ON psm.style_code = s.style_code
+        LEFT JOIN brands b ON s.brand_id = b.id
+        LEFT JOIN product_types pt ON s.product_type_id = pt.id
+        WHERE s.product_type_id = $1
+          AND psm.style_code != ALL($2::text[])
+          AND psm.sku_status = 'Live'
+        ORDER BY psm.created_at DESC
+        LIMIT $3
+      `;
+
+      const additionalResult = await queryWithTimeout(
+        additionalQuery,
+        [product_type_id, existingCodes, remainingLimit],
+        15000
+      );
+      additionalProducts = additionalResult.rows;
+    }
+
+    const allRelated = [...relatedResult.rows, ...additionalProducts];
+
+    res.json({
+      currentProduct: {
+        code: code.toUpperCase(),
+        brand: brand_name,
+        productType: product_type_name
+      },
+      related: allRelated,
+      total: allRelated.length,
+      sameBrandAndType: relatedResult.rows.length,
+      sameTypeOnly: additionalProducts.length
+    });
+  } catch (error) {
+    console.error('[ERROR] Failed to fetch related products:', {
+      message: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+/**
  * GET /api/products/:code
  * Product detail endpoint
  */
