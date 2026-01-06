@@ -1,5 +1,6 @@
 const { pool, queryWithTimeout } = require('../config/database');
 const { getCategoryIdsFromSlugs } = require('./categoryService');
+const { applyMarkup, applyMarkupToPriceRange } = require('../utils/priceMarkup');
 
 const queryCache = new Map();
 const aggregationCache = new Map(); // Separate cache for aggregations
@@ -1112,15 +1113,21 @@ async function buildProductListQuery(filters, page, limit) {
       }
     });
 
-    // Build response items
+    // Build response items with MARKUP applied
     const items = styleCodes.map(styleCode => {
       const product = productsMap.get(styleCode);
       if (!product) return null;
 
       let packPrice = product.packPrice || product.singlePrice;
       let cartonPrice = product.cartonPrice || packPrice || product.singlePrice;
-      const priceTiers = [product.singlePrice, packPrice, cartonPrice].filter(p => p !== null && p > 0);
-      const priceBreaks = buildPriceBreaks(priceTiers);
+      
+      // Apply markup to price tiers BEFORE building breaks
+      const markedUpPriceTiers = [
+        applyMarkup(product.singlePrice), 
+        applyMarkup(packPrice), 
+        applyMarkup(cartonPrice)
+      ].filter(p => p !== null && p > 0);
+      const priceBreaks = buildPriceBreaks(markedUpPriceTiers);
 
       const customization = product.customization.size > 0 
         ? Array.from(product.customization) 
@@ -1136,10 +1143,14 @@ async function buildProductListQuery(filters, page, limit) {
         return a.localeCompare(b);
       });
 
+      // Apply markup to display price
+      const rawMinPrice = Math.min(...product.prices.filter(p => p > 0));
+      const displayPrice = applyMarkup(rawMinPrice);
+
       return {
         code: product.code,
         name: product.name,
-        price: Math.min(...product.prices.filter(p => p > 0)),
+        price: displayPrice,
         image: product.primaryImageUrl || '',
         colors: Array.from(product.colorsMap.values()),
         sizes,
@@ -1152,10 +1163,13 @@ async function buildProductListQuery(filters, page, limit) {
     const totalTime = Date.now() - startTime;
     console.log(`[QUERY] Total product list: ${totalTime}ms`);
 
+    // Apply markup to price range for filters
+    const markedUpPriceRange = applyMarkupToPriceRange(priceRange);
+
     const queryResponse = { 
       items, 
       total, 
-      priceRange
+      priceRange: markedUpPriceRange
     };
     
     // Cache the response
@@ -1282,8 +1296,13 @@ async function buildProductDetailQuery(styleCode) {
   if (!packPrice) packPrice = singlePrice;
   if (!cartonPrice) cartonPrice = packPrice || singlePrice;
   
-  const priceTiers = [singlePrice, packPrice, cartonPrice].filter(p => p !== null && p > 0);
-  const priceBreaks = buildPriceBreaks(priceTiers);
+  // Apply markup to price tiers
+  const markedUpPriceTiers = [
+    applyMarkup(singlePrice), 
+    applyMarkup(packPrice), 
+    applyMarkup(cartonPrice)
+  ].filter(p => p !== null && p > 0);
+  const priceBreaks = buildPriceBreaks(markedUpPriceTiers);
 
   const sizes = Array.from(sizesSet).sort((a, b) => {
     const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
@@ -1322,14 +1341,16 @@ async function buildProductDetailQuery(styleCode) {
     }
   });
 
-  const minPrice = prices.length > 0 ? Math.min(...prices.filter(p => p > 0)) : 0;
+  // Apply markup to display price
+  const rawMinPrice = prices.length > 0 ? Math.min(...prices.filter(p => p > 0)) : 0;
+  const displayPrice = applyMarkup(rawMinPrice);
   
   const productDetail = {
     code: styleCode,
     name: firstRow.style_name || '',
     brand: firstRow.brand || '',
-    price: minPrice,
-    basePrice: minPrice,
+    price: displayPrice,
+    basePrice: displayPrice,
     priceBreaks: priceBreaks || [],
     colors: colors,
     sizes: sizes.length > 0 ? sizes : [],

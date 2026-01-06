@@ -1,6 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const { queryWithTimeout } = require('../config/database');
+const { applyMarkup } = require('../utils/priceMarkup');
+
+// Helper function to apply markup to product arrays
+function applyMarkupToProducts(products) {
+  return products.map(p => ({
+    ...p,
+    price: applyMarkup(parseFloat(p.price))
+  }));
+}
 
 // ============================================================================
 // GENDER ENDPOINTS
@@ -68,7 +77,7 @@ router.get('/genders/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -145,7 +154,7 @@ router.get('/age-groups/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -246,7 +255,7 @@ router.get('/sleeves/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -327,7 +336,7 @@ router.get('/necklines/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -426,7 +435,7 @@ router.get('/fabrics/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -504,7 +513,7 @@ router.get('/sizes/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -581,7 +590,7 @@ router.get('/colors/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -663,7 +672,7 @@ router.get('/primary-colors/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -744,7 +753,7 @@ router.get('/styles/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -821,7 +830,7 @@ router.get('/tags/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -898,7 +907,7 @@ router.get('/weights/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -975,7 +984,7 @@ router.get('/fits/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -1052,7 +1061,7 @@ router.get('/sectors/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -1129,7 +1138,7 @@ router.get('/sports/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -1210,7 +1219,7 @@ router.get('/effects/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -1287,7 +1296,7 @@ router.get('/accreditations/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -1369,7 +1378,7 @@ router.get('/colour-shades/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -1449,7 +1458,7 @@ router.get('/brands/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -1534,7 +1543,7 @@ router.get('/product-types/:slug/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)
@@ -1611,7 +1620,7 @@ router.get('/price-range/:min/:max/products', async (req, res) => {
     ]);
 
     res.json({
-      items: productsResult.rows,
+      items: applyMarkupToProducts(productsResult.rows),
       page: parseInt(page),
       limit: parseInt(limit),
       total: parseInt(countResult.rows[0]?.total || 0)

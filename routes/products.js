@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { pool, queryWithTimeout } = require('../config/database');
 const { buildProductListQuery, buildProductDetailQuery } = require('../services/productService');
+const { applyMarkup } = require('../utils/priceMarkup');
 
 /**
  * GET /api/products
@@ -371,7 +372,17 @@ router.get('/:code/related', async (req, res) => {
       additionalProducts = additionalResult.rows;
     }
 
-    const allRelated = [...relatedResult.rows, ...additionalProducts];
+    // Apply markup to all related products' prices
+    const applyMarkupToProducts = (products) => {
+      return products.map(p => ({
+        ...p,
+        price: applyMarkup(parseFloat(p.price))
+      }));
+    };
+
+    const markedUpRelated = applyMarkupToProducts(relatedResult.rows);
+    const markedUpAdditional = applyMarkupToProducts(additionalProducts);
+    const allRelated = [...markedUpRelated, ...markedUpAdditional];
 
     res.json({
       currentProduct: {
@@ -381,8 +392,8 @@ router.get('/:code/related', async (req, res) => {
       },
       related: allRelated,
       total: allRelated.length,
-      sameBrandAndType: relatedResult.rows.length,
-      sameTypeOnly: additionalProducts.length
+      sameBrandAndType: markedUpRelated.length,
+      sameTypeOnly: markedUpAdditional.length
     });
   } catch (error) {
     console.error('[ERROR] Failed to fetch related products:', {
