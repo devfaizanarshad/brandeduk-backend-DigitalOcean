@@ -3,12 +3,397 @@ const router = express.Router();
 const { queryWithTimeout } = require('../config/database');
 const { applyMarkup } = require('../utils/priceMarkup');
 
-// Helper function to apply markup to product arrays
-function applyMarkupToProducts(products) {
-  return products.map(p => ({
-    ...p,
-    price: applyMarkup(parseFloat(p.price))
-  }));
+// Helper function to build price breaks from price tiers
+function buildPriceBreaks(prices) {
+  if (prices.length === 0) return [];
+  const sortedPrices = [...prices].sort((a, b) => b - a);
+  const breaks = [];
+  if (sortedPrices.length >= 3) {
+    breaks.push({ min: 1, max: 9, price: sortedPrices[0] });
+    breaks.push({ min: 10, max: 24, price: sortedPrices[1] });
+    breaks.push({ min: 25, max: 99999, price: sortedPrices[2] });
+  } else if (sortedPrices.length === 2) {
+    breaks.push({ min: 1, max: 9, price: sortedPrices[0] });
+    breaks.push({ min: 10, max: 99999, price: sortedPrices[1] });
+  } else {
+    breaks.push({ min: 1, max: 99999, price: sortedPrices[0] });
+  }
+  return breaks;
+}
+
+// Helper function to fetch full product details for style codes
+async function getFullProductDetails(styleCodes) {
+  if (!styleCodes || styleCodes.length === 0) return [];
+
+  const query = `
+    SELECT 
+      p.style_code,
+      s.style_name,
+      b.name as brand,
+      p.colour_name,
+      p.primary_colour,
+      p.colour_image_url,
+      p.primary_image_url,
+      sz.name as size,
+      sz.size_order,
+      p.single_price,
+      p.pack_price,
+      p.carton_price
+    FROM products p
+    INNER JOIN styles s ON p.style_code = s.style_code
+    LEFT JOIN brands b ON s.brand_id = b.id
+    LEFT JOIN sizes sz ON p.size_id = sz.id
+    WHERE p.style_code = ANY($1::text[]) AND p.sku_status = 'Live'
+    ORDER BY p.style_code, p.colour_name, sz.size_order
+  `;
+
+  const result = await queryWithTimeout(query, [styleCodes], 20000);
+  
+  // Group by style_code
+  const productsMap = new Map();
+  
+  result.rows.forEach(row => {
+    const styleCode = row.style_code;
+    
+    if (!productsMap.has(styleCode)) {
+      productsMap.set(styleCode, {
+        code: styleCode,
+        name: row.style_name || '',
+        brand: row.brand || '',
+        primaryImageUrl: row.primary_image_url || '',
+        colorsMap: new Map(),
+        sizesSet: new Set(),
+        prices: [],
+        singlePrice: null,
+        packPrice: null,
+        cartonPrice: null
+      });
+    }
+    
+    const product = productsMap.get(styleCode);
+    
+    // Collect sizes
+    if (row.size) {
+      product.sizesSet.add(row.size);
+    }
+    
+    // Collect colors
+    const colorKey = row.colour_name || row.primary_colour || 'Unknown';
+    if (!product.colorsMap.has(colorKey)) {
+      const colorImage = row.colour_image_url || row.primary_image_url || '';
+      product.colorsMap.set(colorKey, {
+        name: colorKey,
+        main: colorImage,
+        thumb: colorImage
+      });
+    }
+    
+    // Collect prices
+    if (row.single_price) {
+      product.prices.push(parseFloat(row.single_price));
+      if (!product.singlePrice) product.singlePrice = parseFloat(row.single_price);
+    }
+    if (row.pack_price) {
+      product.prices.push(parseFloat(row.pack_price));
+      if (!product.packPrice) product.packPrice = parseFloat(row.pack_price);
+    }
+    if (row.carton_price) {
+      product.prices.push(parseFloat(row.carton_price));
+      if (!product.cartonPrice) product.cartonPrice = parseFloat(row.carton_price);
+    }
+  });
+
+  // Build response items maintaining original order
+  const items = styleCodes.map(styleCode => {
+    const product = productsMap.get(styleCode);
+    if (!product) return null;
+
+    let packPrice = product.packPrice || product.singlePrice;
+    let cartonPrice = product.cartonPrice || packPrice || product.singlePrice;
+    
+    // Apply markup to price tiers
+    const markedUpPriceTiers = [
+      applyMarkup(product.singlePrice), 
+      applyMarkup(packPrice), 
+      applyMarkup(cartonPrice)
+    ].filter(p => p !== null && p > 0);
+    const priceBreaks = buildPriceBreaks(markedUpPriceTiers);
+
+    // Sort sizes
+    const sizes = Array.from(product.sizesSet).sort((a, b) => {
+      const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
+      const aIndex = sizeOrder.indexOf(a.toUpperCase());
+      const bIndex = sizeOrder.indexOf(b.toUpperCase());
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return a.localeCompare(b);
+    });
+
+    // Apply markup to display price
+    const rawMinPrice = product.prices.length > 0 ? Math.min(...product.prices.filter(p => p > 0)) : 0;
+    const displayPrice = applyMarkup(rawMinPrice);
+
+    return {
+      code: product.code,
+      name: product.name,
+      price: displayPrice,
+      image: product.primaryImageUrl || '',
+      colors: Array.from(product.colorsMap.values()),
+      sizes,
+      customization: ['embroidery', 'print'],
+      brand: product.brand || '',
+      priceBreaks
+    };
+  }).filter(item => item !== null);
+
+  return items;
+}
+
+// Helper to get products by filter with full details
+async function getFilteredProductsWithDetails(filterColumn, filterValue, page, limit) {
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  
+  // Get style codes matching the filter
+  const styleCodesQuery = `
+    SELECT DISTINCT style_code
+    FROM product_search_materialized
+    WHERE ${filterColumn} = $1 AND sku_status = 'Live'
+    ORDER BY style_code
+    LIMIT $2 OFFSET $3
+  `;
+  
+  const countQuery = `
+    SELECT COUNT(DISTINCT style_code) as total
+    FROM product_search_materialized
+    WHERE ${filterColumn} = $1 AND sku_status = 'Live'
+  `;
+
+  const [styleCodesResult, countResult] = await Promise.all([
+    queryWithTimeout(styleCodesQuery, [filterValue, parseInt(limit), offset], 15000),
+    queryWithTimeout(countQuery, [filterValue], 10000)
+  ]);
+
+  const styleCodes = styleCodesResult.rows.map(r => r.style_code);
+  const items = await getFullProductDetails(styleCodes);
+  const total = parseInt(countResult.rows[0]?.total || 0);
+
+  // Calculate price range
+  let minPrice = Infinity, maxPrice = 0;
+  items.forEach(item => {
+    if (item.price > 0) {
+      minPrice = Math.min(minPrice, item.price);
+      maxPrice = Math.max(maxPrice, item.price);
+    }
+  });
+
+  return {
+    items,
+    page: parseInt(page),
+    limit: parseInt(limit),
+    total,
+    priceRange: {
+      min: minPrice === Infinity ? 0 : Math.round(minPrice * 100) / 100,
+      max: Math.round(maxPrice * 100) / 100
+    }
+  };
+}
+
+// Helper to get products by ARRAY filter (for slugs stored in arrays)
+async function getArrayFilteredProductsWithDetails(arrayColumn, filterValue, page, limit) {
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  
+  const styleCodesQuery = `
+    SELECT DISTINCT style_code
+    FROM product_search_materialized
+    WHERE ${arrayColumn} && ARRAY[$1]::text[] AND sku_status = 'Live'
+    ORDER BY style_code
+    LIMIT $2 OFFSET $3
+  `;
+  
+  const countQuery = `
+    SELECT COUNT(DISTINCT style_code) as total
+    FROM product_search_materialized
+    WHERE ${arrayColumn} && ARRAY[$1]::text[] AND sku_status = 'Live'
+  `;
+
+  const [styleCodesResult, countResult] = await Promise.all([
+    queryWithTimeout(styleCodesQuery, [filterValue, parseInt(limit), offset], 15000),
+    queryWithTimeout(countQuery, [filterValue], 10000)
+  ]);
+
+  const styleCodes = styleCodesResult.rows.map(r => r.style_code);
+  const items = await getFullProductDetails(styleCodes);
+  const total = parseInt(countResult.rows[0]?.total || 0);
+
+  let minPrice = Infinity, maxPrice = 0;
+  items.forEach(item => {
+    if (item.price > 0) {
+      minPrice = Math.min(minPrice, item.price);
+      maxPrice = Math.max(maxPrice, item.price);
+    }
+  });
+
+  return {
+    items,
+    page: parseInt(page),
+    limit: parseInt(limit),
+    total,
+    priceRange: {
+      min: minPrice === Infinity ? 0 : Math.round(minPrice * 100) / 100,
+      max: Math.round(maxPrice * 100) / 100
+    }
+  };
+}
+
+// Helper to get products by LOWER() filter (for case-insensitive text columns)
+async function getLowerFilteredProductsWithDetails(column, filterValue, page, limit) {
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  
+  const styleCodesQuery = `
+    SELECT DISTINCT style_code
+    FROM product_search_materialized
+    WHERE LOWER(${column}) = $1 AND sku_status = 'Live'
+    ORDER BY style_code
+    LIMIT $2 OFFSET $3
+  `;
+  
+  const countQuery = `
+    SELECT COUNT(DISTINCT style_code) as total
+    FROM product_search_materialized
+    WHERE LOWER(${column}) = $1 AND sku_status = 'Live'
+  `;
+
+  const [styleCodesResult, countResult] = await Promise.all([
+    queryWithTimeout(styleCodesQuery, [filterValue, parseInt(limit), offset], 15000),
+    queryWithTimeout(countQuery, [filterValue], 10000)
+  ]);
+
+  const styleCodes = styleCodesResult.rows.map(r => r.style_code);
+  const items = await getFullProductDetails(styleCodes);
+  const total = parseInt(countResult.rows[0]?.total || 0);
+
+  let minPrice = Infinity, maxPrice = 0;
+  items.forEach(item => {
+    if (item.price > 0) {
+      minPrice = Math.min(minPrice, item.price);
+      maxPrice = Math.max(maxPrice, item.price);
+    }
+  });
+
+  return {
+    items,
+    page: parseInt(page),
+    limit: parseInt(limit),
+    total,
+    priceRange: {
+      min: minPrice === Infinity ? 0 : Math.round(minPrice * 100) / 100,
+      max: Math.round(maxPrice * 100) / 100
+    }
+  };
+}
+
+// Helper for brand filtering (uses JOINs)
+async function getBrandFilteredProductsWithDetails(brandSlug, page, limit) {
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  
+  const styleCodesQuery = `
+    SELECT DISTINCT psm.style_code
+    FROM product_search_materialized psm
+    LEFT JOIN styles s ON psm.style_code = s.style_code
+    LEFT JOIN brands b ON s.brand_id = b.id
+    WHERE (LOWER(REPLACE(b.name, ' ', '-')) = $1 OR LOWER(b.name) = $1) AND psm.sku_status = 'Live'
+    ORDER BY psm.style_code
+    LIMIT $2 OFFSET $3
+  `;
+  
+  const countQuery = `
+    SELECT COUNT(DISTINCT psm.style_code) as total
+    FROM product_search_materialized psm
+    LEFT JOIN styles s ON psm.style_code = s.style_code
+    LEFT JOIN brands b ON s.brand_id = b.id
+    WHERE (LOWER(REPLACE(b.name, ' ', '-')) = $1 OR LOWER(b.name) = $1) AND psm.sku_status = 'Live'
+  `;
+
+  const [styleCodesResult, countResult] = await Promise.all([
+    queryWithTimeout(styleCodesQuery, [brandSlug, parseInt(limit), offset], 15000),
+    queryWithTimeout(countQuery, [brandSlug], 10000)
+  ]);
+
+  const styleCodes = styleCodesResult.rows.map(r => r.style_code);
+  const items = await getFullProductDetails(styleCodes);
+  const total = parseInt(countResult.rows[0]?.total || 0);
+
+  let minPrice = Infinity, maxPrice = 0;
+  items.forEach(item => {
+    if (item.price > 0) {
+      minPrice = Math.min(minPrice, item.price);
+      maxPrice = Math.max(maxPrice, item.price);
+    }
+  });
+
+  return {
+    items,
+    page: parseInt(page),
+    limit: parseInt(limit),
+    total,
+    priceRange: {
+      min: minPrice === Infinity ? 0 : Math.round(minPrice * 100) / 100,
+      max: Math.round(maxPrice * 100) / 100
+    }
+  };
+}
+
+// Helper for product type filtering (uses JOINs)
+async function getProductTypeFilteredProductsWithDetails(productTypeSlug, page, limit) {
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const searchTerm = productTypeSlug.toLowerCase().replace(/-/g, ' ');
+  
+  const styleCodesQuery = `
+    SELECT DISTINCT psm.style_code
+    FROM product_search_materialized psm
+    INNER JOIN styles s ON psm.style_code = s.style_code
+    INNER JOIN product_types pt ON s.product_type_id = pt.id
+    WHERE LOWER(pt.name) = $1 AND psm.sku_status = 'Live'
+    ORDER BY psm.style_code
+    LIMIT $2 OFFSET $3
+  `;
+  
+  const countQuery = `
+    SELECT COUNT(DISTINCT psm.style_code) as total
+    FROM product_search_materialized psm
+    INNER JOIN styles s ON psm.style_code = s.style_code
+    INNER JOIN product_types pt ON s.product_type_id = pt.id
+    WHERE LOWER(pt.name) = $1 AND psm.sku_status = 'Live'
+  `;
+
+  const [styleCodesResult, countResult] = await Promise.all([
+    queryWithTimeout(styleCodesQuery, [searchTerm, parseInt(limit), offset], 15000),
+    queryWithTimeout(countQuery, [searchTerm], 10000)
+  ]);
+
+  const styleCodes = styleCodesResult.rows.map(r => r.style_code);
+  const items = await getFullProductDetails(styleCodes);
+  const total = parseInt(countResult.rows[0]?.total || 0);
+
+  let minPrice = Infinity, maxPrice = 0;
+  items.forEach(item => {
+    if (item.price > 0) {
+      minPrice = Math.min(minPrice, item.price);
+      maxPrice = Math.max(maxPrice, item.price);
+    }
+  });
+
+  return {
+    items,
+    page: parseInt(page),
+    limit: parseInt(limit),
+    total,
+    priceRange: {
+      min: minPrice === Infinity ? 0 : Math.round(minPrice * 100) / 100,
+      max: Math.round(maxPrice * 100) / 100
+    }
+  };
 }
 
 // ============================================================================
@@ -48,40 +433,8 @@ router.get('/genders/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE psm.gender_slug = $1 AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE gender_slug = $1 AND sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getFilteredProductsWithDetails('gender_slug', slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by gender:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -125,40 +478,8 @@ router.get('/age-groups/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE psm.age_group_slug = $1 AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE age_group_slug = $1 AND sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getFilteredProductsWithDetails('age_group_slug', slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by age group:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -226,40 +547,8 @@ router.get('/sleeves/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE psm.sleeve_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE sleeve_slugs && ARRAY[$1]::text[] AND sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getArrayFilteredProductsWithDetails('sleeve_slugs', slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by sleeve:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -307,40 +596,8 @@ router.get('/necklines/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE psm.neckline_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE neckline_slugs && ARRAY[$1]::text[] AND sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getArrayFilteredProductsWithDetails('neckline_slugs', slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by neckline:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -406,40 +663,8 @@ router.get('/fabrics/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE psm.fabric_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE fabric_slugs && ARRAY[$1]::text[] AND sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getArrayFilteredProductsWithDetails('fabric_slugs', slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by fabric:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -484,40 +709,8 @@ router.get('/sizes/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE psm.size_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE size_slugs && ARRAY[$1]::text[] AND sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getArrayFilteredProductsWithDetails('size_slugs', slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by size:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -561,40 +754,8 @@ router.get('/colors/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE psm.colour_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE colour_slugs && ARRAY[$1]::text[] AND sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getArrayFilteredProductsWithDetails('colour_slugs', slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by color:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -643,40 +804,8 @@ router.get('/primary-colors/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE LOWER(psm.primary_colour) = $1 AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE LOWER(primary_colour) = $1 AND sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getLowerFilteredProductsWithDetails('primary_colour', slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by primary color:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -724,40 +853,8 @@ router.get('/styles/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE psm.style_keyword_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE style_keyword_slugs && ARRAY[$1]::text[] AND sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getArrayFilteredProductsWithDetails('style_keyword_slugs', slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by style:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -801,40 +898,8 @@ router.get('/tags/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE LOWER(psm.tag_slug) = $1 AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE LOWER(tag_slug) = $1 AND sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getLowerFilteredProductsWithDetails('tag_slug', slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by tag:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -878,40 +943,8 @@ router.get('/weights/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE psm.weight_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE weight_slugs && ARRAY[$1]::text[] AND sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getArrayFilteredProductsWithDetails('weight_slugs', slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by weight:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -955,40 +988,8 @@ router.get('/fits/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE LOWER(psm.fit_slug) = $1 AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE LOWER(fit_slug) = $1 AND sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getLowerFilteredProductsWithDetails('fit_slug', slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by fit:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -1032,40 +1033,8 @@ router.get('/sectors/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE psm.sector_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE sector_slugs && ARRAY[$1]::text[] AND sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getArrayFilteredProductsWithDetails('sector_slugs', slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by sector:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -1109,40 +1078,8 @@ router.get('/sports/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE psm.sport_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE sport_slugs && ARRAY[$1]::text[] AND sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getArrayFilteredProductsWithDetails('sport_slugs', slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by sport:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -1190,40 +1127,8 @@ router.get('/effects/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE psm.effects_arr && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE effects_arr && ARRAY[$1]::text[] AND sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getArrayFilteredProductsWithDetails('effects_arr', slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by effect:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -1267,40 +1172,8 @@ router.get('/accreditations/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE psm.accreditation_slugs && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE accreditation_slugs && ARRAY[$1]::text[] AND sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getArrayFilteredProductsWithDetails('accreditation_slugs', slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by accreditation:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -1349,40 +1222,8 @@ router.get('/colour-shades/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE LOWER(psm.colour_shade) = $1 AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
-      WHERE LOWER(colour_shade) = $1 AND sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getLowerFilteredProductsWithDetails('colour_shade', slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by colour shade:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -1427,42 +1268,8 @@ router.get('/brands/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE (LOWER(REPLACE(b.name, ' ', '-')) = $1 OR LOWER(b.name) = $1) AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT psm.style_code) as total
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE (LOWER(REPLACE(b.name, ' ', '-')) = $1 OR LOWER(b.name) = $1) AND psm.sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [slug.toLowerCase(), parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [slug.toLowerCase()], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getBrandFilteredProductsWithDetails(slug.toLowerCase(), page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by brand:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -1508,46 +1315,8 @@ router.get('/product-types/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
-    // Convert slug back to name format for matching
-    const searchTerm = slug.toLowerCase().replace(/-/g, ' ');
-
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      INNER JOIN styles s ON psm.style_code = s.style_code
-      INNER JOIN product_types pt ON s.product_type_id = pt.id
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE LOWER(pt.name) = $1 AND psm.sku_status = 'Live'
-      ORDER BY psm.style_code
-      LIMIT $2 OFFSET $3
-    `;
-
-    const countQuery = `
-      SELECT COUNT(DISTINCT psm.style_code) as total
-      FROM product_search_materialized psm
-      INNER JOIN styles s ON psm.style_code = s.style_code
-      INNER JOIN product_types pt ON s.product_type_id = pt.id
-      WHERE LOWER(pt.name) = $1 AND psm.sku_status = 'Live'
-    `;
-
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [searchTerm, parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [searchTerm], 10000)
-    ]);
-
-    res.json({
-      items: applyMarkupToProducts(productsResult.rows),
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
-    });
+    const result = await getProductTypeFilteredProductsWithDetails(slug, page, limit);
+    res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by product type:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -1560,7 +1329,7 @@ router.get('/product-types/:slug/products', async (req, res) => {
 
 /**
  * GET /api/filters/price-range
- * Returns min and max prices across all products
+ * Returns min and max prices across all products (with markup applied)
  */
 router.get('/price-range', async (req, res) => {
   try {
@@ -1573,9 +1342,10 @@ router.get('/price-range', async (req, res) => {
     `;
     const result = await queryWithTimeout(query, [], 10000);
     const row = result.rows[0];
+    // Apply markup to price range
     res.json({
-      min: parseFloat(row.min_price || 0),
-      max: parseFloat(row.max_price || 0)
+      min: applyMarkup(parseFloat(row.min_price || 0)),
+      max: applyMarkup(parseFloat(row.max_price || 0))
     });
   } catch (error) {
     console.error('[ERROR] Failed to fetch price range:', error.message);
@@ -1593,18 +1363,11 @@ router.get('/price-range/:min/:max/products', async (req, res) => {
     const { page = 1, limit = 24 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    const query = `
-      SELECT DISTINCT
-        psm.style_code as code,
-        psm.style_name as name,
-        psm.single_price as price,
-        psm.primary_image_url as image,
-        b.name as brand
-      FROM product_search_materialized psm
-      LEFT JOIN styles s ON psm.style_code = s.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE psm.single_price >= $1 AND psm.single_price <= $2 AND psm.sku_status = 'Live'
-      ORDER BY psm.single_price ASC, psm.style_code
+    const styleCodesQuery = `
+      SELECT DISTINCT style_code
+      FROM product_search_materialized
+      WHERE single_price >= $1 AND single_price <= $2 AND sku_status = 'Live'
+      ORDER BY single_price ASC, style_code
       LIMIT $3 OFFSET $4
     `;
 
@@ -1614,16 +1377,32 @@ router.get('/price-range/:min/:max/products', async (req, res) => {
       WHERE single_price >= $1 AND single_price <= $2 AND sku_status = 'Live'
     `;
 
-    const [productsResult, countResult] = await Promise.all([
-      queryWithTimeout(query, [parseFloat(min), parseFloat(max), parseInt(limit), offset], 15000),
+    const [styleCodesResult, countResult] = await Promise.all([
+      queryWithTimeout(styleCodesQuery, [parseFloat(min), parseFloat(max), parseInt(limit), offset], 15000),
       queryWithTimeout(countQuery, [parseFloat(min), parseFloat(max)], 10000)
     ]);
 
+    const styleCodes = styleCodesResult.rows.map(r => r.style_code);
+    const items = await getFullProductDetails(styleCodes);
+    const total = parseInt(countResult.rows[0]?.total || 0);
+
+    let minPrice = Infinity, maxPrice = 0;
+    items.forEach(item => {
+      if (item.price > 0) {
+        minPrice = Math.min(minPrice, item.price);
+        maxPrice = Math.max(maxPrice, item.price);
+      }
+    });
+
     res.json({
-      items: applyMarkupToProducts(productsResult.rows),
+      items,
       page: parseInt(page),
       limit: parseInt(limit),
-      total: parseInt(countResult.rows[0]?.total || 0)
+      total,
+      priceRange: {
+        min: minPrice === Infinity ? 0 : Math.round(minPrice * 100) / 100,
+        max: Math.round(maxPrice * 100) / 100
+      }
     });
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by price range:', error.message);

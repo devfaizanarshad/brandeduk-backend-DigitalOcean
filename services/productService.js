@@ -1129,9 +1129,8 @@ async function buildProductListQuery(filters, page, limit) {
       ].filter(p => p !== null && p > 0);
       const priceBreaks = buildPriceBreaks(markedUpPriceTiers);
 
-      const customization = product.customization.size > 0 
-        ? Array.from(product.customization) 
-        : ['print', 'embroidery'];
+      // Always hardcode customization options
+      const customization = ['embroidery', 'print'];
 
       const sizes = Array.from(product.sizesSet).sort((a, b) => {
         const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
@@ -1362,7 +1361,7 @@ async function buildProductDetailQuery(styleCode) {
       weight: '',
       care: ''
     },
-    customization: customizationSet.size > 0 ? Array.from(customizationSet) : ['print', 'embroidery']
+    customization: ['embroidery', 'print']
   };
 
   // Cache product details (longer TTL - product details change less frequently)
