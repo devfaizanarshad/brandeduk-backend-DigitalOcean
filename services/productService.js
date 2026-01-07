@@ -618,8 +618,10 @@ async function buildProductListQuery(filters, page, limit) {
       
       // Generate all search variations
       const allVariations = searchTerms.flatMap(createSearchVariations);
-      // Use first variation for tsquery (most common), but we'll also use pattern matching
-      const normalizedSearch = searchTerms.join(' ');
+      // For full-text search, include variations so "tshirts" also searches for "t-shirts"
+      // Join all variations with OR for better matching
+      const searchVariationsForText = allVariations.filter((v, i, arr) => arr.indexOf(v) === i); // unique
+      const normalizedSearch = searchVariationsForText.join(' ');
       const searchUpper = normalizedSearch.toUpperCase();
       
       // Create hyphen-normalized version for array matching
@@ -678,7 +680,7 @@ async function buildProductListQuery(filters, page, limit) {
       // Use to_tsquery with OR for flexible matching
       const fullTextParam = paramIndex;
       params.push(normalizedSearch);
-      paramIndex++;
+    paramIndex++;
       
       const codeParam = paramIndex;
       params.push(searchUpper);
@@ -692,20 +694,37 @@ async function buildProductListQuery(filters, page, limit) {
       const namePatternParam = paramIndex;
       // Create pattern that matches both "tshirt" and "t-shirt" in style_name
       const namePattern = searchTerms.map(t => {
-        const lower = t.toLowerCase();
-        // Handle common hyphen variations
+        const lower = t.toLowerCase().trim();
         let pattern = lower;
-        // tshirt -> t[- ]?shirt (matches t-shirt, t shirt, tshirt)
-        pattern = pattern.replace(/tshirt/g, 't[- ]?shirt');
-        pattern = pattern.replace(/tshirts/g, 't[- ]?shirts');
-        // vneck -> v[- ]?neck
-        pattern = pattern.replace(/vneck/g, 'v[- ]?neck');
-        // crewneck -> crew[- ]?neck
-        pattern = pattern.replace(/crewneck/g, 'crew[- ]?neck');
-        // For other terms, make hyphens optional
-        pattern = pattern.replace(/-/g, '[- ]?');
-        // Escape special regex chars
-        pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        
+        // CRITICAL: Handle tshirt/tshirts -> t-shirt/t-shirts (user types without hyphen)
+        // When user types "tshirts", we need to match "t-shirts" in database
+        if (lower.match(/^tshirts?$/)) {
+          // Exact match for tshirt or tshirts - match all variations
+          if (lower === 'tshirts') {
+            pattern = 't[- ]?shirts?'; // Matches: t-shirts, t shirts, tshirts
+          } else {
+            pattern = 't[- ]?shirt'; // Matches: t-shirt, t shirt, tshirt
+          }
+        } else if (lower.includes('tshirts')) {
+          // Contains tshirts - replace with flexible pattern
+          pattern = pattern.replace(/tshirts/g, 't[- ]?shirts?');
+        } else if (lower.includes('tshirt')) {
+          // Contains tshirt - replace with flexible pattern
+          pattern = pattern.replace(/tshirt/g, 't[- ]?shirt');
+        } else {
+          // For other terms, handle common hyphen variations
+          // vneck -> v[- ]?neck (matches v-neck, v neck, vneck)
+          pattern = pattern.replace(/vneck/g, 'v[- ]?neck');
+          // crewneck -> crew[- ]?neck
+          pattern = pattern.replace(/crewneck/g, 'crew[- ]?neck');
+          // Make hyphens and spaces optional for other terms
+          pattern = pattern.replace(/-/g, '[- ]?');
+          pattern = pattern.replace(/\s+/g, '[- ]?');
+          // Escape special regex chars
+          pattern = pattern.replace(/([.*+?^${}()|[\]\\])/g, '\\$1');
+        }
+        
         return pattern;
       }).join('.*');
       params.push(namePattern);
@@ -936,7 +955,7 @@ async function buildProductListQuery(filters, page, limit) {
       INNER JOIN product_types pt_pt ON s_pt.product_type_id = pt_pt.id 
         AND LOWER(TRIM(pt_pt.name)) = ANY($${paramIndex}::text[])`;
     params.push(normalizedProductTypes);
-    paramIndex++;
+        paramIndex++;
   }
 
   // Always filter by Live status
