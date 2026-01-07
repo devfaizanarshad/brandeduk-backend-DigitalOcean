@@ -580,39 +580,105 @@ async function buildProductListQuery(filters, page, limit) {
       
       searchRelevanceOrder = 'relevance_score DESC';
     } else {
-      // OPTIMIZED: Natural language search - Performance focused
+      // OPTIMIZED: Natural language search - Performance focused with flexible matching
       const searchTerms = trimmedSearch.split(/\s+/).filter(t => t.length > 0);
+      
+      // Create flexible search variations (handle hyphens/spaces)
+      const createSearchVariations = (term) => {
+        const variations = new Set();
+        const lower = term.toLowerCase();
+        
+        // Original term
+        variations.add(lower);
+        
+        // Common hyphen variations
+        if (lower.includes('tshirt')) {
+          variations.add(lower.replace(/tshirt/g, 't-shirt'));
+          variations.add(lower.replace(/tshirt/g, 't shirt'));
+        }
+        if (lower.includes('tshirts')) {
+          variations.add(lower.replace(/tshirts/g, 't-shirts'));
+          variations.add(lower.replace(/tshirts/g, 't shirts'));
+        }
+        if (lower.includes('vneck')) {
+          variations.add(lower.replace(/vneck/g, 'v-neck'));
+        }
+        if (lower.includes('crewneck')) {
+          variations.add(lower.replace(/crewneck/g, 'crew-neck'));
+        }
+        
+        // Without hyphens (tshirt from t-shirt)
+        variations.add(lower.replace(/-/g, ''));
+        
+        // With spaces (t shirt from t-shirt)
+        variations.add(lower.replace(/-/g, ' '));
+        
+        return Array.from(variations);
+      };
+      
+      // Generate all search variations
+      const allVariations = searchTerms.flatMap(createSearchVariations);
+      // Use first variation for tsquery (most common), but we'll also use pattern matching
       const normalizedSearch = searchTerms.join(' ');
       const searchUpper = normalizedSearch.toUpperCase();
       
-      // Simplified normalization (faster)
+      // Create hyphen-normalized version for array matching
       const normalizeTerm = (term, type) => {
         const lower = term.toLowerCase();
+        // Handle common hyphen variations
+        if (lower.includes('tshirt')) {
+          const base = lower.replace(/tshirt/g, 't-shirt');
+          return base.replace(/[^a-z0-9-]/g, '-');
+        }
         switch(type) {
           case 'neckline':
-            if (lower.includes('crew')) return 'crew-neck';
-            if (lower.includes('vneck') || lower.includes('v-neck')) return 'v-neck';
+            if (lower.includes('crew') || lower.includes('crewneck')) return 'crew-neck-2';
+            if (lower.includes('vneck') || lower.includes('v-neck')) return 'v-neck-2';
             return lower.replace(/[^a-z0-9]/g, '-');
           case 'sleeve':
-            if (lower.includes('long')) return 'long-sleeve';
-            if (lower.includes('short')) return 'short-sleeve';
+            if (lower.includes('long')) return 'long-sleeve-2';
+            if (lower.includes('short')) return 'short-sleeve-2';
             return lower.replace(/[^a-z0-9]/g, '-');
           default:
             return lower.replace(/[^a-z0-9]/g, '-');
         }
       };
       
-      // Pre-compute normalized terms
-      const colorTerms = searchTerms.map(t => normalizeTerm(t, 'color'));
-      const fabricTerms = searchTerms.map(t => normalizeTerm(t, 'fabric'));
-      const necklineTerms = searchTerms.map(t => normalizeTerm(t, 'neckline'));
-      const sleeveTerms = searchTerms.map(t => normalizeTerm(t, 'sleeve'));
-      const styleTerms = searchTerms.map(t => normalizeTerm(t, 'style'));
+      // Pre-compute normalized terms (try both with and without hyphens)
+      // This ensures "tshirt" matches "t-shirt" in array columns
+      const getTermVariations = (term, type) => {
+        const normalized = normalizeTerm(term, type);
+        const variations = new Set([normalized]);
+        
+        // Add without hyphens
+        variations.add(normalized.replace(/-/g, ''));
+        
+        // Add with hyphens for common cases
+        if (term.toLowerCase().includes('tshirt')) {
+          variations.add('t-shirt');
+          variations.add('t-shirts');
+        }
+        if (term.toLowerCase().includes('vneck')) {
+          variations.add('v-neck-2');
+        }
+        if (term.toLowerCase().includes('crewneck')) {
+          variations.add('crew-neck-2');
+        }
+        
+        return Array.from(variations);
+      };
+      
+      const colorTerms = searchTerms.flatMap(t => getTermVariations(t, 'color'));
+      const fabricTerms = searchTerms.flatMap(t => getTermVariations(t, 'fabric'));
+      const necklineTerms = searchTerms.flatMap(t => getTermVariations(t, 'neckline'));
+      const sleeveTerms = searchTerms.flatMap(t => getTermVariations(t, 'sleeve'));
+      const styleTerms = searchTerms.flatMap(t => getTermVariations(t, 'style'));
       
       // OPTIMIZED: Prioritize indexed operations - full-text search first (GIN index)
+      // Use to_tsquery with OR for flexible matching
       const fullTextParam = paramIndex;
       params.push(normalizedSearch);
-    paramIndex++;
+      paramIndex++;
       
       const codeParam = paramIndex;
       params.push(searchUpper);
@@ -622,7 +688,29 @@ async function buildProductListQuery(filters, page, limit) {
       params.push(`${searchUpper}%`);
       paramIndex++;
       
-      // REMOVED: nameParam - style_name ILIKE is too slow
+      // Add flexible name matching (handles hyphens) - use regex pattern
+      const namePatternParam = paramIndex;
+      // Create pattern that matches both "tshirt" and "t-shirt" in style_name
+      const namePattern = searchTerms.map(t => {
+        const lower = t.toLowerCase();
+        // Handle common hyphen variations
+        let pattern = lower;
+        // tshirt -> t[- ]?shirt (matches t-shirt, t shirt, tshirt)
+        pattern = pattern.replace(/tshirt/g, 't[- ]?shirt');
+        pattern = pattern.replace(/tshirts/g, 't[- ]?shirts');
+        // vneck -> v[- ]?neck
+        pattern = pattern.replace(/vneck/g, 'v[- ]?neck');
+        // crewneck -> crew[- ]?neck
+        pattern = pattern.replace(/crewneck/g, 'crew[- ]?neck');
+        // For other terms, make hyphens optional
+        pattern = pattern.replace(/-/g, '[- ]?');
+        // Escape special regex chars
+        pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return pattern;
+      }).join('.*');
+      params.push(namePattern);
+      paramIndex++;
+      
       // Array parameters (use GIN indexes efficiently)
       const colorArrayParam = paramIndex;
       params.push(colorTerms);
@@ -645,19 +733,18 @@ async function buildProductListQuery(filters, page, limit) {
       paramIndex++;
       
       // ULTRA-OPTIMIZED: Prioritize ONLY the fastest indexed operations
-      // Remove slow ILIKE operations that cause full table scans
-      // Focus on: full-text search (GIN index) + style_code (B-tree index) + array matches (GIN indexes)
+      // Add flexible name matching with pattern (handles hyphen variations)
       searchCondition = `(
         ${viewAlias}.search_vector @@ plainto_tsquery('english', $${fullTextParam}) OR
         ${viewAlias}.style_code = $${codeParam} OR
         ${viewAlias}.style_code ILIKE $${codePrefixParam} OR
+        ${viewAlias}.style_name ~* $${namePatternParam} OR
         ${viewAlias}.colour_slugs && $${colorArrayParam}::text[] OR
         ${viewAlias}.fabric_slugs && $${fabricArrayParam}::text[] OR
         ${viewAlias}.neckline_slugs && $${necklineArrayParam}::text[] OR
         ${viewAlias}.sleeve_slugs && $${sleeveArrayParam}::text[] OR
         ${viewAlias}.style_keyword_slugs && $${styleArrayParam}::text[]
       )`;
-      // REMOVED: style_name ILIKE - too slow, causes full table scan
       
       // ULTRA-OPTIMIZED: Simplified relevance - removed expensive calculations
       // Only calculate relevance for indexed operations (fast)
@@ -667,6 +754,8 @@ async function buildProductListQuery(filters, page, limit) {
           CASE WHEN ${viewAlias}.style_code = $${codeParam} THEN 100 ELSE 0 END +
           -- Prefix style code match (80 points) - FAST (indexed)
           CASE WHEN ${viewAlias}.style_code ILIKE $${codePrefixParam} THEN 80 ELSE 0 END +
+          -- Name pattern match (70 points) - Flexible hyphen matching
+          CASE WHEN ${viewAlias}.style_name ~* $${namePatternParam} THEN 70 ELSE 0 END +
           -- Full-text search (60 points) - FAST (GIN index)
           CASE WHEN ${viewAlias}.search_vector @@ plainto_tsquery('english', $${fullTextParam}) THEN 60 ELSE 0 END +
           -- Array matches (30 points each) - FAST (GIN indexes)
@@ -677,7 +766,6 @@ async function buildProductListQuery(filters, page, limit) {
           CASE WHEN ${viewAlias}.style_keyword_slugs && $${styleArrayParam}::text[] THEN 15 ELSE 0 END
         ) as relevance_score`;
       // REMOVED: ts_rank_cd calculation - too expensive
-      // REMOVED: style_name ILIKE - too slow
       
       searchRelevanceOrder = 'relevance_score DESC';
     }
