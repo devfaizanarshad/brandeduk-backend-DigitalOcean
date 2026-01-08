@@ -301,12 +301,105 @@ async function getCategoryStats() {
   }
 }
 
+/**
+ * Get categories for dropdown menu
+ * Returns product types (main categories) with their associated style keywords (subcategories)
+ * This is used for the frontend category dropdown menu
+ */
+async function getDropdownCategories() {
+  try {
+    // First, get all product types with product counts
+    const productTypesQuery = `
+      SELECT DISTINCT
+        pt.id,
+        pt.name,
+        pt.slug,
+        pt.display_order,
+        COUNT(DISTINCT s.style_code) as product_count
+      FROM product_types pt
+      INNER JOIN styles s ON pt.id = s.product_type_id
+      INNER JOIN products p ON s.style_code = p.style_code AND p.sku_status = 'Live'
+      GROUP BY pt.id, pt.name, pt.slug, pt.display_order
+      HAVING COUNT(DISTINCT s.style_code) > 0
+      ORDER BY pt.display_order ASC, pt.name ASC
+    `;
+
+    // Then, get keywords for each product type
+    const keywordsQuery = `
+      SELECT DISTINCT
+        pt.id as product_type_id,
+        sk.id as keyword_id,
+        sk.name as keyword_name,
+        sk.slug as keyword_slug,
+        COUNT(DISTINCT s.style_code) as product_count
+      FROM product_types pt
+      INNER JOIN styles s ON pt.id = s.product_type_id
+      INNER JOIN products p ON s.style_code = p.style_code AND p.sku_status = 'Live'
+      INNER JOIN style_keywords_mapping skm ON s.style_code = skm.style_code
+      INNER JOIN style_keywords sk ON skm.keyword_id = sk.id
+      GROUP BY pt.id, sk.id, sk.name, sk.slug
+      ORDER BY pt.id, sk.name ASC
+    `;
+
+    const [productTypesResult, keywordsResult] = await Promise.all([
+      queryWithTimeout(productTypesQuery, [], 10000),
+      queryWithTimeout(keywordsQuery, [], 10000)
+    ]);
+
+    // Build categories map
+    const categoriesMap = new Map();
+
+    // First, add all product types
+    productTypesResult.rows.forEach(row => {
+      categoriesMap.set(row.id, {
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        displayOrder: row.display_order || 0,
+        productCount: parseInt(row.product_count || 0),
+        subcategories: []
+      });
+    });
+
+    // Then, add keywords as subcategories
+    keywordsResult.rows.forEach(row => {
+      const category = categoriesMap.get(row.product_type_id);
+      if (category) {
+        const keywordSlug = row.keyword_slug || row.keyword_name.toLowerCase().replace(/\s+/g, '-');
+        category.subcategories.push({
+          id: row.keyword_id,
+          name: row.keyword_name,
+          slug: keywordSlug,
+          productCount: parseInt(row.product_count || 0)
+        });
+      }
+    });
+
+    // Convert map to array
+    const categories = Array.from(categoriesMap.values());
+    
+    // Sort subcategories by name
+    categories.forEach(cat => {
+      cat.subcategories.sort((a, b) => a.name.localeCompare(b.name));
+    });
+
+    return categories;
+  } catch (error) {
+    console.error('[ERROR] getDropdownCategories failed:', {
+      message: error.message,
+      stack: error.stack,
+    });
+    throw error;
+  }
+}
+
 module.exports = {
   getAllCategories,
   getCategoryBySlug,
   getCategoriesFlat,
   getCategoryIdsWithChildren,
   getCategoryIdsFromSlugs,
-  getCategoryStats
+  getCategoryStats,
+  getDropdownCategories
 };
 
