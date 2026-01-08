@@ -334,7 +334,7 @@ async function getDropdownCategories() {
       return [];
     }
 
-    // Then, get keywords for each product type (limited to 5 per product type)
+    // Then, get keywords for each product type, sorted by product count (most relevant first)
     const keywordsQuery = `
       SELECT DISTINCT
         pt.id as product_type_id,
@@ -349,10 +349,23 @@ async function getDropdownCategories() {
       INNER JOIN style_keywords sk ON skm.keyword_id = sk.id
       WHERE pt.id = ANY($1::int[])
       GROUP BY pt.id, sk.id, sk.name, sk.slug
-      ORDER BY pt.id, sk.name ASC
+      HAVING COUNT(DISTINCT s.style_code) >= 2
+      ORDER BY pt.id, COUNT(DISTINCT s.style_code) DESC, sk.name ASC
     `;
 
     const keywordsResult = await queryWithTimeout(keywordsQuery, [productTypeIds], 10000);
+
+    // Helper function to normalize slug (remove trailing numbers like "-1", "-2")
+    const normalizeSlug = (slug) => {
+      if (!slug) return '';
+      return slug.toLowerCase().replace(/-\d+$/, '').trim();
+    };
+
+    // Helper function to normalize name (for comparison)
+    const normalizeName = (name) => {
+      if (!name) return '';
+      return name.toLowerCase().trim();
+    };
 
     // Build categories map
     const categoriesMap = new Map();
@@ -369,32 +382,73 @@ async function getDropdownCategories() {
       });
     });
 
-    // Then, add keywords as subcategories (limit to 5 per product type)
+    // Process keywords: deduplicate and limit to 5 per product type
     const subcategoryCounts = new Map();
+    const seenKeywords = new Map(); // Track normalized slugs per product type
     
     keywordsResult.rows.forEach(row => {
       const category = categoriesMap.get(row.product_type_id);
-      if (category) {
-        const currentCount = subcategoryCounts.get(row.product_type_id) || 0;
-        if (currentCount < 5) {
-          const keywordSlug = row.keyword_slug || row.keyword_name.toLowerCase().replace(/\s+/g, '-');
-          category.subcategories.push({
-            id: row.keyword_id,
-            name: row.keyword_name,
-            slug: keywordSlug,
-            productCount: parseInt(row.product_count || 0)
-          });
-          subcategoryCounts.set(row.product_type_id, currentCount + 1);
+      if (!category) return;
+
+      const currentCount = subcategoryCounts.get(row.product_type_id) || 0;
+      if (currentCount >= 5) return; // Already have 5 subcategories
+
+      // Normalize the slug and name for deduplication
+      const normalizedSlug = normalizeSlug(row.keyword_slug || row.keyword_name.toLowerCase().replace(/\s+/g, '-'));
+      const normalizedName = normalizeName(row.keyword_name);
+      
+      // Create a key for this product type + normalized slug
+      const dedupeKey = `${row.product_type_id}_${normalizedSlug}`;
+      
+      // Check if we've already added this keyword (by normalized slug)
+      if (seenKeywords.has(dedupeKey)) {
+        // If we have a duplicate, keep the one with higher product count
+        const existing = seenKeywords.get(dedupeKey);
+        if (parseInt(row.product_count) > existing.productCount) {
+          // Replace with better one
+          const index = category.subcategories.findIndex(sub => sub.id === existing.id);
+          if (index !== -1) {
+            const keywordSlug = row.keyword_slug || row.keyword_name.toLowerCase().replace(/\s+/g, '-');
+            category.subcategories[index] = {
+              id: row.keyword_id,
+              name: row.keyword_name,
+              slug: keywordSlug,
+              productCount: parseInt(row.product_count || 0)
+            };
+            seenKeywords.set(dedupeKey, {
+              id: row.keyword_id,
+              productCount: parseInt(row.product_count || 0)
+            });
+          }
         }
+      } else {
+        // New keyword, add it
+        const keywordSlug = row.keyword_slug || row.keyword_name.toLowerCase().replace(/\s+/g, '-');
+        category.subcategories.push({
+          id: row.keyword_id,
+          name: row.keyword_name,
+          slug: keywordSlug,
+          productCount: parseInt(row.product_count || 0)
+        });
+        subcategoryCounts.set(row.product_type_id, currentCount + 1);
+        seenKeywords.set(dedupeKey, {
+          id: row.keyword_id,
+          productCount: parseInt(row.product_count || 0)
+        });
       }
     });
 
     // Convert map to array
     const categories = Array.from(categoriesMap.values());
     
-    // Sort subcategories by name (already sorted in query, but ensure consistency)
+    // Sort subcategories by product count descending (most relevant first), then by name
     categories.forEach(cat => {
-      cat.subcategories.sort((a, b) => a.name.localeCompare(b.name));
+      cat.subcategories.sort((a, b) => {
+        if (b.productCount !== a.productCount) {
+          return b.productCount - a.productCount; // Higher count first
+        }
+        return a.name.localeCompare(b.name); // Then alphabetically
+      });
     });
 
     return categories;
