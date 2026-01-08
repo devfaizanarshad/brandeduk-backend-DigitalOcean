@@ -9,7 +9,7 @@ This API provides endpoints to fetch categories for the dropdown menu and produc
 
 **Endpoint:** `GET /api/categories/dropdown`
 
-**Description:** Returns all product types (main categories) with their associated style keywords (subcategories). This endpoint is specifically designed for the frontend category dropdown menu.
+**Description:** Returns top 10 product types (main categories) ordered by display_order, each with up to 5 style keywords (subcategories). This endpoint is specifically designed for the frontend category dropdown menu.
 
 **Response Structure:**
 ```json
@@ -327,6 +327,8 @@ function updatePagination(currentPage, total, limit) {
 5. **Empty Subcategories**: Some product types may have empty `subcategories` arrays. In this case, clicking the main category will show all products of that type.
 
 6. **Product Counts**: The `productCount` field in the response shows how many products are available for each category/subcategory.
+
+7. **Limits**: The API returns only the top 10 product types (by display_order) and up to 5 subcategories per product type to optimize performance and keep the dropdown manageable.
 
 ---
 

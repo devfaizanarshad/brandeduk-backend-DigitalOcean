@@ -1525,7 +1525,8 @@ paths:
         - Categories
       summary: Get categories for dropdown menu
       description: |
-        Returns all product types (main categories) with their associated style keywords (subcategories).
+        Returns top 10 product types (main categories) ordered by display_order, 
+        each with up to 5 style keywords (subcategories).
         This endpoint is specifically designed for the frontend category dropdown menu.
         Each category includes product counts for both the main category and its subcategories.
       operationId: getDropdownCategories

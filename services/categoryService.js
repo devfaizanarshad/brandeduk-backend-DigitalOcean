@@ -308,7 +308,7 @@ async function getCategoryStats() {
  */
 async function getDropdownCategories() {
   try {
-    // First, get all product types with product counts
+    // First, get top 10 product types by display_order
     const productTypesQuery = `
       SELECT DISTINCT
         pt.id,
@@ -322,9 +322,19 @@ async function getDropdownCategories() {
       GROUP BY pt.id, pt.name, pt.slug, pt.display_order
       HAVING COUNT(DISTINCT s.style_code) > 0
       ORDER BY pt.display_order ASC, pt.name ASC
+      LIMIT 10
     `;
 
-    // Then, get keywords for each product type
+    const productTypesResult = await queryWithTimeout(productTypesQuery, [], 10000);
+
+    // Get the product type IDs for filtering keywords
+    const productTypeIds = productTypesResult.rows.map(row => row.id);
+
+    if (productTypeIds.length === 0) {
+      return [];
+    }
+
+    // Then, get keywords for each product type (limited to 5 per product type)
     const keywordsQuery = `
       SELECT DISTINCT
         pt.id as product_type_id,
@@ -337,19 +347,17 @@ async function getDropdownCategories() {
       INNER JOIN products p ON s.style_code = p.style_code AND p.sku_status = 'Live'
       INNER JOIN style_keywords_mapping skm ON s.style_code = skm.style_code
       INNER JOIN style_keywords sk ON skm.keyword_id = sk.id
+      WHERE pt.id = ANY($1::int[])
       GROUP BY pt.id, sk.id, sk.name, sk.slug
       ORDER BY pt.id, sk.name ASC
     `;
 
-    const [productTypesResult, keywordsResult] = await Promise.all([
-      queryWithTimeout(productTypesQuery, [], 10000),
-      queryWithTimeout(keywordsQuery, [], 10000)
-    ]);
+    const keywordsResult = await queryWithTimeout(keywordsQuery, [productTypeIds], 10000);
 
     // Build categories map
     const categoriesMap = new Map();
 
-    // First, add all product types
+    // First, add top 10 product types
     productTypesResult.rows.forEach(row => {
       categoriesMap.set(row.id, {
         id: row.id,
@@ -361,24 +369,30 @@ async function getDropdownCategories() {
       });
     });
 
-    // Then, add keywords as subcategories
+    // Then, add keywords as subcategories (limit to 5 per product type)
+    const subcategoryCounts = new Map();
+    
     keywordsResult.rows.forEach(row => {
       const category = categoriesMap.get(row.product_type_id);
       if (category) {
-        const keywordSlug = row.keyword_slug || row.keyword_name.toLowerCase().replace(/\s+/g, '-');
-        category.subcategories.push({
-          id: row.keyword_id,
-          name: row.keyword_name,
-          slug: keywordSlug,
-          productCount: parseInt(row.product_count || 0)
-        });
+        const currentCount = subcategoryCounts.get(row.product_type_id) || 0;
+        if (currentCount < 5) {
+          const keywordSlug = row.keyword_slug || row.keyword_name.toLowerCase().replace(/\s+/g, '-');
+          category.subcategories.push({
+            id: row.keyword_id,
+            name: row.keyword_name,
+            slug: keywordSlug,
+            productCount: parseInt(row.product_count || 0)
+          });
+          subcategoryCounts.set(row.product_type_id, currentCount + 1);
+        }
       }
     });
 
     // Convert map to array
     const categories = Array.from(categoriesMap.values());
     
-    // Sort subcategories by name
+    // Sort subcategories by name (already sorted in query, but ensure consistency)
     categories.forEach(cat => {
       cat.subcategories.sort((a, b) => a.name.localeCompare(b.name));
     });
