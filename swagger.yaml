@@ -203,9 +203,22 @@ paths:
             type: string
         - name: sort
           in: query
+          description: |
+            Sort option. Available values:
+            - `newest` - Sort by creation date (newest first)
+            - `best` - Best sellers (uses newest as proxy)
+            - `brand-az` - Sort by brand name A-Z
+            - `brand-za` - Sort by brand name Z-A
+            - `code-az` - Sort by product code A-Z
+            - `code-za` - Sort by product code Z-A
+            - `price-lh` - Sort by price low to high
+            - `price-hl` - Sort by price high to low
+            - `price` - Sort by price (use with order parameter)
+            - `name` - Sort by product name (use with order parameter)
           schema:
             type: string
-            enum: [newest, price-low, price-high, name]
+            enum: [newest, best, brand-az, brand-za, code-az, code-za, price-lh, price-hl, price, price-low, price-high, name]
+            default: newest
             default: newest
       responses:
         '200':

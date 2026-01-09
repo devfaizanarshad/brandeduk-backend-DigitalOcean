@@ -963,13 +963,19 @@ async function buildProductListQuery(filters, page, limit) {
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : `WHERE ${viewAlias}.sku_status = 'Live'`;
 
-  // Sorting
-  let orderBy = `${viewAlias}.created_at ${order}`;
+  // Sorting - determine sort field and order
+  let sortField = 'created_at';
   if (sort === 'price') {
-    orderBy = `${viewAlias}.single_price ${order}`;
+    sortField = 'single_price';
   } else if (sort === 'name') {
-    orderBy = `${viewAlias}.style_name ${order}`;
+    sortField = 'style_name';
+  } else if (sort === 'brand') {
+    sortField = 'brand_name';
+  } else if (sort === 'code') {
+    sortField = 'style_code';
   }
+  
+  const orderBy = `${sortField} ${order}`;
 
   const limitParamIndex = params.length + 1;
   const offsetParamIndex = params.length + 2;
@@ -990,12 +996,14 @@ async function buildProductListQuery(filters, page, limit) {
         MIN(${viewAlias}.style_name) as style_name,
         MIN(${viewAlias}.single_price) as single_price,
         MIN(${viewAlias}.created_at) as created_at,
-        MIN(COALESCE(pt.display_order, 999)) as product_type_priority
+        MIN(COALESCE(pt.display_order, 999)) as product_type_priority,
+        MIN(COALESCE(b.name, '')) as brand_name
         ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
       FROM style_codes_filtered scf
       INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
       LEFT JOIN styles s ON ${viewAlias}.style_code = s.style_code
         LEFT JOIN product_types pt ON s.product_type_id = pt.id
+        LEFT JOIN brands b ON s.brand_id = b.id
       WHERE ${viewAlias}.sku_status = 'Live'
       GROUP BY scf.style_code
       ),
@@ -1005,7 +1013,7 @@ async function buildProductListQuery(filters, page, limit) {
         ORDER BY 
           ${hasSearch && searchRelevanceOrder ? `${searchRelevanceOrder}, ` : ''}
           product_type_priority ASC,
-          ${sort === 'price' ? 'single_price' : sort === 'name' ? 'style_name' : 'created_at'} ${order}
+          ${sort === 'price' ? 'single_price' : sort === 'name' ? 'style_name' : sort === 'brand' ? 'brand_name' : sort === 'code' ? 'style_code' : 'created_at'} ${order}
       LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
       ),
       total_count AS (
@@ -1060,12 +1068,14 @@ async function buildProductListQuery(filters, page, limit) {
             MIN(${viewAlias}.style_name) as style_name,
             MIN(${viewAlias}.single_price) as single_price,
             MIN(${viewAlias}.created_at) as created_at,
-            MIN(COALESCE(pt.display_order, 999)) as product_type_priority
+            MIN(COALESCE(pt.display_order, 999)) as product_type_priority,
+            MIN(COALESCE(b.name, '')) as brand_name
             ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
           FROM style_codes_filtered scf
           INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
           LEFT JOIN styles s ON ${viewAlias}.style_code = s.style_code
       LEFT JOIN product_types pt ON s.product_type_id = pt.id
+            LEFT JOIN brands b ON s.brand_id = b.id
           WHERE ${viewAlias}.sku_status = 'Live'
           GROUP BY scf.style_code
         ),
@@ -1075,7 +1085,7 @@ async function buildProductListQuery(filters, page, limit) {
       ORDER BY 
         ${hasSearch && searchRelevanceOrder ? `${searchRelevanceOrder}, ` : ''}
         product_type_priority ASC,
-        ${sort === 'price' ? 'single_price' : sort === 'name' ? 'style_name' : 'created_at'} ${order}
+        ${sort === 'price' ? 'single_price' : sort === 'name' ? 'style_name' : sort === 'brand' ? 'brand_name' : sort === 'code' ? 'style_code' : 'created_at'} ${order}
       LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
     )
     SELECT 

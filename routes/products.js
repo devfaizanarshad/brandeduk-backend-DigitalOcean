@@ -43,6 +43,35 @@ router.get('/', async (req, res) => {
       order = 'desc'
     } = req.query;
 
+    // Normalize sort parameter to handle frontend values
+    // Frontend sends: best, brand-az, brand-za, code-az, code-za, price-lh, price-hl
+    // Map to internal sort values
+    let normalizedSort = sort;
+    let normalizedOrder = order;
+    
+    if (sort === 'best') {
+      normalizedSort = 'newest'; // Best sellers - use newest as proxy (can be changed to use sales data if available)
+      normalizedOrder = 'desc';
+    } else if (sort === 'brand-az') {
+      normalizedSort = 'brand';
+      normalizedOrder = 'asc';
+    } else if (sort === 'brand-za') {
+      normalizedSort = 'brand';
+      normalizedOrder = 'desc';
+    } else if (sort === 'code-az') {
+      normalizedSort = 'code';
+      normalizedOrder = 'asc';
+    } else if (sort === 'code-za') {
+      normalizedSort = 'code';
+      normalizedOrder = 'desc';
+    } else if (sort === 'price-lh') {
+      normalizedSort = 'price';
+      normalizedOrder = 'asc';
+    } else if (sort === 'price-hl') {
+      normalizedSort = 'price';
+      normalizedOrder = 'desc';
+    }
+
     // Parse array params - handles both array format (gender[]=x&gender[]=y) and single values
     const parseArray = (val) => {
       if (!val) return [];
@@ -104,8 +133,8 @@ router.get('/', async (req, res) => {
       tag: parseArray(tag),
       effect: parseArray(effect),
       productType: parseArray(productType || productTypes), // Accept both 'productType' and 'productTypes', supports product type names
-      sort: sort || 'newest', // Ensure default
-      order: order ? (order.toLowerCase() === 'asc' ? 'ASC' : 'DESC') : 'DESC' // Ensure default
+      sort: normalizedSort || 'newest', // Use normalized sort value
+      order: normalizedOrder ? (normalizedOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC') : 'DESC' // Use normalized order value
     };
 
     // Input validation and sanitization
