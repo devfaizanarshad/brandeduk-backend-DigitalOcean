@@ -1363,6 +1363,7 @@ async function buildProductDetailQuery(styleCode) {
       s.specification as description,
       s.fabric_description,
       b.name as brand,
+      pt.name as product_type,
       p.colour_name,
       p.primary_colour,
       p.colour_shade,
@@ -1376,6 +1377,7 @@ async function buildProductDetailQuery(styleCode) {
       t.name as tag
     FROM styles s
     LEFT JOIN brands b ON s.brand_id = b.id
+    LEFT JOIN product_types pt ON s.product_type_id = pt.id
     LEFT JOIN products p ON p.style_code = s.style_code AND p.sku_status = 'Live'
     LEFT JOIN sizes sz ON p.size_id = sz.id
     LEFT JOIN tags t ON p.tag_id = t.id
@@ -1482,6 +1484,7 @@ async function buildProductDetailQuery(styleCode) {
     code: styleCode,
     name: firstRow.style_name || '',
     brand: firstRow.brand || '',
+    productType: firstRow.product_type || '',
     price: displayPrice,
     basePrice: displayPrice,
     priceBreaks: priceBreaks || [],
