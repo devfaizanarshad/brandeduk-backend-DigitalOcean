@@ -2,40 +2,17 @@ const express = require('express');
 const router = express.Router();
 const { sendQuoteEmail } = require('../utils/emailService');
 
-/**
- * POST /api/quotes
- * Submit a quote request
- * 
- * Request body:
- * {
- *   "customer": {
- *     "fullName": "John Smith",
- *     "phone": "+44 7700 900000",
- *     "email": "john@example.com"
- *   },
- *   "product": {
- *     "name": "Golf performance crested cap",
- *     "code": "AD082",
- *     "selectedColorName": "Navy",
- *     "quantity": 10,
- *     "price": 12.50,
- *     "sizes": {
- *       "M": 5,
- *       "L": 5
- *     }
- *   },
- *   "basket": [...],
- *   "customizations": [...],
- *   "timestamp": "2026-01-09T20:30:00.000Z"
- * }
- */
 router.post('/', async (req, res) => {
   try {
-    const { customer, product, basket, customizations, timestamp } = req.body;
+    const {
+      customer,
+      summary,
+      basket,
+      customizations,
+      timestamp,
+    } = req.body;
 
-    console.log(req.body);
-    
-    // Validate required fields
+    // ✅ minimal required checks
     if (!customer || !customer.email) {
       return res.status(400).json({
         success: false,
@@ -43,68 +20,79 @@ router.post('/', async (req, res) => {
       });
     }
 
-    if (!product || !product.code) {
+    if (!Array.isArray(basket) || basket.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Product code is required',
+        message: 'Basket is required',
       });
     }
 
-    // Prepare email data
+    // ✅ pass-through spec structure
     const emailData = {
       customer: {
         fullName: customer.fullName || 'N/A',
-        email: customer.email,
         phone: customer.phone || 'N/A',
+        email: customer.email,
       },
-      product: {
-        name: product.name || 'N/A',
-        code: product.code,
-        selectedColorName: product.selectedColorName || 'N/A',
-        quantity: product.quantity || 0,
-        price: product.price || 0,
-        sizes: product.sizes || {},
-      },
-      basket: basket || [],
-      customizations: customizations || [],
+
+      summary: summary || {},
+
+      basket: basket.map(item => ({
+        name: item.name,
+        code: item.code,
+        color: item.color,
+        quantity: item.quantity,
+        sizes: item.sizes || {},
+        sizesSummary: item.sizesSummary || '',
+        unitPrice: item.unitPrice,
+        itemTotal: item.itemTotal,
+        image: item.image || null,
+      })),
+
+      customizations: Array.isArray(customizations)
+        ? customizations.map(c => ({
+            position: c.position,
+            method: c.method,
+            type: c.type,
+            hasLogo: c.hasLogo,
+            text: c.text ?? null,
+            unitPrice: c.unitPrice,
+            lineTotal: c.lineTotal,
+            quantity: c.quantity,
+          }))
+        : [],
+
       timestamp: timestamp || new Date().toISOString(),
     };
 
-
-    console.log("emailData", emailData);
-    
-
-    // Send email
     const emailResult = await sendQuoteEmail(emailData);
 
-    if (emailResult.sent) {
-      res.json({
+    if (emailResult?.success) {
+      return res.status(200).json({
         success: true,
         message: 'Quote sent successfully',
       });
-    } else {
-      // If email service is not configured but we're in development, still return success
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn('[QUOTES] Email not sent but returning success in development mode');
-        res.json({
-          success: true,
-          message: 'Quote request received (email service not configured)',
-        });
-      } else {
-        res.status(500).json({
-          success: false,
-          message: 'Failed to send quote email',
-        });
-      }
     }
-  } catch (error) {
-    console.error('[ERROR] Failed to process quote request:', error);
-    res.status(500).json({
+
+    if (process.env.NODE_ENV !== 'production') {
+      return res.status(200).json({
+        success: true,
+        message: 'Quote received (email disabled in dev)',
+      });
+    }
+
+    return res.status(500).json({
       success: false,
-      message: error.message || 'An error occurred while processing your quote request',
+      message: 'Failed to send quote email',
+    });
+
+  } catch (error) {
+    console.error('[QUOTES ERROR]', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error while submitting quote',
     });
   }
 });
 
 module.exports = router;
-
