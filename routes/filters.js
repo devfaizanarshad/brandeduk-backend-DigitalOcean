@@ -8,15 +8,106 @@ function buildPriceBreaks(prices) {
   if (prices.length === 0) return [];
   const sortedPrices = [...prices].sort((a, b) => b - a);
   const breaks = [];
+
+  // Discount tiers based on base price (1-9 tier)
+  const DISCOUNT_TIERS = {
+    '1-9': 0,        // 0% - Base price
+    '10-24': 0.08,   // 8% discount
+    '25-49': 0.10,   // 10% discount
+    '50-99': 0.15,   // 15% discount
+    '100-249': 0.25, // 25% discount
+    '250+': 0.30     // 30% discount
+  };
+
+  // Use the highest price (single price) as the base for all calculations
+  const basePrice = sortedPrices[0];
+
   if (sortedPrices.length >= 3) {
-    breaks.push({ min: 1, max: 9, price: sortedPrices[0] });
-    breaks.push({ min: 10, max: 24, price: sortedPrices[1] });
-    breaks.push({ min: 25, max: 99999, price: sortedPrices[2] });
+    // Calculate all 6 price break tiers based on base price and discount percentages
+    breaks.push({ 
+      min: 1, 
+      max: 9, 
+      price: Math.round(basePrice * 100) / 100 
+    });
+    breaks.push({ 
+      min: 10, 
+      max: 24, 
+      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['10-24']) * 100) / 100 
+    });
+    breaks.push({ 
+      min: 25, 
+      max: 49, 
+      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['25-49']) * 100) / 100 
+    });
+    breaks.push({ 
+      min: 50, 
+      max: 99, 
+      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['50-99']) * 100) / 100 
+    });
+    breaks.push({ 
+      min: 100, 
+      max: 249, 
+      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['100-249']) * 100) / 100 
+    });
+    breaks.push({ 
+      min: 250, 
+      max: 99999, 
+      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['250+']) * 100) / 100 
+    });
   } else if (sortedPrices.length === 2) {
-    breaks.push({ min: 1, max: 9, price: sortedPrices[0] });
-    breaks.push({ min: 10, max: 99999, price: sortedPrices[1] });
+    // If only 2 prices, use them for first two tiers, then calculate rest from base
+    breaks.push({ min: 1, max: 9, price: Math.round(sortedPrices[0] * 100) / 100 });
+    breaks.push({ min: 10, max: 24, price: Math.round(sortedPrices[1] * 100) / 100 });
+    
+    // Calculate remaining tiers from base price
+    breaks.push({ 
+      min: 25, 
+      max: 49, 
+      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['25-49']) * 100) / 100 
+    });
+    breaks.push({ 
+      min: 50, 
+      max: 99, 
+      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['50-99']) * 100) / 100 
+    });
+    breaks.push({ 
+      min: 100, 
+      max: 249, 
+      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['100-249']) * 100) / 100 
+    });
+    breaks.push({ 
+      min: 250, 
+      max: 99999, 
+      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['250+']) * 100) / 100 
+    });
   } else {
-    breaks.push({ min: 1, max: 99999, price: sortedPrices[0] });
+    // If only 1 price, calculate all tiers from it
+    breaks.push({ min: 1, max: 9, price: Math.round(basePrice * 100) / 100 });
+    breaks.push({ 
+      min: 10, 
+      max: 24, 
+      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['10-24']) * 100) / 100 
+    });
+    breaks.push({ 
+      min: 25, 
+      max: 49, 
+      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['25-49']) * 100) / 100 
+    });
+    breaks.push({ 
+      min: 50, 
+      max: 99, 
+      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['50-99']) * 100) / 100 
+    });
+    breaks.push({ 
+      min: 100, 
+      max: 249, 
+      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['100-249']) * 100) / 100 
+    });
+    breaks.push({ 
+      min: 250, 
+      max: 99999, 
+      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['250+']) * 100) / 100 
+    });
   }
   return breaks;
 }

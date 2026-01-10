@@ -5,17 +5,17 @@
 
 // Tiered markup configuration (based on supplier/cost price)
 const MARKUP_TIERS = [
-  { from: 0.01, to: 1.99, markup: 200 },
-  { from: 2.00, to: 2.99, markup: 80 },
-  { from: 3.00, to: 4.99, markup: 150 },
-  { from: 5.00, to: 9.99, markup: 138 },
-  { from: 10.00, to: 14.99, markup: 132 },
-  { from: 15.00, to: 24.99, markup: 90 },
-  { from: 25.00, to: 29.99, markup: 105.5 },
-  { from: 30.00, to: 34.99, markup: 110.3 },
-  { from: 35.00, to: 39.99, markup: 90.8 },
-  { from: 40.00, to: 44.99, markup: 85.7 },
-  { from: 45.00, to: Infinity, markup: 60.8 },
+  { from: 0.01, to: 1.99, markup: 200 },      // 200% markup for £0.01-£1.99
+  { from: 2.00, to: 2.99, markup: 80 },       // 80% markup for £2.00-£2.99
+  { from: 3.00, to: 4.99, markup: 150 },      // 150% markup for £3.00-£4.99
+  { from: 5.00, to: 9.99, markup: 138 },        // 138% markup for £5.00-£9.99
+  { from: 10.00, to: 14.99, markup: 132 },     // 132% markup for £10.00-£14.99
+  { from: 15.00, to: 24.99, markup: 90 },       // 90% markup for £15.00-£24.99
+  { from: 25.00, to: 29.99, markup: 105.5 },     // 105.5% markup for £25.00-£29.99
+  { from: 30.00, to: 34.99, markup: 110.3 },    // 110.3% markup for £30.00-£34.99
+  { from: 35.00, to: 39.99, markup: 90.8 },     // 90.8% markup for £35.00-£39.99
+  { from: 40.00, to: 44.99, markup: 85.7 },     // 85.7% markup for £40.00-£44.99
+  { from: 45.00, to: Infinity, markup: 60.8 },  // 60.8% markup for £45.00+
 ];
 
 /**
