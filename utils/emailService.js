@@ -208,13 +208,41 @@ Requested at: ${data.timestamp ? new Date(data.timestamp).toLocaleString() : 'N/
       `.trim(),
     };
 
-    console.log("mailOptions", mailOptions);
+    console.log('[EMAIL] Attempting to send email...');
+    console.log('[EMAIL] Mail options prepared:', {
+      from: mailOptions.from,
+      to: mailOptions.to,
+      subject: mailOptions.subject,
+      htmlLength: mailOptions.html?.length || 0
+    });
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log('[EMAIL] Quote email sent successfully:', info.messageId);
+    // Add timeout to prevent hanging
+    const sendPromise = transporter.sendMail(mailOptions);
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Email send timeout after 30 seconds')), 30000)
+    );
+
+    const info = await Promise.race([sendPromise, timeoutPromise]);
+    console.log('[EMAIL] Quote email sent successfully!');
+    console.log('[EMAIL] Message ID:', info.messageId);
+    console.log('[EMAIL] Response:', info.response || 'No response');
     return { sent: true, messageId: info.messageId };
   } catch (error) {
-    console.error('[EMAIL] Error sending quote email:', error);
+    console.error('[EMAIL] Error sending quote email:');
+    console.error('[EMAIL] Error name:', error.name);
+    console.error('[EMAIL] Error message:', error.message);
+    console.error('[EMAIL] Error code:', error.code);
+    console.error('[EMAIL] Full error:', error);
+    
+    // Check for specific Gmail errors
+    if (error.code === 'EAUTH') {
+      console.error('[EMAIL] Authentication failed - check SMTP credentials');
+    } else if (error.code === 'ETIMEDOUT' || error.message.includes('timeout')) {
+      console.error('[EMAIL] Connection timeout - check network/firewall settings');
+    } else if (error.code === 'ECONNREFUSED') {
+      console.error('[EMAIL] Connection refused - check SMTP host and port');
+    }
+    
     throw error;
   }
 }
