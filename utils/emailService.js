@@ -152,9 +152,15 @@ async function sendQuoteEmail(data) {
     const transporter = createTransporter();
 
     // Validate email configuration
-    if (!process.env.SMTP_USER && !process.env.EMAIL_USER) {
+    const smtpUser = process.env.SMTP_USER || process.env.EMAIL_USER;
+    const smtpPass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.EMAIL_PASSWORD;
+    
+    if (!smtpUser || !smtpPass) {
       console.warn('[EMAIL] Email credentials not configured. Email will not be sent.');
-      console.warn('[EMAIL] Please set SMTP_USER and SMTP_PASS in your .env file');
+      console.warn('[EMAIL] Missing:', {
+        SMTP_USER: !smtpUser ? 'NOT SET' : 'SET',
+        SMTP_PASS: !smtpPass ? 'NOT SET' : 'SET'
+      });
       // In development, you might want to just log instead of failing
       if (process.env.NODE_ENV === 'production') {
         throw new Error('Email service not configured');
@@ -165,7 +171,7 @@ async function sendQuoteEmail(data) {
     console.log('[EMAIL] SMTP Config:', {
       host: process.env.SMTP_HOST || 'smtp.gmail.com',
       port: process.env.SMTP_PORT || 587,
-      user: process.env.SMTP_USER || process.env.EMAIL_USER,
+      user: smtpUser,
       recipient: recipientEmail
     });
 
