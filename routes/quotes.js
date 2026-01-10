@@ -33,6 +33,8 @@ router.post('/', async (req, res) => {
   try {
     const { customer, product, basket, customizations, timestamp } = req.body;
 
+    console.log(req.body);
+    
     // Validate required fields
     if (!customer || !customer.email) {
       return res.status(400).json({
@@ -67,6 +69,10 @@ router.post('/', async (req, res) => {
       customizations: customizations || [],
       timestamp: timestamp || new Date().toISOString(),
     };
+
+
+    console.log("emailData", emailData);
+    
 
     // Send email
     const emailResult = await sendQuoteEmail(emailData);
