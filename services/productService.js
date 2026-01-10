@@ -1476,7 +1476,7 @@ async function buildProductDetailQuery(styleCode) {
     }
   });
 
-  // Apply markup to display price
+  // Apply markup to display price (minimum price for best display)
   const rawMinPrice = prices.length > 0 ? Math.min(...prices.filter(p => p > 0)) : 0;
   const displayPrice = applyMarkup(rawMinPrice);
   
@@ -1486,7 +1486,7 @@ async function buildProductDetailQuery(styleCode) {
     brand: firstRow.brand || '',
     productType: firstRow.product_type || '',
     price: displayPrice,
-    basePrice: displayPrice,
+    basePrice: basePrice,  // Use basePrice (single price after markup) to match 1-9 tier
     priceBreaks: priceBreaks || [],
     colors: colors,
     sizes: sizes.length > 0 ? sizes : [],
