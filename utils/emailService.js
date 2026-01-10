@@ -145,15 +145,17 @@ async function sendQuoteEmail(data) {
   try {
     console.log("data", data);
     // Determine recipient email based on environment
-    const recipientEmail = process.env.NODE_ENV === 'production' 
-      ? (process.env.QUOTE_EMAIL_PRODUCTION ||'devfaizanarshad@gmail.com')
-      : (process.env.QUOTE_EMAIL_DEV || 'devfaizanarshad@gmail.com');
+    // const recipientEmail = process.env.NODE_ENV === 'production' 
+    //   ? (process.env.QUOTE_EMAIL_PRODUCTION ||'devfaizanarshad@gmail.com')
+    //   : (process.env.QUOTE_EMAIL_DEV || 'devfaizanarshad@gmail.com');
+
+    const recipientEmail = 'devfaizanarshad@gmail.com';
 
     const transporter = createTransporter();
 
     // Validate email configuration
-    const smtpUser = process.env.SMTP_USER || process.env.EMAIL_USER;
-    const smtpPass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.EMAIL_PASSWORD;
+    const smtpUser = 'faizanarshaddev@gmail.com'
+    const smtpPass = 'wpowirmmtibzucow'
     
     if (!smtpUser || !smtpPass) {
       console.warn('[EMAIL] Email credentials not configured. Email will not be sent.');
@@ -162,15 +164,15 @@ async function sendQuoteEmail(data) {
         SMTP_PASS: !smtpPass ? 'NOT SET' : 'SET'
       });
       // In development, you might want to just log instead of failing
-      if (process.env.NODE_ENV === 'production') {
-        throw new Error('Email service not configured');
-      }
-      return { sent: false, message: 'Email service not configured' };
-    }
+    //   if (process.env.NODE_ENV === 'production') {
+    //     throw new Error('Email service not configured');
+    //   }
+    //   return { sent: false, message: 'Email service not configured' };
+    // }
 
     console.log('[EMAIL] SMTP Config:', {
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: process.env.SMTP_PORT || 587,
+      host:'smtp.gmail.com',
+      port: 587,
       user: smtpUser,
       recipient: recipientEmail
     });
