@@ -15,7 +15,7 @@ const quotesRoutes = require('./routes/quotes');
 const swaggerDocument = YAML.load(path.join(__dirname, 'swagger.yaml'));
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3004;
 
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -209,6 +209,7 @@ server = app.listen(PORT, () => {
 });
 
 server.on('error', (error) => {
+  
   if (error.code === 'EADDRINUSE') {
     console.error(`[SERVER] Port ${PORT} is already in use`);
   } else {

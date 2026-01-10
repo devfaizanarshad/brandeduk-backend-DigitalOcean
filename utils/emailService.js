@@ -143,9 +143,10 @@ function generateQuoteEmailHTML(data) {
  */
 async function sendQuoteEmail(data) {
   try {
+    console.log("data", data);
     // Determine recipient email based on environment
     const recipientEmail = process.env.NODE_ENV === 'production' 
-      ? (process.env.QUOTE_EMAIL_PRODUCTION || 'info@brandeduk.com')
+      ? (process.env.QUOTE_EMAIL_PRODUCTION ||'devfaizanarshad@gmail.com')
       : (process.env.QUOTE_EMAIL_DEV || 'devfaizanarshad@gmail.com');
 
     const transporter = createTransporter();
@@ -153,12 +154,20 @@ async function sendQuoteEmail(data) {
     // Validate email configuration
     if (!process.env.SMTP_USER && !process.env.EMAIL_USER) {
       console.warn('[EMAIL] Email credentials not configured. Email will not be sent.');
+      console.warn('[EMAIL] Please set SMTP_USER and SMTP_PASS in your .env file');
       // In development, you might want to just log instead of failing
       if (process.env.NODE_ENV === 'production') {
         throw new Error('Email service not configured');
       }
       return { sent: false, message: 'Email service not configured' };
     }
+
+    console.log('[EMAIL] SMTP Config:', {
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: process.env.SMTP_PORT || 587,
+      user: process.env.SMTP_USER || process.env.EMAIL_USER,
+      recipient: recipientEmail
+    });
 
     // Get customer name for subject (support both fullName and firstName/lastName)
     const customerName = data.customer?.fullName || 
@@ -192,6 +201,8 @@ Customizations: ${data.customizations?.length || 0} customization(s)
 Requested at: ${data.timestamp ? new Date(data.timestamp).toLocaleString() : 'N/A'}
       `.trim(),
     };
+
+    console.log("mailOptions", mailOptions);
 
     const info = await transporter.sendMail(mailOptions);
     console.log('[EMAIL] Quote email sent successfully:', info.messageId);
