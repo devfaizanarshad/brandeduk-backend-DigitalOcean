@@ -1235,16 +1235,9 @@ async function buildProductListQuery(filters, page, limit) {
       const product = productsMap.get(styleCode);
       if (!product) return null;
 
-      let packPrice = product.packPrice || product.singlePrice;
-      let cartonPrice = product.cartonPrice || packPrice || product.singlePrice;
-      
-      // Apply markup to price tiers BEFORE building breaks
-      const markedUpPriceTiers = [
-        applyMarkup(product.singlePrice), 
-        applyMarkup(packPrice), 
-        applyMarkup(cartonPrice)
-      ].filter(p => p !== null && p > 0);
-      const priceBreaks = buildPriceBreaks(markedUpPriceTiers);
+      // Apply markup to single price to get base price, then build price breaks
+      const basePrice = applyMarkup(product.singlePrice);
+      const priceBreaks = buildPriceBreaks(basePrice);
 
       // Always hardcode customization options
       const customization = ['embroidery', 'print'];
@@ -1303,10 +1296,9 @@ async function buildProductListQuery(filters, page, limit) {
   }
 }
 
-function buildPriceBreaks(prices) {
-  if (prices.length === 0) return [];
+function buildPriceBreaks(basePrice) {
+  if (!basePrice || basePrice <= 0) return [];
 
-  const sortedPrices = [...prices].sort((a, b) => b - a);
   const breaks = [];
 
   // Discount tiers based on base price (1-9 tier)
@@ -1319,96 +1311,37 @@ function buildPriceBreaks(prices) {
     '250+': 0.30     // 30% discount
   };
 
-  // Use the highest price (single price) as the base for all calculations
-  const basePrice = sortedPrices[0];
-
-  if (sortedPrices.length >= 3) {
-    // Calculate all 6 price break tiers based on base price and discount percentages
-    breaks.push({ 
-      min: 1, 
-      max: 9, 
-      price: Math.round(basePrice * 100) / 100 
-    });
-    breaks.push({ 
-      min: 10, 
-      max: 24, 
-      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['10-24']) * 100) / 100 
-    });
-    breaks.push({ 
-      min: 25, 
-      max: 49, 
-      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['25-49']) * 100) / 100 
-    });
-    breaks.push({ 
-      min: 50, 
-      max: 99, 
-      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['50-99']) * 100) / 100 
-    });
-    breaks.push({ 
-      min: 100, 
-      max: 249, 
-      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['100-249']) * 100) / 100 
-    });
-    breaks.push({ 
-      min: 250, 
-      max: 99999, 
-      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['250+']) * 100) / 100 
-    });
-  } else if (sortedPrices.length === 2) {
-    // If only 2 prices, use them for first two tiers, then calculate rest from base
-    breaks.push({ min: 1, max: 9, price: Math.round(sortedPrices[0] * 100) / 100 });
-    breaks.push({ min: 10, max: 24, price: Math.round(sortedPrices[1] * 100) / 100 });
-    
-    // Calculate remaining tiers from base price
-    breaks.push({ 
-      min: 25, 
-      max: 49, 
-      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['25-49']) * 100) / 100 
-    });
-    breaks.push({ 
-      min: 50, 
-      max: 99, 
-      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['50-99']) * 100) / 100 
-    });
-    breaks.push({ 
-      min: 100, 
-      max: 249, 
-      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['100-249']) * 100) / 100 
-    });
-    breaks.push({ 
-      min: 250, 
-      max: 99999, 
-      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['250+']) * 100) / 100 
-    });
-  } else {
-    // If only 1 price, calculate all tiers from it
-    breaks.push({ min: 1, max: 9, price: Math.round(basePrice * 100) / 100 });
-    breaks.push({ 
-      min: 10, 
-      max: 24, 
-      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['10-24']) * 100) / 100 
-    });
-    breaks.push({ 
-      min: 25, 
-      max: 49, 
-      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['25-49']) * 100) / 100 
-    });
-    breaks.push({ 
-      min: 50, 
-      max: 99, 
-      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['50-99']) * 100) / 100 
-    });
-    breaks.push({ 
-      min: 100, 
-      max: 249, 
-      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['100-249']) * 100) / 100 
-    });
-    breaks.push({ 
-      min: 250, 
-      max: 99999, 
-      price: Math.round(basePrice * (1 - DISCOUNT_TIERS['250+']) * 100) / 100 
-    });
-  }
+  // Calculate all 6 price break tiers based on base price and discount percentages
+  breaks.push({ 
+    min: 1, 
+    max: 9, 
+    price: Math.round(basePrice * 100) / 100 
+  });
+  breaks.push({ 
+    min: 10, 
+    max: 24, 
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['10-24']) * 100) / 100 
+  });
+  breaks.push({ 
+    min: 25, 
+    max: 49, 
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['25-49']) * 100) / 100 
+  });
+  breaks.push({ 
+    min: 50, 
+    max: 99, 
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['50-99']) * 100) / 100 
+  });
+  breaks.push({ 
+    min: 100, 
+    max: 249, 
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['100-249']) * 100) / 100 
+  });
+  breaks.push({ 
+    min: 250, 
+    max: 99999, 
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['250+']) * 100) / 100 
+  });
 
   return breaks;
 }
@@ -1489,26 +1422,20 @@ async function buildProductDetailQuery(styleCode) {
     }
   });
 
+  // Get single price (minimum across all sizes)
   let singlePrice = null;
-  let packPrice = null;
-  let cartonPrice = null;
-
   detailResult.rows.forEach(row => {
-    if (!singlePrice && row.single_price) singlePrice = parseFloat(row.single_price);
-    if (!packPrice && row.pack_price) packPrice = parseFloat(row.pack_price);
-    if (!cartonPrice && row.carton_price) cartonPrice = parseFloat(row.carton_price);
+    if (row.single_price) {
+      const price = parseFloat(row.single_price);
+      if (singlePrice === null || price < singlePrice) {
+        singlePrice = price;
+      }
+    }
   });
-
-  if (!packPrice) packPrice = singlePrice;
-  if (!cartonPrice) cartonPrice = packPrice || singlePrice;
   
-  // Apply markup to price tiers
-  const markedUpPriceTiers = [
-    applyMarkup(singlePrice), 
-    applyMarkup(packPrice), 
-    applyMarkup(cartonPrice)
-  ].filter(p => p !== null && p > 0);
-  const priceBreaks = buildPriceBreaks(markedUpPriceTiers);
+  // Apply markup to single price to get base price, then build price breaks
+  const basePrice = applyMarkup(singlePrice);
+  const priceBreaks = buildPriceBreaks(basePrice);
 
   const sizes = Array.from(sizesSet).sort((a, b) => {
     const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
