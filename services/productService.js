@@ -1424,19 +1424,12 @@ async function buildProductDetailQuery(styleCode) {
     }
   });
 
-  // Get single price (minimum across all sizes)
-  let singlePrice = null;
-  detailResult.rows.forEach(row => {
-    if (row.single_price) {
-      const price = parseFloat(row.single_price);
-      if (singlePrice === null || price < singlePrice) {
-        singlePrice = price;
-      }
-    }
-  });
+  // Get minimum price from all available prices (single, pack, carton)
+  // This ensures we use the best available price as the base
+  const rawMinPrice = prices.length > 0 ? Math.min(...prices.filter(p => p > 0)) : 0;
   
-  // Apply markup to single price to get base price, then build price breaks
-  const basePrice = applyMarkup(singlePrice);
+  // Apply markup to minimum price to get base price, then build price breaks
+  const basePrice = applyMarkup(rawMinPrice);
   const priceBreaks = buildPriceBreaks(basePrice);
 
   const sizes = Array.from(sizesSet).sort((a, b) => {
@@ -1476,17 +1469,16 @@ async function buildProductDetailQuery(styleCode) {
     }
   });
 
-  // Apply markup to display price (minimum price for best display)
-  const rawMinPrice = prices.length > 0 ? Math.min(...prices.filter(p => p > 0)) : 0;
-  const displayPrice = applyMarkup(rawMinPrice);
+  // Price and basePrice should be the same (single unit price after markup)
+  // The 1-9 tier in priceBreaks also equals basePrice (0% discount)
   
   const productDetail = {
     code: styleCode,
     name: firstRow.style_name || '',
     brand: firstRow.brand || '',
     productType: firstRow.product_type || '',
-    price: displayPrice,
-    basePrice: basePrice,  // Use basePrice (single price after markup) to match 1-9 tier
+    price: basePrice,  // Same as basePrice - single unit price after markup
+    basePrice: basePrice,  // Single price after markup (matches 1-9 tier)
     priceBreaks: priceBreaks || [],
     colors: colors,
     sizes: sizes.length > 0 ? sizes : [],

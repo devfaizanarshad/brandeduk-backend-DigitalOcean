@@ -37,7 +37,7 @@ info:
 servers:
   - url: https://brandeduk-backend.onrender.com
     description: Production Server
-  - url: http://localhost:3000
+  - url: http://localhost:3004
     description: Local Development
 
 tags:
