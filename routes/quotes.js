@@ -20,6 +20,20 @@ router.post('/', async (req, res) => {
       });
     }
 
+    if (!customer.fullName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Customer full name is required',
+      });
+    }
+
+    if (!customer.phone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Customer phone is required',
+      });
+    }
+
     if (!Array.isArray(basket) || basket.length === 0) {
       return res.status(400).json({
         success: false,
@@ -27,12 +41,14 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // ✅ pass-through spec structure
+    // ✅ pass-through spec structure with optional fields
     const emailData = {
       customer: {
-        fullName: customer.fullName || 'N/A',
-        phone: customer.phone || 'N/A',
+        fullName: customer.fullName,
+        company: customer.company || null, // Optional
+        phone: customer.phone,
         email: customer.email,
+        address: customer.address || null, // Optional
       },
 
       summary: summary || {},
