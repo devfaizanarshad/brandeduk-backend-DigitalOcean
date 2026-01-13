@@ -226,14 +226,59 @@ async function getFilteredProductsWithDetails(filterColumn, filterValue, page, l
 }
 
 // Helper to get products by ARRAY filter (for slugs stored in arrays)
-async function getArrayFilteredProductsWithDetails(arrayColumn, filterValue, page, limit) {
+async function getArrayFilteredProductsWithDetails(arrayColumn, filterValue, page, limit, sort = 'newest', order = 'DESC') {
   const offset = (parseInt(page) - 1) * parseInt(limit);
   
+  // Normalize sort parameter
+  let normalizedSort = sort;
+  let normalizedOrder = order;
+  
+  if (sort === 'best') {
+    normalizedSort = 'newest';
+    normalizedOrder = 'DESC';
+  } else if (sort === 'brand-az') {
+    normalizedSort = 'brand';
+    normalizedOrder = 'ASC';
+  } else if (sort === 'brand-za') {
+    normalizedSort = 'brand';
+    normalizedOrder = 'DESC';
+  } else if (sort === 'code-az') {
+    normalizedSort = 'code';
+    normalizedOrder = 'ASC';
+  } else if (sort === 'code-za') {
+    normalizedSort = 'code';
+    normalizedOrder = 'DESC';
+  } else if (sort === 'price-lh') {
+    normalizedSort = 'price';
+    normalizedOrder = 'ASC';
+  } else if (sort === 'price-hl') {
+    normalizedSort = 'price';
+    normalizedOrder = 'DESC';
+  }
+  
+  // Determine sort field - use fields from product_search_materialized or join tables
+  let orderBy = 'psm.style_code';
+  if (normalizedSort === 'price') {
+    orderBy = `psm.single_price ${normalizedOrder}, psm.style_code`;
+  } else if (normalizedSort === 'name') {
+    orderBy = `psm.style_name ${normalizedOrder}, psm.style_code`;
+  } else if (normalizedSort === 'brand') {
+    // Need to join brands table for brand sorting
+    orderBy = `b.name ${normalizedOrder}, psm.style_code`;
+  } else if (normalizedSort === 'code') {
+    orderBy = `psm.style_code ${normalizedOrder}`;
+  } else {
+    // Default: newest (created_at)
+    orderBy = `psm.created_at ${normalizedOrder}, psm.style_code`;
+  }
+  
   const styleCodesQuery = `
-    SELECT DISTINCT style_code
-    FROM product_search_materialized
-    WHERE ${arrayColumn} && ARRAY[$1]::text[] AND sku_status = 'Live'
-    ORDER BY style_code
+    SELECT DISTINCT psm.style_code
+    FROM product_search_materialized psm
+    LEFT JOIN styles s ON psm.style_code = s.style_code
+    LEFT JOIN brands b ON s.brand_id = b.id
+    WHERE ${arrayColumn} && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
+    ORDER BY ${orderBy}
     LIMIT $2 OFFSET $3
   `;
   
@@ -371,17 +416,73 @@ async function getBrandFilteredProductsWithDetails(brandSlug, page, limit) {
 }
 
 // Helper for product type filtering (uses JOINs)
-async function getProductTypeFilteredProductsWithDetails(productTypeSlug, page, limit) {
+async function getProductTypeFilteredProductsWithDetails(productTypeSlug, page, limit, sort = 'newest', order = 'DESC') {
   const offset = (parseInt(page) - 1) * parseInt(limit);
-  const searchTerm = productTypeSlug.toLowerCase().replace(/-/g, ' ');
+  // Normalize product type: remove hyphens and spaces, convert to DB format (e.g., "tshirts")
+  // Handles: tshirts, tshirt, t shirt, t-shirt, t-shirts -> all match "tshirts" in DB
+  const normalizeProductType = (slug) => {
+    const normalized = slug.trim().toLowerCase();
+    // Remove all hyphens and spaces
+    let cleaned = normalized.replace(/[- ]/g, '');
+    // Handle t-shirt variations specifically - always use plural "tshirts" to match DB
+    if (cleaned.includes('tshirt')) {
+      cleaned = 'tshirts'; // Always use plural form as stored in DB
+    }
+    return cleaned;
+  };
+  
+  const searchTerm = normalizeProductType(productTypeSlug);
+  
+  // Normalize sort parameter
+  let normalizedSort = sort;
+  let normalizedOrder = order;
+  
+  if (sort === 'best') {
+    normalizedSort = 'newest';
+    normalizedOrder = 'DESC';
+  } else if (sort === 'brand-az') {
+    normalizedSort = 'brand';
+    normalizedOrder = 'ASC';
+  } else if (sort === 'brand-za') {
+    normalizedSort = 'brand';
+    normalizedOrder = 'DESC';
+  } else if (sort === 'code-az') {
+    normalizedSort = 'code';
+    normalizedOrder = 'ASC';
+  } else if (sort === 'code-za') {
+    normalizedSort = 'code';
+    normalizedOrder = 'DESC';
+  } else if (sort === 'price-lh') {
+    normalizedSort = 'price';
+    normalizedOrder = 'ASC';
+  } else if (sort === 'price-hl') {
+    normalizedSort = 'price';
+    normalizedOrder = 'DESC';
+  }
+  
+  // Determine sort field
+  let orderBy = 'psm.style_code';
+  if (normalizedSort === 'price') {
+    orderBy = `psm.single_price ${normalizedOrder}, psm.style_code`;
+  } else if (normalizedSort === 'name') {
+    orderBy = `psm.style_name ${normalizedOrder}, psm.style_code`;
+  } else if (normalizedSort === 'brand') {
+    orderBy = `b.name ${normalizedOrder}, psm.style_code`;
+  } else if (normalizedSort === 'code') {
+    orderBy = `psm.style_code ${normalizedOrder}`;
+  } else {
+    // Default: newest (created_at)
+    orderBy = `psm.created_at ${normalizedOrder}, psm.style_code`;
+  }
   
   const styleCodesQuery = `
     SELECT DISTINCT psm.style_code
     FROM product_search_materialized psm
     INNER JOIN styles s ON psm.style_code = s.style_code
     INNER JOIN product_types pt ON s.product_type_id = pt.id
-    WHERE LOWER(pt.name) = $1 AND psm.sku_status = 'Live'
-    ORDER BY psm.style_code
+    LEFT JOIN brands b ON s.brand_id = b.id
+    WHERE LOWER(REPLACE(REPLACE(pt.name, '-', ''), ' ', '')) = $1 AND psm.sku_status = 'Live'
+    ORDER BY ${orderBy}
     LIMIT $2 OFFSET $3
   `;
   
@@ -390,7 +491,7 @@ async function getProductTypeFilteredProductsWithDetails(productTypeSlug, page, 
     FROM product_search_materialized psm
     INNER JOIN styles s ON psm.style_code = s.style_code
     INNER JOIN product_types pt ON s.product_type_id = pt.id
-    WHERE LOWER(pt.name) = $1 AND psm.sku_status = 'Live'
+    WHERE LOWER(REPLACE(REPLACE(pt.name, '-', ''), ' ', '')) = $1 AND psm.sku_status = 'Live'
   `;
 
   const [styleCodesResult, countResult] = await Promise.all([
@@ -1197,8 +1298,8 @@ router.get('/accreditations', async (req, res) => {
 router.get('/accreditations/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
-    const { page = 1, limit = 24 } = req.query;
-    const result = await getArrayFilteredProductsWithDetails('accreditation_slugs', slug.toLowerCase(), page, limit);
+    const { page = 1, limit = 24, sort = 'newest', order = 'desc' } = req.query;
+    const result = await getArrayFilteredProductsWithDetails('accreditation_slugs', slug.toLowerCase(), page, limit, sort, order.toUpperCase());
     res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by accreditation:', error.message);
@@ -1312,17 +1413,19 @@ router.get('/brands/:slug/products', async (req, res) => {
  */
 router.get('/product-types', async (req, res) => {
   try {
+    // Use INNER JOIN to only count styles that actually have Live products
+    // This matches the materialized view behavior and main API
     const query = `
       SELECT 
         pt.id,
         pt.name,
-        LOWER(REPLACE(pt.name, ' ', '-')) as slug,
+        COALESCE(pt.slug, LOWER(REPLACE(pt.name, ' ', '-'))) as slug,
         pt.display_order,
-        COUNT(DISTINCT s.style_code) as product_count
+        COUNT(DISTINCT psm.style_code) as product_count
       FROM product_types pt
       LEFT JOIN styles s ON pt.id = s.product_type_id
-      LEFT JOIN products p ON s.style_code = p.style_code AND p.sku_status = 'Live'
-      GROUP BY pt.id, pt.name, pt.display_order
+      INNER JOIN product_search_materialized psm ON s.style_code = psm.style_code AND psm.sku_status = 'Live'
+      GROUP BY pt.id, pt.name, pt.slug, pt.display_order
       ORDER BY pt.display_order ASC, pt.name ASC
     `;
     const result = await queryWithTimeout(query, [], 10000);
@@ -1340,8 +1443,8 @@ router.get('/product-types', async (req, res) => {
 router.get('/product-types/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
-    const { page = 1, limit = 24 } = req.query;
-    const result = await getProductTypeFilteredProductsWithDetails(slug, page, limit);
+    const { page = 1, limit = 24, sort = 'newest', order = 'desc' } = req.query;
+    const result = await getProductTypeFilteredProductsWithDetails(slug, page, limit, sort, order.toUpperCase());
     res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by product type:', error.message);

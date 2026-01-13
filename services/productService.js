@@ -192,14 +192,36 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
     }
     
     // Product type filter
+    // Normalize all variations (tshirts, tshirt, t shirt, t-shirt, t-shirts) to "tshirts"
     let productTypeJoin = '';
     if (hasItems(filters.productType) && excludeFilter !== 'productType') {
-      const normalizedProductTypes = filters.productType.map(pt => pt.trim().toLowerCase());
+      // Normalize product type: remove hyphens and spaces, convert to DB format (e.g., "tshirts")
+      const normalizeProductType = (pt) => {
+        const normalized = pt.trim().toLowerCase();
+        // Remove all hyphens and spaces
+        let cleaned = normalized.replace(/[- ]/g, '');
+        // Handle t-shirt variations specifically - ensure plural form
+        if (cleaned.includes('tshirt')) {
+          // If original had 'shirts' (plural) or is longer, use plural
+          if (normalized.includes('shirts') || (normalized.length > 6 && !normalized.endsWith('t'))) {
+            cleaned = 'tshirts';
+          } else {
+            cleaned = 'tshirt';
+          }
+        }
+        return cleaned;
+      };
+      
+      const normalizedProductTypes = filters.productType.map(normalizeProductType);
+      // Remove duplicates
+      const uniqueProductTypes = [...new Set(normalizedProductTypes)];
+      
+      // Match by removing hyphens/spaces from DB name and comparing
       productTypeJoin = `
         INNER JOIN styles s_pt ON ${viewAlias}.style_code = s_pt.style_code
         INNER JOIN product_types pt_pt ON s_pt.product_type_id = pt_pt.id 
-          AND LOWER(TRIM(pt_pt.name)) = ANY($${paramIndex}::text[])`;
-      params.push(normalizedProductTypes);
+          AND LOWER(REPLACE(REPLACE(pt_pt.name, '-', ''), ' ', '')) = ANY($${paramIndex}::text[])`;
+      params.push(uniqueProductTypes);
       paramIndex++;
     }
     
@@ -751,8 +773,28 @@ async function buildProductListQuery(filters, page, limit) {
       params.push(styleTerms);
       paramIndex++;
       
+      // Normalize product type search terms - convert all variations to "tshirts" format
+      // Handles: tshirts, tshirt, t shirt, t-shirt, t-shirts -> all match "tshirts" in DB
+      const normalizeProductTypeForSearch = (searchText) => {
+        const lower = searchText.toLowerCase().trim();
+        // Remove all hyphens and spaces, convert to single word format
+        let normalized = lower.replace(/[- ]/g, '');
+        // Handle t-shirt variations specifically - always use plural "tshirts" to match DB
+        if (normalized.includes('tshirt')) {
+          normalized = 'tshirts'; // Always use plural form as stored in DB
+        }
+        return normalized;
+      };
+      
+      // Check if search might be looking for a product type
+      const productTypeSearchTerm = normalizeProductTypeForSearch(trimmedSearch);
+      const productTypeParam = paramIndex;
+      params.push(productTypeSearchTerm);
+      paramIndex++;
+      
       // ULTRA-OPTIMIZED: Prioritize ONLY the fastest indexed operations
       // Add flexible name matching with pattern (handles hyphen variations)
+      // Include product type name matching - all variations match "tshirts" in DB
       searchCondition = `(
         ${viewAlias}.search_vector @@ plainto_tsquery('english', $${fullTextParam}) OR
         ${viewAlias}.style_code = $${codeParam} OR
@@ -762,7 +804,13 @@ async function buildProductListQuery(filters, page, limit) {
         ${viewAlias}.fabric_slugs && $${fabricArrayParam}::text[] OR
         ${viewAlias}.neckline_slugs && $${necklineArrayParam}::text[] OR
         ${viewAlias}.sleeve_slugs && $${sleeveArrayParam}::text[] OR
-        ${viewAlias}.style_keyword_slugs && $${styleArrayParam}::text[]
+        ${viewAlias}.style_keyword_slugs && $${styleArrayParam}::text[] OR
+        EXISTS (
+          SELECT 1 FROM styles s_pt_search 
+          INNER JOIN product_types pt_search ON s_pt_search.product_type_id = pt_search.id
+          WHERE s_pt_search.style_code = ${viewAlias}.style_code 
+            AND LOWER(REPLACE(REPLACE(pt_search.name, '-', ''), ' ', '')) = $${productTypeParam}
+        )
       )`;
       
       // ULTRA-OPTIMIZED: Simplified relevance - removed expensive calculations
@@ -775,6 +823,13 @@ async function buildProductListQuery(filters, page, limit) {
           CASE WHEN ${viewAlias}.style_code ILIKE $${codePrefixParam} THEN 80 ELSE 0 END +
           -- Name pattern match (70 points) - Flexible hyphen matching
           CASE WHEN ${viewAlias}.style_name ~* $${namePatternParam} THEN 70 ELSE 0 END +
+          -- Product type match (65 points) - All variations match "tshirts" in DB
+          CASE WHEN EXISTS (
+            SELECT 1 FROM styles s_pt_rel 
+            INNER JOIN product_types pt_rel ON s_pt_rel.product_type_id = pt_rel.id
+            WHERE s_pt_rel.style_code = ${viewAlias}.style_code 
+              AND LOWER(REPLACE(REPLACE(pt_rel.name, '-', ''), ' ', '')) = $${productTypeParam}
+          ) THEN 65 ELSE 0 END +
           -- Full-text search (60 points) - FAST (GIN index)
           CASE WHEN ${viewAlias}.search_vector @@ plainto_tsquery('english', $${fullTextParam}) THEN 60 ELSE 0 END +
           -- Array matches (30 points each) - FAST (GIN indexes)
@@ -942,19 +997,36 @@ async function buildProductListQuery(filters, page, limit) {
 
   // Category filter - REMOVED: Use /api/categories endpoint instead
 
-  // Product type filter - matches product type names (e.g., "T-Shirts", "Hoodies")
+  // Product type filter - matches product type names (e.g., "tshirts" in DB)
+  // Normalize all variations (tshirts, tshirt, t shirt, t-shirt, t-shirts) to "tshirts"
   // Store product type filter info for use in query CTE
   let productTypeJoin = '';
   if (hasItems(filters.productType)) {
-    // Normalize product type names - handle case-insensitive matching
-    const normalizedProductTypes = filters.productType.map(pt => pt.trim().toLowerCase());
+    // Normalize product type: remove hyphens and spaces, convert to DB format (e.g., "tshirts")
+    // Handles: tshirts, tshirt, t shirt, t-shirt, t-shirts -> all match "tshirts" in DB
+    const normalizeProductType = (pt) => {
+      const normalized = pt.trim().toLowerCase();
+      // Remove all hyphens and spaces
+      let cleaned = normalized.replace(/[- ]/g, '');
+      // Handle t-shirt variations specifically - always use plural "tshirts" to match DB
+      if (cleaned.includes('tshirt')) {
+        cleaned = 'tshirts'; // Always use plural form as stored in DB
+      }
+      return cleaned;
+    };
+    
+    const normalizedProductTypes = filters.productType.map(normalizeProductType);
+    // Remove duplicates
+    const uniqueProductTypes = [...new Set(normalizedProductTypes)];
+    
     // Build JOIN clause for first CTE - this ensures strict filtering at source
     // Apply filter directly in JOIN ON clause for stricter filtering
+    // Match by removing hyphens/spaces from DB name and comparing
     productTypeJoin = `
       INNER JOIN styles s_pt ON ${viewAlias}.style_code = s_pt.style_code
       INNER JOIN product_types pt_pt ON s_pt.product_type_id = pt_pt.id 
-        AND LOWER(TRIM(pt_pt.name)) = ANY($${paramIndex}::text[])`;
-    params.push(normalizedProductTypes);
+        AND LOWER(REPLACE(REPLACE(pt_pt.name, '-', ''), ' ', '')) = ANY($${paramIndex}::text[])`;
+    params.push(uniqueProductTypes);
         paramIndex++;
   }
 
