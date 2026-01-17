@@ -19,12 +19,6 @@ info:
     - `GET /api/products/types` - All product types with counts
     - `GET /api/products/{code}` - Single product details
     
-    ### Categories
-    - `GET /api/categories/dropdown` - Get categories for dropdown menu (product types with style keywords)
-    - `GET /api/categories` - Get all categories (hierarchical or flat format)
-    - `GET /api/categories/stats` - Get category statistics
-    - `GET /api/categories/{slug}` - Get category by slug
-    
     ### Filter Endpoints (Testing & Database Exploration)
     Each filter type has TWO endpoints:
     1. **List all values**: Returns all options from that database table
