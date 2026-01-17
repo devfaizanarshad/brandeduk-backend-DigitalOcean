@@ -4,5 +4,4 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 test-quote.js
-
-.env
+DigitalOcean_BrandedUk
