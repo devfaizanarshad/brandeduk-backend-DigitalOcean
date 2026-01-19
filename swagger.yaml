@@ -6,7 +6,7 @@ info:
     This API provides endpoints for the Branded UK e-commerce platform.
     
     ## Base URL
-    **Production**: `https://brandeduk-backend.onrender.com`
+    **Production**: `https://api.brandeduk.com`
     
     ## Authentication
     No authentication required. Public API.
@@ -29,7 +29,7 @@ info:
     name: API Support
 
 servers:
-  - url: https://brandeduk-backend.onrender.com
+  - url: https://api.brandeduk.com
     description: Production Server
   - url: http://localhost:3004
     description: Local Development

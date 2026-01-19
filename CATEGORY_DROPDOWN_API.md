@@ -55,7 +55,7 @@ This API provides endpoints to fetch categories for the dropdown menu and produc
 
 **Example Request:**
 ```javascript
-fetch('https://brandeduk-backend.onrender.com/api/categories/dropdown')
+fetch('https://api.brandeduk.com/api/categories/dropdown')
   .then(response => response.json())
   .then(data => {
     console.log('Categories:', data);
@@ -120,7 +120,7 @@ fetch('https://brandeduk-backend.onrender.com/api/categories/dropdown')
 #### Get products by main category only:
 ```javascript
 // Get all Sweatshirts
-fetch('https://brandeduk-backend.onrender.com/api/products?productType=Sweatshirts&page=1&limit=24')
+fetch('https://api.brandeduk.com/api/products?productType=Sweatshirts&page=1&limit=24')
   .then(response => response.json())
   .then(data => {
     console.log('Products:', data.items);
@@ -131,7 +131,7 @@ fetch('https://brandeduk-backend.onrender.com/api/products?productType=Sweatshir
 #### Get products by subcategory only:
 ```javascript
 // Get all products with "crew-neck" style
-fetch('https://brandeduk-backend.onrender.com/api/products?style=crew-neck&page=1&limit=24')
+fetch('https://api.brandeduk.com/api/products?style=crew-neck&page=1&limit=24')
   .then(response => response.json())
   .then(data => {
     console.log('Products:', data.items);
@@ -141,7 +141,7 @@ fetch('https://brandeduk-backend.onrender.com/api/products?style=crew-neck&page=
 #### Get products by both category and subcategory:
 ```javascript
 // Get Sweatshirts with crew-neck style
-fetch('https://brandeduk-backend.onrender.com/api/products?productType=Sweatshirts&style=crew-neck&page=1&limit=24')
+fetch('https://api.brandeduk.com/api/products?productType=Sweatshirts&style=crew-neck&page=1&limit=24')
   .then(response => response.json())
   .then(data => {
     console.log('Products:', data.items);
@@ -151,7 +151,7 @@ fetch('https://brandeduk-backend.onrender.com/api/products?productType=Sweatshir
 #### Get products by multiple subcategories:
 ```javascript
 // Get products with either "crew-neck" or "oversized" style
-fetch('https://brandeduk-backend.onrender.com/api/products?style=crew-neck&style=oversized&page=1&limit=24')
+fetch('https://api.brandeduk.com/api/products?style=crew-neck&style=oversized&page=1&limit=24')
   .then(response => response.json())
   .then(data => {
     console.log('Products:', data.items);
@@ -167,7 +167,7 @@ fetch('https://brandeduk-backend.onrender.com/api/products?style=crew-neck&style
 ```javascript
 async function loadCategories() {
   try {
-    const response = await fetch('https://brandeduk-backend.onrender.com/api/categories/dropdown');
+    const response = await fetch('https://api.brandeduk.com/api/categories/dropdown');
     const categories = await response.json();
     
     // Build your dropdown menu HTML
@@ -245,7 +245,7 @@ document.addEventListener('click', async (e) => {
 async function loadProducts(queryParams) {
   try {
     const response = await fetch(
-      `https://brandeduk-backend.onrender.com/api/products?${queryParams}`
+      `https://api.brandeduk.com/api/products?${queryParams}`
     );
     const data = await response.json();
     
@@ -473,7 +473,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 ## API Base URL
 
-- **Production**: `https://brandeduk-backend.onrender.com`
+- **Production**: `https://api.brandeduk.com`
 - **Local Development**: `http://localhost:3000`
 
 ---
