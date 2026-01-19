@@ -1313,8 +1313,12 @@ async function buildProductListQuery(filters, page, limit) {
       const product = productsMap.get(styleCode);
       if (!product) return null;
 
-      // Apply markup to single price to get base price, then build price breaks
-      const basePrice = applyMarkup(product.singlePrice);
+      // Get minimum price from all available prices (single, pack, carton)
+      // This ensures we use the best available price as the base, same as product details API
+      const rawMinPrice = product.prices.length > 0 ? Math.min(...product.prices.filter(p => p > 0)) : 0;
+      
+      // Apply markup to minimum price to get base price, then build price breaks
+      const basePrice = applyMarkup(rawMinPrice);
       const priceBreaks = buildPriceBreaks(basePrice);
 
       // Always hardcode customization options
