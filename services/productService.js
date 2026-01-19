@@ -1,6 +1,6 @@
 const { pool, queryWithTimeout } = require('../config/database');
 const { getCategoryIdsFromSlugs } = require('./categoryService');
-const { applyMarkup, applyMarkupToPriceRange } = require('../utils/priceMarkup');
+const { applyMarkup, applyMarkupToPriceRange, reverseMarkup } = require('../utils/priceMarkup');
 
 const queryCache = new Map();
 const aggregationCache = new Map(); // Separate cache for aggregations
@@ -848,14 +848,20 @@ async function buildProductListQuery(filters, page, limit) {
   }
 
   // Price range filter (indexed)
+  // IMPORTANT: User's priceMin/priceMax are in marked-up prices, but we filter on cost prices
+  // So we need to convert them to cost prices before filtering
   if (filters.priceMin !== null && filters.priceMin !== undefined) {
+    // Convert marked-up priceMin to cost price (reverse markup)
+    const costPriceMin = reverseMarkup(filters.priceMin);
     conditions.push(`${viewAlias}.single_price >= $${paramIndex}`);
-    params.push(filters.priceMin);
+    params.push(costPriceMin);
     paramIndex++;
   }
   if (filters.priceMax !== null && filters.priceMax !== undefined) {
+    // Convert marked-up priceMax to cost price (reverse markup)
+    const costPriceMax = reverseMarkup(filters.priceMax);
     conditions.push(`${viewAlias}.single_price <= $${paramIndex}`);
-    params.push(filters.priceMax);
+    params.push(costPriceMax);
     paramIndex++;
   }
 

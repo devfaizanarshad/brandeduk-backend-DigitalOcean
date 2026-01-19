@@ -127,12 +127,56 @@ function applyMarkupToPriceRange(priceRange) {
   };
 }
 
+/**
+ * Reverse markup calculation - convert marked-up price to cost price
+ * This is used to convert user's priceMax filter (in marked-up price) to cost price for filtering
+ * @param {number} markedUpPrice - The marked-up selling price
+ * @returns {number} - The maximum cost price that, after markup, would be <= markedUpPrice
+ */
+function reverseMarkup(markedUpPrice) {
+  if (!markedUpPrice || markedUpPrice <= 0) return 0;
+  
+  // Since markup is tiered based on cost price, we need to find the maximum cost price
+  // that, after markup, would result in a price <= markedUpPrice.
+  // For each tier: markedUpPrice = costPrice * (1 + markup/100)
+  // So: costPrice = markedUpPrice / (1 + markup/100)
+  // We check each tier and find the maximum valid cost price.
+  
+  let maxCostPrice = 0;
+  
+  // For each tier, find the maximum cost price that results in markedUpPrice after markup
+  for (const tier of MARKUP_TIERS) {
+    // Calculate what cost price would result in markedUpPrice after this tier's markup
+    const costPriceForMarkedUp = markedUpPrice / (1 + tier.markup / 100);
+    
+    // Check what the marked-up price would be at the tier boundaries
+    const markedUpAtTierMin = applyMarkup(tier.from);
+    
+    // If the tier's minimum (after markup) exceeds markedUpPrice, skip this tier
+    if (markedUpAtTierMin > markedUpPrice) {
+      continue;
+    }
+    
+    // Calculate the maximum cost price in this tier that works
+    // It's the minimum of: tier's max, or the calculated cost price for markedUpPrice
+    const maxCostInTier = Math.min(tier.to, costPriceForMarkedUp);
+    
+    // Ensure it's at least the tier's minimum
+    if (maxCostInTier >= tier.from) {
+      maxCostPrice = Math.max(maxCostPrice, maxCostInTier);
+    }
+  }
+  
+  return Math.round(maxCostPrice * 100) / 100; // Round to 2 decimal places
+}
+
 module.exports = {
   MARKUP_TIERS,
   getMarkupPercentage,
   applyMarkup,
   applyMarkupToProduct,
   applyMarkupToProducts,
-  applyMarkupToPriceRange
+  applyMarkupToPriceRange,
+  reverseMarkup
 };
 
