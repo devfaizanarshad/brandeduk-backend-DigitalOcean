@@ -6,7 +6,7 @@
  * Make sure to update the BASE_URL if testing locally vs production
  */
 
-const BASE_URL = 'https://brandeduk-backend.onrender.com';
+const BASE_URL = 'https://api.brandeduk.com';
 // For local testing, use: const BASE_URL = 'http://localhost:3000';
 
 async function testEndpoint(name, url) {
