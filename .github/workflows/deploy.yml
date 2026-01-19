@@ -3,7 +3,7 @@ name: Deploy to DigitalOcean VPS
 on:
   push:
     branches:
-      - main   # ya tumhara default branch
+      - main
 
 jobs:
   deploy:
@@ -20,9 +20,25 @@ jobs:
 
       - name: Deploy via SSH
         run: |
-          ssh -o StrictHostKeyChecking=no root@${{ secrets.SERVER_IP }} "
-            cd /root/app &&
-            git pull origin main &&
-            npm install &&
+          ssh -o StrictHostKeyChecking=no root@${{ secrets.SERVER_IP }} 'bash -s' <<'EOF'
+            cd /root/app
+
+            # Backup .env just in case
+            if [ -f .env ]; then
+              mv .env .env.backup
+            fi
+
+            # Reset local changes safely
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Restore .env and ignore future changes
+            if [ -f .env.backup ]; then
+              mv .env.backup .env
+              git update-index --skip-worktree .env
+            fi
+
+            # Install dependencies & restart app
+            npm install
             pm2 restart brandeduk-app
-          "
+          EOF
