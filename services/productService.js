@@ -1330,14 +1330,12 @@ async function buildProductListQuery(filters, page, limit) {
         return a.localeCompare(b);
       });
 
-      // Apply markup to display price
-      const rawMinPrice = Math.min(...product.prices.filter(p => p > 0));
-      const displayPrice = applyMarkup(rawMinPrice);
-
+      // Price should match priceBreaks[0].price (1-9 tier with 0% discount)
+      // Use basePrice which is the single price after markup, same as product details API
       return {
         code: product.code,
         name: product.name,
-        price: displayPrice,
+        price: basePrice,
         image: product.primaryImageUrl || '',
         colors: Array.from(product.colorsMap.values()),
         sizes,
