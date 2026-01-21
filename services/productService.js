@@ -1099,8 +1099,7 @@ async function buildProductListQuery(filters, page, limit) {
       FROM style_codes_with_meta
         ORDER BY 
           ${hasSearch && searchRelevanceOrder ? `${searchRelevanceOrder}, ` : ''}
-          product_type_priority ASC,
-          ${sort === 'price' ? 'sell_price' : sort === 'name' ? 'style_name' : sort === 'brand' ? 'brand_name' : sort === 'code' ? 'style_code' : 'created_at'} ${order}
+          ${sort === 'price' ? `sell_price ${order}, product_type_priority ASC` : sort === 'name' ? `style_name ${order}, product_type_priority ASC` : sort === 'brand' ? `brand_name ${order}, product_type_priority ASC` : sort === 'code' ? `style_code ${order}, product_type_priority ASC` : `product_type_priority ASC, created_at ${order}`}
       LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
       ),
       total_count AS (
@@ -1171,8 +1170,7 @@ async function buildProductListQuery(filters, page, limit) {
           FROM style_codes_with_meta
       ORDER BY 
         ${hasSearch && searchRelevanceOrder ? `${searchRelevanceOrder}, ` : ''}
-        product_type_priority ASC,
-        ${sort === 'price' ? 'sell_price' : sort === 'name' ? 'style_name' : sort === 'brand' ? 'brand_name' : sort === 'code' ? 'style_code' : 'created_at'} ${order}
+        ${sort === 'price' ? `sell_price ${order}, product_type_priority ASC` : sort === 'name' ? `style_name ${order}, product_type_priority ASC` : sort === 'brand' ? `brand_name ${order}, product_type_priority ASC` : sort === 'code' ? `style_code ${order}, product_type_priority ASC` : `product_type_priority ASC, created_at ${order}`}
       LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
     )
     SELECT 
