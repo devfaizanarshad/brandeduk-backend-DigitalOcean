@@ -27,7 +27,7 @@ function getMarkupPercentage(price) {
   if (!price || price <= 0) return 0;
   
   const tier = MARKUP_TIERS.find(t => price >= t.from && price <= t.to);
-  return tier ? tier.markup : 60.8; // Default to last tier if not found
+  return tier ? tier.markup : 60.8;
 }
 
 /**
@@ -170,6 +170,53 @@ function reverseMarkup(markedUpPrice) {
   return Math.round(maxCostPrice * 100) / 100; // Round to 2 decimal places
 }
 
+/**
+ * Reverse markup calculation for minimum price filter - convert marked-up price to minimum cost price
+ * This is used to convert user's priceMin filter (in marked-up price) to cost price for filtering
+ * @param {number} markedUpPrice - The marked-up selling price (minimum)
+ * @returns {number} - The minimum cost price that, after markup, would be >= markedUpPrice
+ */
+function reverseMarkupMin(markedUpPrice) {
+  if (!markedUpPrice || markedUpPrice <= 0) return 0;
+  
+  // Since markup is tiered based on cost price, we need to find the minimum cost price
+  // that, after markup, would result in a price >= markedUpPrice.
+  // The challenge is that the markup tier depends on the cost price itself.
+  
+  // Strategy: For each tier, calculate what cost price would result in markedUpPrice
+  // using that tier's markup. Then verify that:
+  // 1. The calculated cost price falls within that tier's range
+  // 2. When we apply markup to that cost price (using its actual tier), we get >= markedUpPrice
+  
+  let minCostPrice = Infinity;
+  
+  // Check each tier from lowest to highest
+  for (const tier of MARKUP_TIERS) {
+    // Calculate what cost price would result in markedUpPrice using this tier's markup
+    const costPriceForMarkedUp = markedUpPrice / (1 + tier.markup / 100);
+    
+    // Check if this cost price falls within the tier's range
+    if (costPriceForMarkedUp >= tier.from && costPriceForMarkedUp <= tier.to) {
+      // The calculated cost price is in this tier, so it will use this tier's markup
+      // Verify that applying markup to it gives >= markedUpPrice (should be equal or very close)
+      const actualMarkedUp = applyMarkup(costPriceForMarkedUp);
+      if (actualMarkedUp >= markedUpPrice) {
+        minCostPrice = Math.min(minCostPrice, costPriceForMarkedUp);
+      }
+    } else if (costPriceForMarkedUp < tier.from) {
+      // The calculated cost price is below this tier, so we need at least tier.from
+      // Check if tier.from (after markup) is >= markedUpPrice
+      const markedUpAtTierMin = applyMarkup(tier.from);
+      if (markedUpAtTierMin >= markedUpPrice) {
+        minCostPrice = Math.min(minCostPrice, tier.from);
+      }
+    }
+    // If costPriceForMarkedUp > tier.to, this tier can't help us (cost price too high for this tier)
+  }
+  
+  return minCostPrice === Infinity ? 0 : Math.round(minCostPrice * 100) / 100; // Round to 2 decimal places
+}
+
 module.exports = {
   MARKUP_TIERS,
   getMarkupPercentage,
@@ -177,6 +224,7 @@ module.exports = {
   applyMarkupToProduct,
   applyMarkupToProducts,
   applyMarkupToPriceRange,
-  reverseMarkup
+  reverseMarkup,
+  reverseMarkupMin
 };
 
