@@ -1,6 +1,6 @@
 const { pool, queryWithTimeout } = require('../config/database');
 const { getCategoryIdsFromSlugs } = require('./categoryService');
-const { applyMarkup, applyMarkupToPriceRange, reverseMarkup } = require('../utils/priceMarkup');
+// No longer need price markup utilities - using sell_price directly from DB
 
 const queryCache = new Map();
 const aggregationCache = new Map(); // Separate cache for aggregations
@@ -178,11 +178,11 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
             ${viewAlias}.style_code = $${paramIndex + 1} OR
             ${viewAlias}.style_code ILIKE $${paramIndex + 2} OR
             ${viewAlias}.style_name ILIKE $${paramIndex + 3} OR
-            (${viewAlias}.colour_slugs && $${paramIndex + 4}::text[]) OR
-            (${viewAlias}.fabric_slugs && $${paramIndex + 5}::text[]) OR
-            (${viewAlias}.neckline_slugs && $${paramIndex + 6}::text[]) OR
-            (${viewAlias}.sleeve_slugs && $${paramIndex + 7}::text[]) OR
-            (${viewAlias}.style_keyword_slugs && $${paramIndex + 8}::text[])
+            (${viewAlias}.colour_slugs::text[] && $${paramIndex + 4}::text[]) OR
+            (${viewAlias}.fabric_slugs::text[] && $${paramIndex + 5}::text[]) OR
+            (${viewAlias}.neckline_slugs::text[] && $${paramIndex + 6}::text[]) OR
+            (${viewAlias}.sleeve_slugs::text[] && $${paramIndex + 7}::text[]) OR
+            (${viewAlias}.style_keyword_slugs::text[] && $${paramIndex + 8}::text[])
           )`);
           params.push(normalizedSearch, searchUpper, `${searchUpper}%`, `%${normalizedSearch}%`, 
                      colorTerms, fabricTerms, necklineTerms, sleeveTerms, styleTerms);
@@ -225,14 +225,14 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
       paramIndex++;
     }
     
-    // Price filters
+    // Price filters - use sell_price directly (already marked-up)
     if (filters.priceMin !== null && filters.priceMin !== undefined) {
-      conditions.push(`${viewAlias}.single_price >= $${paramIndex}`);
+      conditions.push(`${viewAlias}.sell_price >= $${paramIndex}`);
       params.push(filters.priceMin);
       paramIndex++;
     }
     if (filters.priceMax !== null && filters.priceMax !== undefined) {
-      conditions.push(`${viewAlias}.single_price <= $${paramIndex}`);
+      conditions.push(`${viewAlias}.sell_price <= $${paramIndex}`);
       params.push(filters.priceMax);
       paramIndex++;
     }
@@ -258,26 +258,26 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
     
     if (hasItems(filters.sleeve) && excludeFilter !== 'sleeve') {
       const normalizedSlugs = filters.sleeve.map(normalizeSlug);
-      conditions.push(`${viewAlias}.sleeve_slugs && $${paramIndex}::text[]`);
+      conditions.push(`${viewAlias}.sleeve_slugs::text[] && $${paramIndex}::text[]`);
       params.push(normalizedSlugs);
       paramIndex++;
     }
     
     if (hasItems(filters.neckline) && excludeFilter !== 'neckline') {
       const normalizedSlugs = filters.neckline.map(normalizeSlug);
-      conditions.push(`${viewAlias}.neckline_slugs && $${paramIndex}::text[]`);
+      conditions.push(`${viewAlias}.neckline_slugs::text[] && $${paramIndex}::text[]`);
       params.push(normalizedSlugs);
       paramIndex++;
     }
     
     if (hasItems(filters.fabric) && excludeFilter !== 'fabric') {
-      conditions.push(`${viewAlias}.fabric_slugs && $${paramIndex}::text[]`);
+      conditions.push(`${viewAlias}.fabric_slugs::text[] && $${paramIndex}::text[]`);
       params.push(filters.fabric.map(f => f.toLowerCase()));
       paramIndex++;
     }
     
     if (hasItems(filters.size) && excludeFilter !== 'size') {
-      conditions.push(`${viewAlias}.size_slugs && $${paramIndex}::text[]`);
+      conditions.push(`${viewAlias}.size_slugs::text[] && $${paramIndex}::text[]`);
       params.push(filters.size.map(s => s.toLowerCase()));
       paramIndex++;
     }
@@ -290,13 +290,13 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
     
     if (hasItems(filters.effect) && excludeFilter !== 'effect') {
       const normalizedEffects = filters.effect.map(e => e.toLowerCase());
-      conditions.push(`${viewAlias}.effects_arr && $${paramIndex}::text[]`);
+      conditions.push(`${viewAlias}.effects_arr::text[] && $${paramIndex}::text[]`);
       params.push(normalizedEffects);
       paramIndex++;
     }
     
     if (hasItems(filters.accreditations) && excludeFilter !== 'accreditations') {
-      conditions.push(`${viewAlias}.accreditation_slugs && $${paramIndex}::text[]`);
+      conditions.push(`${viewAlias}.accreditation_slugs::text[] && $${paramIndex}::text[]`);
       params.push(filters.accreditations.map(a => a.toLowerCase()));
       paramIndex++;
     }
@@ -308,7 +308,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
     }
     
     if (hasItems(filters.weight) && excludeFilter !== 'weight') {
-      conditions.push(`${viewAlias}.weight_slugs && $${paramIndex}::text[]`);
+      conditions.push(`${viewAlias}.weight_slugs::text[] && $${paramIndex}::text[]`);
       params.push(filters.weight.map(w => w.toLowerCase()));
       paramIndex++;
     }
@@ -320,20 +320,20 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
     }
     
     if (hasItems(filters.sector) && excludeFilter !== 'sector') {
-      conditions.push(`${viewAlias}.sector_slugs && $${paramIndex}::text[]`);
+      conditions.push(`${viewAlias}.sector_slugs::text[] && $${paramIndex}::text[]`);
       params.push(filters.sector.map(s => s.toLowerCase()));
       paramIndex++;
     }
     
     if (hasItems(filters.sport) && excludeFilter !== 'sport') {
-      conditions.push(`${viewAlias}.sport_slugs && $${paramIndex}::text[]`);
+      conditions.push(`${viewAlias}.sport_slugs::text[] && $${paramIndex}::text[]`);
       params.push(filters.sport.map(s => s.toLowerCase()));
       paramIndex++;
     }
     
     if (hasItems(filters.style) && excludeFilter !== 'style') {
       const normalizedStyles = filters.style.map(normalizeSlug);
-      conditions.push(`${viewAlias}.style_keyword_slugs && $${paramIndex}::text[]`);
+      conditions.push(`${viewAlias}.style_keyword_slugs::text[] && $${paramIndex}::text[]`);
       params.push(normalizedStyles);
       paramIndex++;
     }
@@ -561,6 +561,11 @@ async function buildProductListQuery(filters, page, limit) {
   }
   console.log(`[CACHE] Miss - executing query (key: ${cacheKey.substring(0, 50)}...)`);
 
+  // When price filters are active, fetch more items to account for post-filtering
+  // This ensures we return the correct number of items after filtering on final displayed prices
+  const hasPriceFilter = (filters.priceMin !== null && filters.priceMin !== undefined) || 
+                         (filters.priceMax !== null && filters.priceMax !== undefined);
+  const fetchLimit = hasPriceFilter ? Math.min(limit * 3, 200) : limit; // Fetch up to 3x limit or 200, whichever is smaller
   const offset = (page - 1) * limit;
   const conditions = [];
   let params = [];
@@ -800,11 +805,11 @@ async function buildProductListQuery(filters, page, limit) {
         ${viewAlias}.style_code = $${codeParam} OR
         ${viewAlias}.style_code ILIKE $${codePrefixParam} OR
         ${viewAlias}.style_name ~* $${namePatternParam} OR
-        ${viewAlias}.colour_slugs && $${colorArrayParam}::text[] OR
-        ${viewAlias}.fabric_slugs && $${fabricArrayParam}::text[] OR
-        ${viewAlias}.neckline_slugs && $${necklineArrayParam}::text[] OR
-        ${viewAlias}.sleeve_slugs && $${sleeveArrayParam}::text[] OR
-        ${viewAlias}.style_keyword_slugs && $${styleArrayParam}::text[] OR
+        ${viewAlias}.colour_slugs::text[] && $${colorArrayParam}::text[] OR
+        ${viewAlias}.fabric_slugs::text[] && $${fabricArrayParam}::text[] OR
+        ${viewAlias}.neckline_slugs::text[] && $${necklineArrayParam}::text[] OR
+        ${viewAlias}.sleeve_slugs::text[] && $${sleeveArrayParam}::text[] OR
+        ${viewAlias}.style_keyword_slugs::text[] && $${styleArrayParam}::text[] OR
         EXISTS (
           SELECT 1 FROM styles s_pt_search 
           INNER JOIN product_types pt_search ON s_pt_search.product_type_id = pt_search.id
@@ -833,11 +838,11 @@ async function buildProductListQuery(filters, page, limit) {
           -- Full-text search (60 points) - FAST (GIN index)
           CASE WHEN ${viewAlias}.search_vector @@ plainto_tsquery('english', $${fullTextParam}) THEN 60 ELSE 0 END +
           -- Array matches (30 points each) - FAST (GIN indexes)
-          CASE WHEN ${viewAlias}.colour_slugs && $${colorArrayParam}::text[] THEN 30 ELSE 0 END +
-          CASE WHEN ${viewAlias}.fabric_slugs && $${fabricArrayParam}::text[] THEN 30 ELSE 0 END +
-          CASE WHEN ${viewAlias}.neckline_slugs && $${necklineArrayParam}::text[] THEN 20 ELSE 0 END +
-          CASE WHEN ${viewAlias}.sleeve_slugs && $${sleeveArrayParam}::text[] THEN 20 ELSE 0 END +
-          CASE WHEN ${viewAlias}.style_keyword_slugs && $${styleArrayParam}::text[] THEN 15 ELSE 0 END
+          CASE WHEN ${viewAlias}.colour_slugs::text[] && $${colorArrayParam}::text[] THEN 30 ELSE 0 END +
+          CASE WHEN ${viewAlias}.fabric_slugs::text[] && $${fabricArrayParam}::text[] THEN 30 ELSE 0 END +
+          CASE WHEN ${viewAlias}.neckline_slugs::text[] && $${necklineArrayParam}::text[] THEN 20 ELSE 0 END +
+          CASE WHEN ${viewAlias}.sleeve_slugs::text[] && $${sleeveArrayParam}::text[] THEN 20 ELSE 0 END +
+          CASE WHEN ${viewAlias}.style_keyword_slugs::text[] && $${styleArrayParam}::text[] THEN 15 ELSE 0 END
         ) as relevance_score`;
       // REMOVED: ts_rank_cd calculation - too expensive
       
@@ -847,21 +852,23 @@ async function buildProductListQuery(filters, page, limit) {
     conditions.push(searchCondition);
   }
 
-  // Price range filter (indexed)
-  // IMPORTANT: User's priceMin/priceMax are in marked-up prices, but we filter on cost prices
-  // So we need to convert them to cost prices before filtering
+  // Price range filter (indexed) - use sell_price directly (already marked-up)
+  // OPTIMIZED: Ensure conditions match index predicate exactly (idx_psm_price_range)
+  // Index predicate: WHERE sku_status = 'Live' AND sell_price IS NOT NULL
+  // We add IS NOT NULL to help planner choose index
+  if (filters.priceMin !== null && filters.priceMin !== undefined || 
+      filters.priceMax !== null && filters.priceMax !== undefined) {
+    // Add IS NOT NULL check to match index predicate
+    conditions.push(`${viewAlias}.sell_price IS NOT NULL`);
+  }
   if (filters.priceMin !== null && filters.priceMin !== undefined) {
-    // Convert marked-up priceMin to cost price (reverse markup)
-    const costPriceMin = reverseMarkup(filters.priceMin);
-    conditions.push(`${viewAlias}.single_price >= $${paramIndex}`);
-    params.push(costPriceMin);
+    conditions.push(`${viewAlias}.sell_price >= $${paramIndex}`);
+    params.push(filters.priceMin);
     paramIndex++;
   }
   if (filters.priceMax !== null && filters.priceMax !== undefined) {
-    // Convert marked-up priceMax to cost price (reverse markup)
-    const costPriceMax = reverseMarkup(filters.priceMax);
-    conditions.push(`${viewAlias}.single_price <= $${paramIndex}`);
-    params.push(costPriceMax);
+    conditions.push(`${viewAlias}.sell_price <= $${paramIndex}`);
+    params.push(filters.priceMax);
     paramIndex++;
   }
 
@@ -916,7 +923,7 @@ async function buildProductListQuery(filters, page, limit) {
   // Effect filter - OPTIMIZED: Use array column with GIN index (replaces ILIKE)
   if (hasItems(filters.effect)) {
     const normalizedEffects = filters.effect.map(e => e.toLowerCase());
-    conditions.push(`${viewAlias}.effects_arr && $${paramIndex}::text[]`);
+    conditions.push(`${viewAlias}.effects_arr::text[] && $${paramIndex}::text[]`);
     params.push(normalizedEffects);
     paramIndex++;
   }
@@ -924,7 +931,7 @@ async function buildProductListQuery(filters, page, limit) {
   // Sleeve filter - OPTIMIZED: Use precomputed array column (no EXISTS, no JOIN)
   if (hasItems(filters.sleeve)) {
     const normalizedSlugs = filters.sleeve.map(normalizeSlug);
-    conditions.push(`${viewAlias}.sleeve_slugs && $${paramIndex}::text[]`);
+    conditions.push(`${viewAlias}.sleeve_slugs::text[] && $${paramIndex}::text[]`);
     params.push(normalizedSlugs);
     paramIndex++;
   }
@@ -932,7 +939,7 @@ async function buildProductListQuery(filters, page, limit) {
   // Neckline filter - OPTIMIZED: Use precomputed array column
   if (hasItems(filters.neckline)) {
     const normalizedSlugs = filters.neckline.map(normalizeSlug);
-    conditions.push(`${viewAlias}.neckline_slugs && $${paramIndex}::text[]`);
+    conditions.push(`${viewAlias}.neckline_slugs::text[] && $${paramIndex}::text[]`);
     params.push(normalizedSlugs);
     paramIndex++;
   }
@@ -940,63 +947,63 @@ async function buildProductListQuery(filters, page, limit) {
   // Style keyword filter - OPTIMIZED: Use precomputed array column
   if (hasItems(filters.style)) {
     const normalizedSlugs = filters.style.map(normalizeSlug);
-    conditions.push(`${viewAlias}.style_keyword_slugs && $${paramIndex}::text[]`);
+    conditions.push(`${viewAlias}.style_keyword_slugs::text[] && $${paramIndex}::text[]`);
     params.push(normalizedSlugs);
     paramIndex++;
   }
 
   // Colour filter - OPTIMIZED: Use precomputed array column
   if (hasItems(filters.colour)) {
-    conditions.push(`${viewAlias}.colour_slugs && $${paramIndex}::text[]`);
+    conditions.push(`${viewAlias}.colour_slugs::text[] && $${paramIndex}::text[]`);
     params.push(filters.colour.map(c => c.toLowerCase()));
     paramIndex++;
   }
 
   // Size filter - OPTIMIZED: Use precomputed array column
   if (hasItems(filters.size)) {
-    conditions.push(`${viewAlias}.size_slugs && $${paramIndex}::text[]`);
+    conditions.push(`${viewAlias}.size_slugs::text[] && $${paramIndex}::text[]`);
     params.push(filters.size.map(s => s.toLowerCase()));
     paramIndex++;
   }
 
   // Fabric filter - OPTIMIZED: Use precomputed array column
   if (hasItems(filters.fabric)) {
-    conditions.push(`${viewAlias}.fabric_slugs && $${paramIndex}::text[]`);
+    conditions.push(`${viewAlias}.fabric_slugs::text[] && $${paramIndex}::text[]`);
     params.push(filters.fabric.map(f => f.toLowerCase()));
     paramIndex++;
   }
 
   // Flag filter - OPTIMIZED: Use precomputed array column
   if (hasItems(filters.flag)) {
-    conditions.push(`${viewAlias}.flag_slugs && $${paramIndex}::text[]`);
+    conditions.push(`${viewAlias}.flag_slugs::text[] && $${paramIndex}::text[]`);
     params.push(filters.flag.map(f => f.toLowerCase()));
     paramIndex++;
   }
 
   // Weight filter - OPTIMIZED: Use precomputed array column
   if (hasItems(filters.weight)) {
-    conditions.push(`${viewAlias}.weight_slugs && $${paramIndex}::text[]`);
+    conditions.push(`${viewAlias}.weight_slugs::text[] && $${paramIndex}::text[]`);
     params.push(filters.weight.map(w => w.toLowerCase()));
     paramIndex++;
   }
 
   // Accreditations filter - OPTIMIZED: Use precomputed array column
   if (hasItems(filters.accreditations)) {
-    conditions.push(`${viewAlias}.accreditation_slugs && $${paramIndex}::text[]`);
+    conditions.push(`${viewAlias}.accreditation_slugs::text[] && $${paramIndex}::text[]`);
     params.push(filters.accreditations.map(a => a.toLowerCase()));
     paramIndex++;
   }
 
   // Sector filter - OPTIMIZED: Use precomputed array column
   if (hasItems(filters.sector)) {
-    conditions.push(`${viewAlias}.sector_slugs && $${paramIndex}::text[]`);
+    conditions.push(`${viewAlias}.sector_slugs::text[] && $${paramIndex}::text[]`);
     params.push(filters.sector.map(s => s.toLowerCase()));
     paramIndex++;
   }
 
   // Sport filter - OPTIMIZED: Use precomputed array column
   if (hasItems(filters.sport)) {
-    conditions.push(`${viewAlias}.sport_slugs && $${paramIndex}::text[]`);
+    conditions.push(`${viewAlias}.sport_slugs::text[] && $${paramIndex}::text[]`);
     params.push(filters.sport.map(s => s.toLowerCase()));
     paramIndex++;
   }
@@ -1036,15 +1043,17 @@ async function buildProductListQuery(filters, page, limit) {
         paramIndex++;
   }
 
-  // Always filter by Live status
-  conditions.push(`${viewAlias}.sku_status = 'Live'`);
-
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : `WHERE ${viewAlias}.sku_status = 'Live'`;
+  // Always filter by Live status - MUST be first for index matching
+  // Index predicates require: WHERE sku_status = 'Live' AND ...
+  // Putting this first ensures planner recognizes index can be used
+  const whereClause = conditions.length > 0 
+    ? `WHERE ${viewAlias}.sku_status = 'Live' AND ${conditions.join(' AND ')}`
+    : `WHERE ${viewAlias}.sku_status = 'Live'`;
 
   // Sorting - determine sort field and order
   let sortField = 'created_at';
   if (sort === 'price') {
-    sortField = 'single_price';
+    sortField = 'sell_price';
   } else if (sort === 'name') {
     sortField = 'style_name';
   } else if (sort === 'brand') {
@@ -1072,7 +1081,7 @@ async function buildProductListQuery(filters, page, limit) {
       SELECT 
         scf.style_code,
         MIN(${viewAlias}.style_name) as style_name,
-        MIN(${viewAlias}.single_price) as single_price,
+        MIN(${viewAlias}.sell_price) as sell_price,
         MIN(${viewAlias}.created_at) as created_at,
         MIN(COALESCE(pt.display_order, 999)) as product_type_priority,
         MIN(COALESCE(b.name, '')) as brand_name
@@ -1091,7 +1100,7 @@ async function buildProductListQuery(filters, page, limit) {
         ORDER BY 
           ${hasSearch && searchRelevanceOrder ? `${searchRelevanceOrder}, ` : ''}
           product_type_priority ASC,
-          ${sort === 'price' ? 'single_price' : sort === 'name' ? 'style_name' : sort === 'brand' ? 'brand_name' : sort === 'code' ? 'style_code' : 'created_at'} ${order}
+          ${sort === 'price' ? 'sell_price' : sort === 'name' ? 'style_name' : sort === 'brand' ? 'brand_name' : sort === 'code' ? 'style_code' : 'created_at'} ${order}
       LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
       ),
       total_count AS (
@@ -1100,11 +1109,11 @@ async function buildProductListQuery(filters, page, limit) {
       ),
       price_range AS (
         SELECT 
-          MIN(${viewAlias}.single_price) as min_price,
-          MAX(${viewAlias}.single_price) as max_price
+          MIN(${viewAlias}.sell_price) as min_price,
+          MAX(${viewAlias}.sell_price) as max_price
         FROM style_codes_filtered scf
         INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
-        WHERE ${viewAlias}.sku_status = 'Live' AND ${viewAlias}.single_price IS NOT NULL
+        WHERE ${viewAlias}.sku_status = 'Live' AND ${viewAlias}.sell_price IS NOT NULL
       )
       SELECT 
       psc.style_code,
@@ -1116,7 +1125,7 @@ async function buildProductListQuery(filters, page, limit) {
       CROSS JOIN price_range pr
     `;
     
-    params.push(limit, offset);
+    params.push(fetchLimit, offset);
   
   try {
     const startTime = Date.now();
@@ -1144,7 +1153,7 @@ async function buildProductListQuery(filters, page, limit) {
       SELECT 
             scf.style_code,
             MIN(${viewAlias}.style_name) as style_name,
-            MIN(${viewAlias}.single_price) as single_price,
+            MIN(${viewAlias}.sell_price) as sell_price,
             MIN(${viewAlias}.created_at) as created_at,
             MIN(COALESCE(pt.display_order, 999)) as product_type_priority,
             MIN(COALESCE(b.name, '')) as brand_name
@@ -1163,7 +1172,7 @@ async function buildProductListQuery(filters, page, limit) {
       ORDER BY 
         ${hasSearch && searchRelevanceOrder ? `${searchRelevanceOrder}, ` : ''}
         product_type_priority ASC,
-        ${sort === 'price' ? 'single_price' : sort === 'name' ? 'style_name' : sort === 'brand' ? 'brand_name' : sort === 'code' ? 'style_code' : 'created_at'} ${order}
+        ${sort === 'price' ? 'sell_price' : sort === 'name' ? 'style_name' : sort === 'brand' ? 'brand_name' : sort === 'code' ? 'style_code' : 'created_at'} ${order}
       LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
     )
     SELECT 
@@ -1174,9 +1183,9 @@ async function buildProductListQuery(filters, page, limit) {
         FROM paginated_style_codes psc
       `;
       params.push(cachedCount, cachedPriceRange.min, cachedPriceRange.max);
-      queryResult = await queryWithTimeout(simplifiedQuery, params, 30000);
+      queryResult = await queryWithTimeout(simplifiedQuery, params, 20000); // 20s timeout for main query
     } else {
-      queryResult = await queryWithTimeout(optimizedQuery, params, 30000);
+      queryResult = await queryWithTimeout(optimizedQuery, params, 20000); // 20s timeout for main query
     }
     
     const queryTime = Date.now() - startTime;
@@ -1214,10 +1223,10 @@ async function buildProductListQuery(filters, page, limit) {
 
     // STEP 2: Fetch full details for only the paginated style codes (SMALL DATASET)
     const batchStartTime = Date.now();
-    // OPTIMIZED: Use indexed columns first, reduce JOIN overhead
-    // Removed DISTINCT - each product row is already unique (unique SKU per style_code + size + color)
+    // OPTIMIZED: Use DISTINCT ON to reduce rows from 800+ to ~56-100 (one per style_code+colour)
+    // This fixes the 14-second query issue by fetching only necessary data
     const batchQuery = `
-      SELECT
+      SELECT DISTINCT ON (p.style_code, p.colour_name)
         p.style_code as code,
         s.style_name as name,
         b.name as brand,
@@ -1232,6 +1241,7 @@ async function buildProductListQuery(filters, page, limit) {
         p.single_price,
         p.pack_price,
         p.carton_price,
+        p.sell_price,
         t.name as tag,
         t.slug as tag_slug,
         p.created_at
@@ -1242,16 +1252,34 @@ async function buildProductListQuery(filters, page, limit) {
       LEFT JOIN tags t ON p.tag_id = t.id
       WHERE p.style_code = ANY($1::text[]) AND p.sku_status = 'Live'
       ORDER BY p.style_code, p.colour_name, COALESCE(sz.size_order, 999)
+      LIMIT 200
     `;
 
-    const batchResult = await queryWithTimeout(batchQuery, [styleCodes], 30000);
+    const batchResult = await queryWithTimeout(batchQuery, [styleCodes], 15000); // 15s timeout for batch query
     const batchQueryTime = Date.now() - batchStartTime;
     console.log(`[QUERY] Details query: ${batchQueryTime}ms`);
 
     // Group results by style_code
     const productsMap = new Map();
+    const priceMinFilter = filters.priceMin;
+    const priceMaxFilter = filters.priceMax;
     
     batchResult.rows.forEach(row => {
+      // If price filters are active, ignore SKUs whose sell_price is outside the requested range
+      const sellPriceValue = row.sell_price !== null && row.sell_price !== undefined ? parseFloat(row.sell_price) : null;
+      if ((priceMinFilter !== null && priceMinFilter !== undefined) || (priceMaxFilter !== null && priceMaxFilter !== undefined)) {
+        // Require a valid sell_price when price filters are used
+        if (!Number.isFinite(sellPriceValue)) {
+          return;
+        }
+        if (priceMinFilter !== null && priceMinFilter !== undefined && sellPriceValue < priceMinFilter) {
+          return;
+        }
+        if (priceMaxFilter !== null && priceMaxFilter !== undefined && sellPriceValue > priceMaxFilter) {
+          return;
+        }
+      }
+      
       const styleCode = row.code;
       if (!productsMap.has(styleCode)) {
         productsMap.set(styleCode, {
@@ -1285,21 +1313,21 @@ async function buildProductListQuery(filters, page, limit) {
       }
 
       if (row.single_price) {
-        product.prices.push(parseFloat(row.single_price));
+        const single = parseFloat(row.single_price);
         if (!product.singlePrice) {
-          product.singlePrice = parseFloat(row.single_price);
-        }
-      }
-      if (row.pack_price) {
-        product.prices.push(parseFloat(row.pack_price));
-        if (!product.packPrice) {
-          product.packPrice = parseFloat(row.pack_price);
+          product.singlePrice = single;
         }
       }
       if (row.carton_price) {
-        product.prices.push(parseFloat(row.carton_price));
+        const carton = parseFloat(row.carton_price);
         if (!product.cartonPrice) {
-          product.cartonPrice = parseFloat(row.carton_price);
+          product.cartonPrice = carton;
+        }
+      }
+      if (row.sell_price) {
+        const sell = parseFloat(row.sell_price);
+        if (!product.sellPrice) {
+          product.sellPrice = sell;
         }
       }
 
@@ -1311,14 +1339,10 @@ async function buildProductListQuery(filters, page, limit) {
     // Build response items with MARKUP applied
     const items = styleCodes.map(styleCode => {
       const product = productsMap.get(styleCode);
-      if (!product) return null;
+      if (!product || product.sellPrice === undefined || product.sellPrice === null) return null;
 
-      // Get minimum price from all available prices (single, pack, carton)
-      // This ensures we use the best available price as the base, same as product details API
-      const rawMinPrice = product.prices.length > 0 ? Math.min(...product.prices.filter(p => p > 0)) : 0;
-      
-      // Apply markup to minimum price to get base price, then build price breaks
-      const basePrice = applyMarkup(rawMinPrice);
+      // Use sell_price directly (already marked-up in DB)
+      const basePrice = product.sellPrice || 0;
       const priceBreaks = buildPriceBreaks(basePrice);
 
       // Always hardcode customization options
@@ -1349,14 +1373,37 @@ async function buildProductListQuery(filters, page, limit) {
       };
     }).filter(item => item !== null);
 
+    // Final safety net: ensure displayed prices honor priceMin/priceMax
+    const filteredItems = items.filter(item => {
+      if (priceMinFilter !== null && priceMinFilter !== undefined && item.price < priceMinFilter) {
+        return false;
+      }
+      if (priceMaxFilter !== null && priceMaxFilter !== undefined && item.price > priceMaxFilter) {
+        return false;
+      }
+      return true;
+    });
+
+    // Recompute price range based on filtered items for accurate UI feedback
+    const filteredPriceRange = filteredItems.length
+      ? {
+          min: Math.min(...filteredItems.map(i => i.price)),
+          max: Math.max(...filteredItems.map(i => i.price))
+        }
+      : { min: 0, max: 0 };
+
     const totalTime = Date.now() - startTime;
     console.log(`[QUERY] Total product list: ${totalTime}ms`);
 
-    // Apply markup to price range for filters
-    const markedUpPriceRange = applyMarkupToPriceRange(priceRange);
+    // Price range is already in sell_price (marked-up), no conversion needed
+    // Use filtered price range when price filters are active to avoid misleading UI
+    const markedUpPriceRange = (priceMinFilter !== null && priceMinFilter !== undefined) || 
+                               (priceMaxFilter !== null && priceMaxFilter !== undefined)
+      ? filteredPriceRange
+      : priceRange;
 
     const queryResponse = { 
-      items, 
+      items: filteredItems, 
       total, 
       priceRange: markedUpPriceRange
     };
@@ -1454,6 +1501,7 @@ async function buildProductDetailQuery(styleCode) {
       p.single_price,
       p.pack_price,
       p.carton_price,
+      p.sell_price,
       t.name as tag
     FROM styles s
     LEFT JOIN brands b ON s.brand_id = b.id
@@ -1465,7 +1513,7 @@ async function buildProductDetailQuery(styleCode) {
     ORDER BY p.colour_name, sz.size_order
   `;
 
-  const detailResult = await queryWithTimeout(detailQuery, [styleCode], 10000);
+  const detailResult = await queryWithTimeout(detailQuery, [styleCode], 10000); // 10s timeout for detail query
   const queryTime = Date.now() - startTime;
   console.log(`[QUERY] Product detail: ${queryTime}ms`);
   
@@ -1496,7 +1544,6 @@ async function buildProductDetailQuery(styleCode) {
     }
 
     if (row.single_price) prices.push(parseFloat(row.single_price));
-    if (row.pack_price) prices.push(parseFloat(row.pack_price));
     if (row.carton_price) prices.push(parseFloat(row.carton_price));
 
     if (row.tag) {
@@ -1504,12 +1551,8 @@ async function buildProductDetailQuery(styleCode) {
     }
   });
 
-  // Get minimum price from all available prices (single, pack, carton)
-  // This ensures we use the best available price as the base
-  const rawMinPrice = prices.length > 0 ? Math.min(...prices.filter(p => p > 0)) : 0;
-  
-  // Apply markup to minimum price to get base price, then build price breaks
-  const basePrice = applyMarkup(rawMinPrice);
+  // Use sell_price directly (already marked-up in DB)
+  const basePrice = firstRow.sell_price ? parseFloat(firstRow.sell_price) : 0;
   const priceBreaks = buildPriceBreaks(basePrice);
 
   const sizes = Array.from(sizesSet).sort((a, b) => {

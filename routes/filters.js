@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { queryWithTimeout } = require('../config/database');
-const { applyMarkup } = require('../utils/priceMarkup');
+// No longer need applyMarkup - using sell_price directly from DB
 
 // Helper function to build price breaks from base price
 function buildPriceBreaks(basePrice) {
@@ -71,7 +71,8 @@ async function getFullProductDetails(styleCodes) {
       sz.size_order,
       p.single_price,
       p.pack_price,
-      p.carton_price
+      p.carton_price,
+      p.sell_price
     FROM products p
     INNER JOIN styles s ON p.style_code = s.style_code
     LEFT JOIN brands b ON s.brand_id = b.id
@@ -99,7 +100,8 @@ async function getFullProductDetails(styleCodes) {
         prices: [],
         singlePrice: null,
         packPrice: null,
-        cartonPrice: null
+        cartonPrice: null,
+        sellPrice: null
       });
     }
     
@@ -123,16 +125,16 @@ async function getFullProductDetails(styleCodes) {
     
     // Collect prices
     if (row.single_price) {
-      product.prices.push(parseFloat(row.single_price));
-      if (!product.singlePrice) product.singlePrice = parseFloat(row.single_price);
-    }
-    if (row.pack_price) {
-      product.prices.push(parseFloat(row.pack_price));
-      if (!product.packPrice) product.packPrice = parseFloat(row.pack_price);
+      const single = parseFloat(row.single_price);
+      if (!product.singlePrice) product.singlePrice = single;
     }
     if (row.carton_price) {
-      product.prices.push(parseFloat(row.carton_price));
-      if (!product.cartonPrice) product.cartonPrice = parseFloat(row.carton_price);
+      const carton = parseFloat(row.carton_price);
+      if (!product.cartonPrice) product.cartonPrice = carton;
+    }
+    if (row.sell_price) {
+      const sell = parseFloat(row.sell_price);
+      if (!product.sellPrice) product.sellPrice = sell;
     }
   });
 
@@ -141,8 +143,8 @@ async function getFullProductDetails(styleCodes) {
     const product = productsMap.get(styleCode);
     if (!product) return null;
 
-    // Apply markup to single price to get base price, then build price breaks
-    const basePrice = applyMarkup(product.singlePrice);
+    // Use sell_price directly (already marked-up in DB)
+    const basePrice = product.sellPrice || 0;
     const priceBreaks = buildPriceBreaks(basePrice);
 
     // Sort sizes
@@ -156,9 +158,8 @@ async function getFullProductDetails(styleCodes) {
       return a.localeCompare(b);
     });
 
-    // Apply markup to display price
-    const rawMinPrice = product.prices.length > 0 ? Math.min(...product.prices.filter(p => p > 0)) : 0;
-    const displayPrice = applyMarkup(rawMinPrice);
+    // Display price = sell price (or fallback)
+    const displayPrice = basePrice;
 
     return {
       code: product.code,
@@ -259,7 +260,7 @@ async function getArrayFilteredProductsWithDetails(arrayColumn, filterValue, pag
   // Determine sort field - use fields from product_search_materialized or join tables
   let orderBy = 'psm.style_code';
   if (normalizedSort === 'price') {
-    orderBy = `psm.single_price ${normalizedOrder}, psm.style_code`;
+    orderBy = `psm.sell_price ${normalizedOrder}, psm.style_code`;
   } else if (normalizedSort === 'name') {
     orderBy = `psm.style_name ${normalizedOrder}, psm.style_code`;
   } else if (normalizedSort === 'brand') {
@@ -463,7 +464,7 @@ async function getProductTypeFilteredProductsWithDetails(productTypeSlug, page, 
   // Determine sort field
   let orderBy = 'psm.style_code';
   if (normalizedSort === 'price') {
-    orderBy = `psm.single_price ${normalizedOrder}, psm.style_code`;
+    orderBy = `psm.sell_price ${normalizedOrder}, psm.style_code`;
   } else if (normalizedSort === 'name') {
     orderBy = `psm.style_name ${normalizedOrder}, psm.style_code`;
   } else if (normalizedSort === 'brand') {
@@ -1464,17 +1465,17 @@ router.get('/price-range', async (req, res) => {
   try {
     const query = `
       SELECT 
-        MIN(single_price) as min_price,
-        MAX(single_price) as max_price
+        MIN(sell_price) as min_price,
+        MAX(sell_price) as max_price
       FROM product_search_materialized
-      WHERE sku_status = 'Live' AND single_price IS NOT NULL AND single_price > 0
+      WHERE sku_status = 'Live' AND sell_price IS NOT NULL AND sell_price > 0
     `;
     const result = await queryWithTimeout(query, [], 10000);
     const row = result.rows[0];
-    // Apply markup to price range
+    // Price range is already in sell_price (marked-up)
     res.json({
-      min: applyMarkup(parseFloat(row.min_price || 0)),
-      max: applyMarkup(parseFloat(row.max_price || 0))
+      min: parseFloat(row.min_price || 0),
+      max: parseFloat(row.max_price || 0)
     });
   } catch (error) {
     console.error('[ERROR] Failed to fetch price range:', error.message);
@@ -1495,15 +1496,15 @@ router.get('/price-range/:min/:max/products', async (req, res) => {
     const styleCodesQuery = `
       SELECT DISTINCT style_code
       FROM product_search_materialized
-      WHERE single_price >= $1 AND single_price <= $2 AND sku_status = 'Live'
-      ORDER BY single_price ASC, style_code
+      WHERE sell_price >= $1 AND sell_price <= $2 AND sku_status = 'Live'
+      ORDER BY sell_price ASC, style_code
       LIMIT $3 OFFSET $4
     `;
 
     const countQuery = `
       SELECT COUNT(DISTINCT style_code) as total
       FROM product_search_materialized
-      WHERE single_price >= $1 AND single_price <= $2 AND sku_status = 'Live'
+      WHERE sell_price >= $1 AND sell_price <= $2 AND sku_status = 'Live'
     `;
 
     const [styleCodesResult, countResult] = await Promise.all([
