@@ -39,7 +39,11 @@ function getCacheKey(filters, page, limit, type = 'results') {
     hash = ((hash << 5) - hash) + char;
     hash = hash & hash;
   }
-  return `query_${Math.abs(hash)}_${type}`;
+  const cacheKey = `query_${Math.abs(hash)}_${type}`;
+  // #region agent log
+  fetch('http://127.0.0.1:7245/ingest/87cebb9f-8942-406a-b7d0-b5c6b5f14fe8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'services/productService.js:42',message:'Cache key generated',data:{cacheKey,filterString,hasSort:!!normalizedFilters.sort,hasOrder:!!normalizedFilters.order,sortValue:normalizedFilters.sort,orderValue:normalizedFilters.order},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+  // #endregion
+  return cacheKey;
 }
 
 function getCached(key, cacheMap = queryCache) {
@@ -553,12 +557,13 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
 }
 
 async function buildProductListQuery(filters, page, limit) {
+
+  console.log('buildProductListQuery entry', filters.sort);
+  console.log('buildProductListQuery entry', filters.order);
+
   const cacheKey = getCacheKey(filters, page, limit);
   const cached = getCached(cacheKey);
-  if (cached) {
-    console.log('[CACHE] Hit - returning cached result');
-    return cached;
-  }
+  if (cached) return cached;
   console.log(`[CACHE] Miss - executing query (key: ${cacheKey.substring(0, 50)}...)`);
 
   // When price filters are active, fetch more items to account for post-filtering
@@ -852,24 +857,16 @@ async function buildProductListQuery(filters, page, limit) {
     conditions.push(searchCondition);
   }
 
-  // Price range filter (indexed) - use sell_price directly (already marked-up)
-  // OPTIMIZED: Ensure conditions match index predicate exactly (idx_psm_price_range)
-  // Index predicate: WHERE sku_status = 'Live' AND sell_price IS NOT NULL
-  // We add IS NOT NULL to help planner choose index
-  if (filters.priceMin !== null && filters.priceMin !== undefined || 
-      filters.priceMax !== null && filters.priceMax !== undefined) {
-    // Add IS NOT NULL check to match index predicate
-    conditions.push(`${viewAlias}.sell_price IS NOT NULL`);
-  }
+  // Price range filter - REMOVED from initial WHERE clause
+  // Price filters will be applied in style_codes_with_meta CTE using HAVING clause
+  // This ensures we filter by products table sell_price (source of truth) not materialized view
+  // Store price filter params separately for use in HAVING clause
+  const priceFilterParams = [];
   if (filters.priceMin !== null && filters.priceMin !== undefined) {
-    conditions.push(`${viewAlias}.sell_price >= $${paramIndex}`);
-    params.push(filters.priceMin);
-    paramIndex++;
+    priceFilterParams.push(filters.priceMin);
   }
   if (filters.priceMax !== null && filters.priceMax !== undefined) {
-    conditions.push(`${viewAlias}.sell_price <= $${paramIndex}`);
-    params.push(filters.priceMax);
-    paramIndex++;
+    priceFilterParams.push(filters.priceMax);
   }
 
   // Gender filter (indexed)
@@ -1064,8 +1061,25 @@ async function buildProductListQuery(filters, page, limit) {
   
   const orderBy = `${sortField} ${order}`;
 
+  // Add price filter parameters to params array (for HAVING clause in style_codes_with_meta)
+  // These must be added before calculating limitParamIndex and offsetParamIndex
+  const priceFilterParamIndex = params.length + 1;
+  if (filters.priceMin !== null && filters.priceMin !== undefined) {
+    params.push(filters.priceMin);
+  }
+  if (filters.priceMax !== null && filters.priceMax !== undefined) {
+    params.push(filters.priceMax);
+  }
+  
   const limitParamIndex = params.length + 1;
   const offsetParamIndex = params.length + 2;
+  
+  // Construct ORDER BY clause for logging
+  const orderByClause = sort === 'price' ? `sell_price ${order}, product_type_priority ASC` : sort === 'name' ? `style_name ${order}, product_type_priority ASC` : sort === 'brand' ? `brand_name ${order}, product_type_priority ASC` : sort === 'code' ? `style_code ${order}, product_type_priority ASC` : `product_type_priority ASC, created_at ${order}`;
+  const fullOrderBy = `${hasSearch && searchRelevanceOrder ? `${searchRelevanceOrder}, ` : ''}${orderByClause}`;
+  // #region agent log
+  fetch('http://127.0.0.1:7245/ingest/87cebb9f-8942-406a-b7d0-b5c6b5f14fe8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'services/productService.js:1086',message:'ORDER BY clause constructed',data:{sort,order,orderByClause,fullOrderBy,hasSearch,searchRelevanceOrder},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+  // #endregion
   
   // ULTRA-OPTIMIZATION: Restructure query for search - use indexed operations first
   // For search, prioritize full-text search index by structuring query properly
@@ -1081,25 +1095,30 @@ async function buildProductListQuery(filters, page, limit) {
       SELECT 
         scf.style_code,
         MIN(${viewAlias}.style_name) as style_name,
-        MIN(${viewAlias}.sell_price) as sell_price,
+        MIN(p.sell_price) as sell_price,
         MIN(${viewAlias}.created_at) as created_at,
         MIN(COALESCE(pt.display_order, 999)) as product_type_priority,
         MIN(COALESCE(b.name, '')) as brand_name
         ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
       FROM style_codes_filtered scf
       INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
+      INNER JOIN products p ON ${viewAlias}.style_code = p.style_code AND p.sku_status = 'Live'
       LEFT JOIN styles s ON ${viewAlias}.style_code = s.style_code
         LEFT JOIN product_types pt ON s.product_type_id = pt.id
         LEFT JOIN brands b ON s.brand_id = b.id
       WHERE ${viewAlias}.sku_status = 'Live'
       GROUP BY scf.style_code
+      HAVING 
+        MIN(p.sell_price) IS NOT NULL
+        ${filters.priceMin !== null && filters.priceMin !== undefined ? `AND MIN(p.sell_price) >= $${priceFilterParamIndex}` : ''}
+        ${filters.priceMax !== null && filters.priceMax !== undefined ? `AND MIN(p.sell_price) <= $${priceFilterParamIndex + (filters.priceMin !== null && filters.priceMin !== undefined ? 1 : 0)}` : ''}
       ),
     paginated_style_codes AS (
-        SELECT style_code
+        SELECT style_code, sell_price
       FROM style_codes_with_meta
         ORDER BY 
           ${hasSearch && searchRelevanceOrder ? `${searchRelevanceOrder}, ` : ''}
-          ${sort === 'price' ? `sell_price ${order}, product_type_priority ASC` : sort === 'name' ? `style_name ${order}, product_type_priority ASC` : sort === 'brand' ? `brand_name ${order}, product_type_priority ASC` : sort === 'code' ? `style_code ${order}, product_type_priority ASC` : `product_type_priority ASC, created_at ${order}`}
+          ${orderByClause}
       LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
       ),
       total_count AS (
@@ -1116,6 +1135,7 @@ async function buildProductListQuery(filters, page, limit) {
       )
       SELECT 
       psc.style_code,
+      psc.sell_price as sorted_sell_price,
         tc.total,
         pr.min_price,
         pr.max_price
@@ -1152,38 +1172,53 @@ async function buildProductListQuery(filters, page, limit) {
       SELECT 
             scf.style_code,
             MIN(${viewAlias}.style_name) as style_name,
-            MIN(${viewAlias}.sell_price) as sell_price,
+            MIN(p.sell_price) as sell_price,
             MIN(${viewAlias}.created_at) as created_at,
             MIN(COALESCE(pt.display_order, 999)) as product_type_priority,
             MIN(COALESCE(b.name, '')) as brand_name
             ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
           FROM style_codes_filtered scf
           INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
+          INNER JOIN products p ON ${viewAlias}.style_code = p.style_code AND p.sku_status = 'Live'
           LEFT JOIN styles s ON ${viewAlias}.style_code = s.style_code
       LEFT JOIN product_types pt ON s.product_type_id = pt.id
             LEFT JOIN brands b ON s.brand_id = b.id
           WHERE ${viewAlias}.sku_status = 'Live'
           GROUP BY scf.style_code
+          HAVING 
+            MIN(p.sell_price) IS NOT NULL
+            ${filters.priceMin !== null && filters.priceMin !== undefined ? `AND MIN(p.sell_price) >= $${priceFilterParamIndex}` : ''}
+            ${filters.priceMax !== null && filters.priceMax !== undefined ? `AND MIN(p.sell_price) <= $${priceFilterParamIndex + (filters.priceMin !== null && filters.priceMin !== undefined ? 1 : 0)}` : ''}
         ),
         paginated_style_codes AS (
-      SELECT style_code
+      SELECT style_code, sell_price
           FROM style_codes_with_meta
       ORDER BY 
         ${hasSearch && searchRelevanceOrder ? `${searchRelevanceOrder}, ` : ''}
-        ${sort === 'price' ? `sell_price ${order}, product_type_priority ASC` : sort === 'name' ? `style_name ${order}, product_type_priority ASC` : sort === 'brand' ? `brand_name ${order}, product_type_priority ASC` : sort === 'code' ? `style_code ${order}, product_type_priority ASC` : `product_type_priority ASC, created_at ${order}`}
+        ${orderByClause}
       LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
     )
     SELECT 
           psc.style_code,
+          psc.sell_price as sorted_sell_price,
           $${params.length + 1}::bigint as total,
           $${params.length + 2}::numeric as min_price,
           $${params.length + 3}::numeric as max_price
         FROM paginated_style_codes psc
       `;
       params.push(cachedCount, cachedPriceRange.min, cachedPriceRange.max);
+
+      console.log('simplifiedQuery', simplifiedQuery);
+
       queryResult = await queryWithTimeout(simplifiedQuery, params, 20000); // 20s timeout for main query
+
+      console.log('queryResult', queryResult);
     } else {
+      console.log('optimizedQuery', optimizedQuery);
+
       queryResult = await queryWithTimeout(optimizedQuery, params, 20000); // 20s timeout for main query
+
+      console.log('queryResult', queryResult);
     }
     
     const queryTime = Date.now() - startTime;
@@ -1199,7 +1234,7 @@ async function buildProductListQuery(filters, page, limit) {
       min: parseFloat(firstRow.min_price) || 0,
       max: parseFloat(firstRow.max_price) || 0
     };
-    
+
     // Cache count and price range separately (longer TTL - they change less frequently)
     if (!cachedCount) {
       setCache(countCacheKey, total, COUNT_CACHE_TTL);
@@ -1214,7 +1249,17 @@ async function buildProductListQuery(filters, page, limit) {
     }
     
     const styleCodes = queryResult.rows.map(row => row.style_code);
-    
+    // Store the sorted sell_price from SQL query for each style code
+    const sortedPricesMap = new Map();
+    queryResult.rows.forEach(row => {
+      if (row.sorted_sell_price !== null && row.sorted_sell_price !== undefined) {
+        sortedPricesMap.set(row.style_code, parseFloat(row.sorted_sell_price));
+      }
+    });
+
+    console.log('sortedPricesMap', sortedPricesMap);
+
+  
     if (styleCodes.length === 0) {
       return { items: [], total, priceRange };
     }
@@ -1324,7 +1369,9 @@ async function buildProductListQuery(filters, page, limit) {
       }
       if (row.sell_price) {
         const sell = parseFloat(row.sell_price);
-        if (!product.sellPrice) {
+        // Always use the minimum sell_price encountered (products table is source of truth)
+        // If there are multiple values, use the minimum price
+        if (!product.sellPrice || sell < product.sellPrice) {
           product.sellPrice = sell;
         }
       }
@@ -1337,10 +1384,17 @@ async function buildProductListQuery(filters, page, limit) {
     // Build response items with MARKUP applied
     const items = styleCodes.map(styleCode => {
       const product = productsMap.get(styleCode);
-      if (!product || product.sellPrice === undefined || product.sellPrice === null) return null;
+      if (!product) return null;
 
-      // Use sell_price directly (already marked-up in DB)
-      const basePrice = product.sellPrice || 0;
+      // Use the sorted sell_price from SQL query to ensure displayed price matches sort order
+      // This ensures consistency: the price shown is the same price used for sorting
+      const basePrice = sortedPricesMap.get(styleCode) || product.sellPrice || 0;
+      if (!basePrice || basePrice === 0) return null;
+      // #region agent log
+      if (styleCodes.indexOf(styleCode) < 5) {
+        fetch('http://127.0.0.1:7245/ingest/87cebb9f-8942-406a-b7d0-b5c6b5f14fe8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'services/productService.js:1382',message:'Item price before response - B210B check',data:{styleCode,basePrice,index:styleCodes.indexOf(styleCode),productPrice:product.sellPrice,sortedPriceFromQuery:sortedPricesMap.get(styleCode),isB210B:styleCode==='B210B'},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'H'})}).catch(()=>{});
+      }
+      // #endregion
       const priceBreaks = buildPriceBreaks(basePrice);
 
       // Always hardcode customization options
@@ -1405,6 +1459,11 @@ async function buildProductListQuery(filters, page, limit) {
       total, 
       priceRange: markedUpPriceRange
     };
+    // #region agent log
+    const allPrices = filteredItems.map(i => ({ code: i.code, price: i.price }));
+    const isAscending = filteredItems.every((item, idx) => idx === 0 || item.price >= filteredItems[idx - 1].price);
+    fetch('http://127.0.0.1:7245/ingest/87cebb9f-8942-406a-b7d0-b5c6b5f14fe8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'services/productService.js:1454',message:'Final response items verification',data:{itemsCount:filteredItems.length,allPrices,isAscending,firstTenCodes:filteredItems.slice(0,10).map(i=>i.code),firstTenPrices:filteredItems.slice(0,10).map(i=>i.price)},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     
     // Cache the response
     const cacheTTL = (filters.q || filters.text) ? SEARCH_CACHE_TTL : CACHE_TTL;
@@ -1525,6 +1584,7 @@ async function buildProductDetailQuery(styleCode) {
   const prices = [];
   const customizationSet = new Set();
   let mainImage = firstRow.primary_image_url || '';
+  let maxSellPrice = 0; // Track maximum sell_price across all rows (consistent with product list API)
 
   detailResult.rows.forEach(row => {
     if (row.size) {
@@ -1544,13 +1604,22 @@ async function buildProductDetailQuery(styleCode) {
     if (row.single_price) prices.push(parseFloat(row.single_price));
     if (row.carton_price) prices.push(parseFloat(row.carton_price));
 
+    // Track minimum sell_price (consistent with product list API which uses MIN)
+    if (row.sell_price) {
+      const sell = parseFloat(row.sell_price);
+      if (maxSellPrice === 0 || sell < maxSellPrice) {
+        maxSellPrice = sell;
+      }
+    }
+
     if (row.tag) {
       customizationSet.add(row.tag.toLowerCase());
     }
   });
 
-  // Use sell_price directly (already marked-up in DB)
-  const basePrice = firstRow.sell_price ? parseFloat(firstRow.sell_price) : 0;
+  // Use minimum sell_price directly (already marked-up in DB)
+  // This matches the product list API which uses MIN(sell_price) per style_code
+  const basePrice = maxSellPrice || 0;
   const priceBreaks = buildPriceBreaks(basePrice);
 
   const sizes = Array.from(sizesSet).sort((a, b) => {

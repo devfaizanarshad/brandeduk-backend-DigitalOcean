@@ -18,6 +18,7 @@ info:
     - `GET /api/products/filters` - Product type counts for filtering
     - `GET /api/products/types` - All product types with counts
     - `GET /api/products/{code}` - Single product details
+    - `GET /api/products/{code}/pricing` - Get pricing information for a style code
     
     ### Filter Endpoints (Testing & Database Exploration)
     Each filter type has TWO endpoints:
@@ -425,6 +426,91 @@ paths:
                     description: Number of products from same type only (different brand)
         '404':
           description: Product not found
+
+  /api/products/{code}/pricing:
+    get:
+      tags:
+        - Products
+      summary: Get pricing information for a style code
+      description: |
+        Returns pricing breakdown for a product including:
+        - carton_price (or single_price if carton_price is 0/null)
+        - markup_percent (the pricing rule percentage applied)
+        - sell_price (the calculated selling price)
+        - pricing_rule details (price range and description)
+      operationId: getProductPricing
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: Product style code
+          schema:
+            type: string
+          example: "JC001"
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  style_code:
+                    type: string
+                    example: "JC001"
+                  carton_price:
+                    type: number
+                    description: Carton price (or single_price if carton_price is 0/null)
+                    example: 10.50
+                  single_price:
+                    type: number
+                    description: Single unit price
+                    example: 10.50
+                  markup_percent:
+                    type: number
+                    nullable: true
+                    description: Markup percentage applied from pricing rules
+                    example: 127.00
+                  sell_price:
+                    type: number
+                    nullable: true
+                    description: Calculated selling price after markup
+                    example: 23.84
+                  pricing_rule:
+                    type: object
+                    nullable: true
+                    description: Details of the pricing rule applied
+                    properties:
+                      from_price:
+                        type: number
+                        example: 10.00
+                      to_price:
+                        type: number
+                        example: 14.99
+                      markup_percent:
+                        type: number
+                        example: 127.00
+                      description:
+                        type: string
+                        example: "127% markup for £10.00-£14.99 (reduced by 5%)"
+        '404':
+          description: Product not found or has no pricing information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Product not found or has no pricing information"
+                  style_code:
+                    type: string
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   # ============================================================================
   # PRODUCT TYPE ENDPOINTS

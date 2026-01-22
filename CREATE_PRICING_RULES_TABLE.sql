@@ -27,18 +27,19 @@ CREATE INDEX IF NOT EXISTS idx_pricing_rules_version ON public.pricing_rules (ve
 
 -- Step 3: Insert the pricing rules (based on your MARKUP_TIERS)
 -- Note: For the last tier (45.00+), we use a large number like 999999.99
+-- Updated: All markups reduced by 5%
 INSERT INTO public.pricing_rules (version, from_price, to_price, markup_percent, active, description) VALUES
-('1.0', 0.01, 1.99, 200.00, true, '200% markup for £0.01-£1.99'),
-('1.0', 2.00, 2.99, 80.00, true, '80% markup for £2.00-£2.99'),
-('1.0', 3.00, 4.99, 150.00, true, '150% markup for £3.00-£4.99'),
-('1.0', 5.00, 9.99, 138.00, true, '138% markup for £5.00-£9.99'),
-('1.0', 10.00, 14.99, 132.00, true, '132% markup for £10.00-£14.99'),
-('1.0', 15.00, 24.99, 90.00, true, '90% markup for £15.00-£24.99'),
-('1.0', 25.00, 29.99, 105.50, true, '105.5% markup for £25.00-£29.99'),
-('1.0', 30.00, 34.99, 110.30, true, '110.3% markup for £30.00-£34.99'),
-('1.0', 35.00, 39.99, 90.80, true, '90.8% markup for £35.00-£39.99'),
-('1.0', 40.00, 44.99, 85.70, true, '85.7% markup for £40.00-£44.99'),
-('1.0', 45.00, 999999.99, 60.80, true, '60.8% markup for £45.00+')
+('1.0', 0.01, 1.99, 195.00, true, '195% markup for £0.01-£1.99 (reduced by 5%)'),
+('1.0', 2.00, 2.99, 75.00, true, '75% markup for £2.00-£2.99 (reduced by 5%)'),
+('1.0', 3.00, 4.99, 145.00, true, '145% markup for £3.00-£4.99 (reduced by 5%)'),
+('1.0', 5.00, 9.99, 133.00, true, '133% markup for £5.00-£9.99 (reduced by 5%)'),
+('1.0', 10.00, 14.99, 127.00, true, '127% markup for £10.00-£14.99 (reduced by 5%)'),
+('1.0', 15.00, 24.99, 85.00, true, '85% markup for £15.00-£24.99 (reduced by 5%)'),
+('1.0', 25.00, 29.99, 100.50, true, '100.5% markup for £25.00-£29.99 (reduced by 5%)'),
+('1.0', 30.00, 34.99, 105.30, true, '105.3% markup for £30.00-£34.99 (reduced by 5%)'),
+('1.0', 35.00, 39.99, 85.80, true, '85.8% markup for £35.00-£39.99 (reduced by 5%)'),
+('1.0', 40.00, 44.99, 80.70, true, '80.7% markup for £40.00-£44.99 (reduced by 5%)'),
+('1.0', 45.00, 999999.99, 55.80, true, '55.8% markup for £45.00+ (reduced by 5%)')
 ON CONFLICT DO NOTHING;
 
 -- Step 4: Verify the rules were inserted

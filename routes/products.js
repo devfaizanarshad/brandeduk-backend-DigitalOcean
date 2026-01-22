@@ -46,6 +46,9 @@ router.get('/', async (req, res) => {
     // Normalize sort parameter to handle frontend values
     // Frontend sends: best, brand-az, brand-za, code-az, code-za, price-lh, price-hl
     // Map to internal sort values
+    // #region agent log
+    fetch('http://127.0.0.1:7245/ingest/87cebb9f-8942-406a-b7d0-b5c6b5f14fe8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes/products.js:49',message:'Sort normalization entry',data:{originalSort:sort,originalOrder:order},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     let normalizedSort = sort;
     let normalizedOrder = order;
     
@@ -65,12 +68,17 @@ router.get('/', async (req, res) => {
       normalizedSort = 'code';
       normalizedOrder = 'desc';
     } else if (sort === 'price-lh') {
+      console.log('price-lh sort entry');
       normalizedSort = 'price';
       normalizedOrder = 'asc';
     } else if (sort === 'price-hl') {
       normalizedSort = 'price';
       normalizedOrder = 'desc';
     }
+    // #region agent log
+
+    console.log('normalizedSort', normalizedSort);
+    console.log('normalizedOrder', normalizedOrder);
 
     // Parse array params - handles both array format (gender[]=x&gender[]=y) and single values
     const parseArray = (val) => {
@@ -428,6 +436,74 @@ router.get('/:code/related', async (req, res) => {
     console.error('[ERROR] Failed to fetch related products:', {
       message: error.message,
       stack: error.stack,
+    });
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * GET /api/products/:code/pricing
+ * Get pricing information for a style code
+ * Returns: carton_price, markup_percent, and sell_price
+ */
+router.get('/:code/pricing', async (req, res) => {
+  try {
+    const { code } = req.params;
+
+    // Query to get pricing information with the applied markup rule
+    // First get the product, then find the matching pricing rule
+    const query = `
+      SELECT 
+        p.style_code,
+        COALESCE(NULLIF(p.carton_price, 0), NULLIF(p.single_price, 0)) as carton_price,
+        p.single_price,
+        p.carton_price as raw_carton_price,
+        p.sell_price,
+        pr.markup_percent,
+        pr.from_price as rule_from_price,
+        pr.to_price as rule_to_price,
+        pr.version as rule_version
+      FROM products p
+      LEFT JOIN pricing_rules pr ON pr.active = true
+        AND COALESCE(NULLIF(p.carton_price, 0), NULLIF(p.single_price, 0))
+          >= pr.from_price
+        AND COALESCE(NULLIF(p.carton_price, 0), NULLIF(p.single_price, 0))
+          <= pr.to_price
+      WHERE p.style_code = $1
+        AND COALESCE(NULLIF(p.carton_price, 0), NULLIF(p.single_price, 0)) IS NOT NULL
+      ORDER BY pr.from_price DESC
+      LIMIT 1
+    `;
+
+    const result = await queryWithTimeout(query, [code], 10000);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        error: 'Product not found or has no pricing information',
+        style_code: code 
+      });
+    }
+
+    const row = result.rows[0];
+
+    res.json({
+      style_code: row.style_code,
+      carton_price: parseFloat(row.carton_price) || 0,
+      single_price: parseFloat(row.single_price) || 0,
+      markup_percent: row.markup_percent ? parseFloat(row.markup_percent) : null,
+      sell_price: row.sell_price ? parseFloat(row.sell_price) : null,
+      pricing_rule: row.markup_percent ? {
+        from_price: parseFloat(row.rule_from_price),
+        to_price: parseFloat(row.rule_to_price),
+        markup_percent: parseFloat(row.markup_percent),
+        description: row.rule_description
+      } : null
+    });
+  } catch (error) {
+    console.error('[ERROR] Failed to fetch pricing information:', {
+      message: error.message,
+      stack: error.stack,
+      style_code: req.params.code
     });
     res.status(500).json({ error: 'Internal server error', message: error.message });
   }
