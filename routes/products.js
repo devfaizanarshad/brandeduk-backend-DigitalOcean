@@ -46,9 +46,6 @@ router.get('/', async (req, res) => {
     // Normalize sort parameter to handle frontend values
     // Frontend sends: best, brand-az, brand-za, code-az, code-za, price-lh, price-hl
     // Map to internal sort values
-    // #region agent log
-    fetch('http://127.0.0.1:7245/ingest/87cebb9f-8942-406a-b7d0-b5c6b5f14fe8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'routes/products.js:49',message:'Sort normalization entry',data:{originalSort:sort,originalOrder:order},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
     let normalizedSort = sort;
     let normalizedOrder = order;
     
@@ -68,17 +65,12 @@ router.get('/', async (req, res) => {
       normalizedSort = 'code';
       normalizedOrder = 'desc';
     } else if (sort === 'price-lh') {
-      console.log('price-lh sort entry');
       normalizedSort = 'price';
       normalizedOrder = 'asc';
     } else if (sort === 'price-hl') {
       normalizedSort = 'price';
       normalizedOrder = 'desc';
     }
-    // #region agent log
-
-    console.log('normalizedSort', normalizedSort);
-    console.log('normalizedOrder', normalizedOrder);
 
     // Parse array params - handles both array format (gender[]=x&gender[]=y) and single values
     const parseArray = (val) => {
@@ -145,9 +137,16 @@ router.get('/', async (req, res) => {
       order: normalizedOrder ? (normalizedOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC') : 'DESC' // Use normalized order value
     };
 
-    // Input validation and sanitization
-    const pageNum = Math.max(1, parseInt(page) || 1);
-    const limitNum = Math.min(200, Math.max(1, parseInt(limit) || 24));
+    // ENTERPRISE-LEVEL: Input validation and sanitization with logging
+    const rawPage = parseInt(page);
+    const rawLimit = parseInt(limit);
+    
+    // Validate and sanitize pagination parameters
+    const pageNum = Math.max(1, isNaN(rawPage) ? 1 : rawPage);
+    const limitNum = Math.min(200, Math.max(1, isNaN(rawLimit) ? 24 : rawLimit));
+    
+    // Log pagination request for monitoring
+    console.log(`[PAGINATION REQUEST] page=${pageNum}, limit=${limitNum}, rawLimit=${limit}, filters=${Object.keys(filters).filter(k => filters[k] && (Array.isArray(filters[k]) ? filters[k].length > 0 : true)).join(',')}`);
     
     if (filters.priceMin !== null && (isNaN(filters.priceMin) || filters.priceMin < 0)) {
       return res.status(400).json({ error: 'Invalid priceMin value' });
@@ -160,6 +159,15 @@ router.get('/', async (req, res) => {
     }
 
     const { items, total, priceRange } = await buildProductListQuery(filters, pageNum, limitNum);
+
+    // ENTERPRISE-LEVEL: Log response metrics
+    console.log(`[PAGINATION RESPONSE] requested=${limitNum}, returned=${items.length}, total=${total}, page=${pageNum}`);
+    
+    // Warn if fewer items returned than requested (and not on last page)
+    const expectedOnPage = Math.min(limitNum, total - (pageNum - 1) * limitNum);
+    if (items.length < expectedOnPage && items.length > 0) {
+      console.warn(`[PAGINATION WARNING] Fewer items returned than expected: got ${items.length}, expected ${expectedOnPage}`);
+    }
 
     res.json({
       items,
