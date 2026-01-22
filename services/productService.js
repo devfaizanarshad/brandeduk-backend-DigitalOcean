@@ -11,6 +11,20 @@ const COUNT_CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours (was 1 hour)
 const SEARCH_CACHE_TTL = 60 * 60 * 1000; // 1 hour for searches (was 10 minutes)
 const AGGREGATION_CACHE_TTL = 30 * 60 * 1000; // 30 minutes for aggregations
 
+// PAGINATION CONFIGURATION - Enterprise-level settings
+const PAGINATION_CONFIG = {
+  // Maximum colors per product estimate (used for batch query limit calculation)
+  MAX_COLORS_PER_PRODUCT: 50,
+  // Absolute maximum rows to fetch in batch query (safety limit)
+  MAX_BATCH_ROWS: 10000,
+  // Minimum batch rows (ensures small requests work)
+  MIN_BATCH_ROWS: 500,
+  // Maximum page size allowed
+  MAX_PAGE_SIZE: 200,
+  // Default page size
+  DEFAULT_PAGE_SIZE: 24
+};
+
 function getCacheKey(filters, page, limit, type = 'results') {
   const normalizedFilters = {};
   Object.keys(filters).sort().forEach(key => {
@@ -40,9 +54,6 @@ function getCacheKey(filters, page, limit, type = 'results') {
     hash = hash & hash;
   }
   const cacheKey = `query_${Math.abs(hash)}_${type}`;
-  // #region agent log
-  fetch('http://127.0.0.1:7245/ingest/87cebb9f-8942-406a-b7d0-b5c6b5f14fe8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'services/productService.js:42',message:'Cache key generated',data:{cacheKey,filterString,hasSort:!!normalizedFilters.sort,hasOrder:!!normalizedFilters.order,sortValue:normalizedFilters.sort,orderValue:normalizedFilters.order},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-  // #endregion
   return cacheKey;
 }
 
@@ -557,14 +568,12 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
 }
 
 async function buildProductListQuery(filters, page, limit) {
-
-  console.log('buildProductListQuery entry', filters.sort);
-  console.log('buildProductListQuery entry', filters.order);
-
   const cacheKey = getCacheKey(filters, page, limit);
   const cached = getCached(cacheKey);
-  if (cached) return cached;
-  console.log(`[CACHE] Miss - executing query (key: ${cacheKey.substring(0, 50)}...)`);
+  if (cached) {
+    console.log(`[CACHE] Hit - returning cached result`);
+    return cached;
+  }
 
   // When price filters are active, fetch more items to account for post-filtering
   // This ensures we return the correct number of items after filtering on final displayed prices
@@ -1074,12 +1083,8 @@ async function buildProductListQuery(filters, page, limit) {
   const limitParamIndex = params.length + 1;
   const offsetParamIndex = params.length + 2;
   
-  // Construct ORDER BY clause for logging
+  // Construct ORDER BY clause
   const orderByClause = sort === 'price' ? `sell_price ${order}, product_type_priority ASC` : sort === 'name' ? `style_name ${order}, product_type_priority ASC` : sort === 'brand' ? `brand_name ${order}, product_type_priority ASC` : sort === 'code' ? `style_code ${order}, product_type_priority ASC` : `product_type_priority ASC, created_at ${order}`;
-  const fullOrderBy = `${hasSearch && searchRelevanceOrder ? `${searchRelevanceOrder}, ` : ''}${orderByClause}`;
-  // #region agent log
-  fetch('http://127.0.0.1:7245/ingest/87cebb9f-8942-406a-b7d0-b5c6b5f14fe8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'services/productService.js:1086',message:'ORDER BY clause constructed',data:{sort,order,orderByClause,fullOrderBy,hasSearch,searchRelevanceOrder},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-  // #endregion
   
   // ULTRA-OPTIMIZATION: Restructure query for search - use indexed operations first
   // For search, prioritize full-text search index by structuring query properly
@@ -1207,22 +1212,13 @@ async function buildProductListQuery(filters, page, limit) {
         FROM paginated_style_codes psc
       `;
       params.push(cachedCount, cachedPriceRange.min, cachedPriceRange.max);
-
-      console.log('simplifiedQuery', simplifiedQuery);
-
-      queryResult = await queryWithTimeout(simplifiedQuery, params, 20000); // 20s timeout for main query
-
-      console.log('queryResult', queryResult);
+      queryResult = await queryWithTimeout(simplifiedQuery, params, 20000);
     } else {
-      console.log('optimizedQuery', optimizedQuery);
-
-      queryResult = await queryWithTimeout(optimizedQuery, params, 20000); // 20s timeout for main query
-
-      console.log('queryResult', queryResult);
+      queryResult = await queryWithTimeout(optimizedQuery, params, 20000);
     }
     
     const queryTime = Date.now() - startTime;
-    console.log(`[QUERY] Filter query: ${queryTime}ms`);
+    console.log(`[QUERY] Style codes query: ${queryTime}ms, rows: ${queryResult.rows.length}`);
     
     if (queryResult.rows.length === 0) {
       return { items: [], total: 0, priceRange: { min: 0, max: 0 } };
@@ -1256,9 +1252,6 @@ async function buildProductListQuery(filters, page, limit) {
         sortedPricesMap.set(row.style_code, parseFloat(row.sorted_sell_price));
       }
     });
-
-    console.log('sortedPricesMap', sortedPricesMap);
-
   
     if (styleCodes.length === 0) {
       return { items: [], total, priceRange };
@@ -1266,8 +1259,22 @@ async function buildProductListQuery(filters, page, limit) {
 
     // STEP 2: Fetch full details for only the paginated style codes (SMALL DATASET)
     const batchStartTime = Date.now();
-    // OPTIMIZED: Use DISTINCT ON to reduce rows from 800+ to ~56-100 (one per style_code+colour)
-    // This fixes the 14-second query issue by fetching only necessary data
+    
+    // ENTERPRISE-LEVEL: Dynamic batch limit calculation
+    // Each product can have multiple colors, so we need enough rows to cover all products
+    // Formula: styleCodes.length * MAX_COLORS_PER_PRODUCT, capped at MAX_BATCH_ROWS
+    const dynamicBatchLimit = Math.max(
+      PAGINATION_CONFIG.MIN_BATCH_ROWS,
+      Math.min(
+        styleCodes.length * PAGINATION_CONFIG.MAX_COLORS_PER_PRODUCT,
+        PAGINATION_CONFIG.MAX_BATCH_ROWS
+      )
+    );
+    
+    console.log(`[PAGINATION] Batch query limit: ${dynamicBatchLimit} (for ${styleCodes.length} style codes)`);
+    
+    // OPTIMIZED: Use DISTINCT ON to reduce rows - one per style_code+colour combination
+    // Dynamic limit ensures all requested products are retrieved regardless of color count
     const batchQuery = `
       SELECT DISTINCT ON (p.style_code, p.colour_name)
         p.style_code as code,
@@ -1295,12 +1302,12 @@ async function buildProductListQuery(filters, page, limit) {
       LEFT JOIN tags t ON p.tag_id = t.id
       WHERE p.style_code = ANY($1::text[]) AND p.sku_status = 'Live'
       ORDER BY p.style_code, p.colour_name, COALESCE(sz.size_order, 999)
-      LIMIT 200
+      LIMIT $2
     `;
 
-    const batchResult = await queryWithTimeout(batchQuery, [styleCodes], 15000); // 15s timeout for batch query
+    const batchResult = await queryWithTimeout(batchQuery, [styleCodes, dynamicBatchLimit], 30000); // 30s timeout for larger batch queries
     const batchQueryTime = Date.now() - batchStartTime;
-    console.log(`[QUERY] Details query: ${batchQueryTime}ms`);
+    console.log(`[QUERY] Details query: ${batchQueryTime}ms (${batchResult.rows.length} rows returned)`);
 
     // Group results by style_code
     const productsMap = new Map();
@@ -1381,20 +1388,26 @@ async function buildProductListQuery(filters, page, limit) {
       }
     });
 
+    // ENTERPRISE-LEVEL: Track missing products for debugging and monitoring
+    const missingProducts = [];
+    const invalidPriceProducts = [];
+    
     // Build response items with MARKUP applied
     const items = styleCodes.map(styleCode => {
       const product = productsMap.get(styleCode);
-      if (!product) return null;
+      if (!product) {
+        missingProducts.push(styleCode);
+        return null;
+      }
 
       // Use the sorted sell_price from SQL query to ensure displayed price matches sort order
       // This ensures consistency: the price shown is the same price used for sorting
       const basePrice = sortedPricesMap.get(styleCode) || product.sellPrice || 0;
-      if (!basePrice || basePrice === 0) return null;
-      // #region agent log
-      if (styleCodes.indexOf(styleCode) < 5) {
-        fetch('http://127.0.0.1:7245/ingest/87cebb9f-8942-406a-b7d0-b5c6b5f14fe8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'services/productService.js:1382',message:'Item price before response - B210B check',data:{styleCode,basePrice,index:styleCodes.indexOf(styleCode),productPrice:product.sellPrice,sortedPriceFromQuery:sortedPricesMap.get(styleCode),isB210B:styleCode==='B210B'},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'H'})}).catch(()=>{});
+      if (!basePrice || basePrice === 0) {
+        invalidPriceProducts.push({ code: styleCode, sortedPrice: sortedPricesMap.get(styleCode), productPrice: product.sellPrice });
+        return null;
       }
-      // #endregion
+      
       const priceBreaks = buildPriceBreaks(basePrice);
 
       // Always hardcode customization options
@@ -1424,6 +1437,27 @@ async function buildProductListQuery(filters, page, limit) {
         priceBreaks
       };
     }).filter(item => item !== null);
+    
+    // ENTERPRISE-LEVEL: Log pagination health metrics
+    const paginationHealth = {
+      requestedStyleCodes: styleCodes.length,
+      productsMapSize: productsMap.size,
+      missingCount: missingProducts.length,
+      invalidPriceCount: invalidPriceProducts.length,
+      finalItemsCount: items.length,
+      batchRowsReturned: batchResult.rows.length,
+      batchLimit: dynamicBatchLimit
+    };
+    
+    if (missingProducts.length > 0 || invalidPriceProducts.length > 0) {
+      console.warn(`[PAGINATION WARNING] Missing: ${missingProducts.length}, Invalid price: ${invalidPriceProducts.length}`, {
+        missingProducts: missingProducts.slice(0, 10), // Log first 10 for debugging
+        invalidPriceProducts: invalidPriceProducts.slice(0, 5),
+        paginationHealth
+      });
+    }
+    
+    console.log(`[PAGINATION] Health: requested=${paginationHealth.requestedStyleCodes}, returned=${paginationHealth.finalItemsCount}, missing=${paginationHealth.missingCount}`);
 
     // Final safety net: ensure displayed prices honor priceMin/priceMax
     const filteredItems = items.filter(item => {
@@ -1459,11 +1493,6 @@ async function buildProductListQuery(filters, page, limit) {
       total, 
       priceRange: markedUpPriceRange
     };
-    // #region agent log
-    const allPrices = filteredItems.map(i => ({ code: i.code, price: i.price }));
-    const isAscending = filteredItems.every((item, idx) => idx === 0 || item.price >= filteredItems[idx - 1].price);
-    fetch('http://127.0.0.1:7245/ingest/87cebb9f-8942-406a-b7d0-b5c6b5f14fe8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'services/productService.js:1454',message:'Final response items verification',data:{itemsCount:filteredItems.length,allPrices,isAscending,firstTenCodes:filteredItems.slice(0,10).map(i=>i.code),firstTenPrices:filteredItems.slice(0,10).map(i=>i.price)},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'D'})}).catch(()=>{});
-    // #endregion
     
     // Cache the response
     const cacheTTL = (filters.q || filters.text) ? SEARCH_CACHE_TTL : CACHE_TTL;
