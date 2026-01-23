@@ -109,7 +109,9 @@ function hasItems(arr) {
 }
 
 function normalizeSlug(slug) {
-  return slug.toLowerCase().replace(/-?\d+$/, '');
+  // Just lowercase - don't strip trailing numbers as they may be part of actual slugs
+  // e.g., "long-sleeve-2" is a valid slug in the database
+  return slug.toLowerCase().trim();
 }
 
 async function getCategoryIdsWithChildrenCached(categoryIds) {
@@ -129,439 +131,450 @@ async function getCategoryIdsWithChildrenCached(categoryIds) {
   return result.rows.map(row => row.child_id);
 }
 
-// Build filter aggregations - counts for each filter option based on current filtered set
+// Build filter aggregations - ENHANCED: Returns full metadata (slug, name, count) for dynamic frontend
 async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredStyleCodes = null) {
-  const aggregations = {};
+  // Check cache first
+  const cacheKey = getCacheKey(filters, 1, 1, 'aggregations_v2');
+  const cachedAggregations = getAggregationCache(cacheKey);
+  if (cachedAggregations) {
+    console.log('[FILTER AGGREGATIONS] Cache hit');
+    return cachedAggregations;
+  }
   
-  // OPTIMIZATION: If we have pre-filtered style codes (from search), use them to speed up aggregations
-  const hasSearch = !!(filters.q || filters.text);
-  const usePreFiltered = hasSearch && preFilteredStyleCodes && preFilteredStyleCodes.length > 0 && preFilteredStyleCodes.length < 5000;
+  const startTime = Date.now();
   
-  // Helper to build base conditions (all filters except the one being aggregated)
-  const buildBaseConditions = (excludeFilter) => {
+  // Initialize ALL filter types as arrays (always return all, even if empty)
+  const aggregations = {
+    gender: [],
+    ageGroup: [],
+    sleeve: [],
+    neckline: [],
+    accreditations: [],
+    primaryColour: [],
+    colourShade: [],
+    style: [],
+    feature: [],
+    size: [],
+    fabric: [],
+    weight: [],
+    fit: [],
+    sector: [],
+    sport: [],
+    tag: [],
+    effect: []
+  };
+  
+  // Build base WHERE conditions (applied to all aggregations)
+  const buildBaseConditions = () => {
     const conditions = [];
     const params = [];
     let paramIndex = 1;
     
-    // OPTIMIZATION: If using pre-filtered style codes, start with them (much faster)
+    // Pre-filtered style codes for search optimization
+    const hasSearch = !!(filters.q || filters.text);
+    const usePreFiltered = hasSearch && preFilteredStyleCodes && preFilteredStyleCodes.length > 0 && preFilteredStyleCodes.length < 5000;
+    
     if (usePreFiltered) {
-      conditions.push(`${viewAlias}.style_code = ANY($${paramIndex}::text[])`);
+      conditions.push(`psm.style_code = ANY($${paramIndex}::text[])`);
       params.push(preFilteredStyleCodes);
       paramIndex++;
     }
     
     // Always filter by Live status
-    conditions.push(`${viewAlias}.sku_status = 'Live'`);
-    
-    // Search condition (only if not using pre-filtered codes)
-    if (!usePreFiltered) {
-      const searchText = filters.q || filters.text;
-      if (searchText && excludeFilter !== 'search') {
-        const trimmedSearch = searchText.trim();
-        const searchLength = trimmedSearch.length;
-        
-        if (searchLength <= 2) {
-          conditions.push(`(${viewAlias}.style_code = UPPER($${paramIndex}) OR ${viewAlias}.style_code ILIKE $${paramIndex + 1})`);
-          params.push(trimmedSearch);
-          params.push(`${trimmedSearch}%`);
-          paramIndex += 2;
-        } else {
-          const searchTerms = trimmedSearch.split(/\s+/).filter(t => t.length > 0);
-          const normalizedSearch = searchTerms.join(' ');
-          const searchUpper = normalizedSearch.toUpperCase();
-          
-          const normalizeTerm = (term) => term.toLowerCase().replace(/[^a-z0-9]/g, '-');
-          const colorTerms = searchTerms.map(normalizeTerm);
-          const fabricTerms = searchTerms.map(normalizeTerm);
-          const necklineTerms = searchTerms.map(t => {
-            const lower = t.toLowerCase();
-            if (lower.includes('crew')) return 'crew-neck';
-            if (lower.includes('vneck') || lower.includes('v-neck')) return 'v-neck';
-            return normalizeTerm(t);
-          });
-          const sleeveTerms = searchTerms.map(t => {
-            const lower = t.toLowerCase();
-            if (lower.includes('long')) return 'long-sleeve';
-            if (lower.includes('short')) return 'short-sleeve';
-            return normalizeTerm(t);
-          });
-          const styleTerms = searchTerms.map(normalizeTerm);
-          
-          // OPTIMIZED: Prioritize full-text search (uses GIN index)
-          conditions.push(`(
-            ${viewAlias}.search_vector @@ plainto_tsquery('english', $${paramIndex}) OR
-            ${viewAlias}.style_code = $${paramIndex + 1} OR
-            ${viewAlias}.style_code ILIKE $${paramIndex + 2} OR
-            ${viewAlias}.style_name ILIKE $${paramIndex + 3} OR
-            (${viewAlias}.colour_slugs::text[] && $${paramIndex + 4}::text[]) OR
-            (${viewAlias}.fabric_slugs::text[] && $${paramIndex + 5}::text[]) OR
-            (${viewAlias}.neckline_slugs::text[] && $${paramIndex + 6}::text[]) OR
-            (${viewAlias}.sleeve_slugs::text[] && $${paramIndex + 7}::text[]) OR
-            (${viewAlias}.style_keyword_slugs::text[] && $${paramIndex + 8}::text[])
-          )`);
-          params.push(normalizedSearch, searchUpper, `${searchUpper}%`, `%${normalizedSearch}%`, 
-                     colorTerms, fabricTerms, necklineTerms, sleeveTerms, styleTerms);
-          paramIndex += 9;
-        }
-      }
-    }
+    conditions.push(`psm.sku_status = 'Live'`);
     
     // Product type filter
-    // Normalize all variations (tshirts, tshirt, t shirt, t-shirt, t-shirts) to "tshirts"
     let productTypeJoin = '';
-    if (hasItems(filters.productType) && excludeFilter !== 'productType') {
-      // Normalize product type: remove hyphens and spaces, convert to DB format (e.g., "tshirts")
+    if (hasItems(filters.productType)) {
       const normalizeProductType = (pt) => {
-        const normalized = pt.trim().toLowerCase();
-        // Remove all hyphens and spaces
-        let cleaned = normalized.replace(/[- ]/g, '');
-        // Handle t-shirt variations specifically - ensure plural form
-        if (cleaned.includes('tshirt')) {
-          // If original had 'shirts' (plural) or is longer, use plural
-          if (normalized.includes('shirts') || (normalized.length > 6 && !normalized.endsWith('t'))) {
-            cleaned = 'tshirts';
-          } else {
-            cleaned = 'tshirt';
-          }
+        const normalized = pt.trim().toLowerCase().replace(/[- ]/g, '');
+        if (normalized.includes('tshirt')) {
+          return normalized.includes('shirts') ? 'tshirts' : 'tshirt';
         }
-        return cleaned;
+        return normalized;
       };
-      
-      const normalizedProductTypes = filters.productType.map(normalizeProductType);
-      // Remove duplicates
-      const uniqueProductTypes = [...new Set(normalizedProductTypes)];
-      
-      // Match by removing hyphens/spaces from DB name and comparing
+      const uniqueProductTypes = [...new Set(filters.productType.map(normalizeProductType))];
       productTypeJoin = `
-        INNER JOIN styles s_pt ON ${viewAlias}.style_code = s_pt.style_code
+        INNER JOIN styles s_pt ON psm.style_code = s_pt.style_code
         INNER JOIN product_types pt_pt ON s_pt.product_type_id = pt_pt.id 
           AND LOWER(REPLACE(REPLACE(pt_pt.name, '-', ''), ' ', '')) = ANY($${paramIndex}::text[])`;
       params.push(uniqueProductTypes);
       paramIndex++;
     }
     
-    // Price filters - use sell_price directly (already marked-up)
+    // Price filters
     if (filters.priceMin !== null && filters.priceMin !== undefined) {
-      conditions.push(`${viewAlias}.sell_price >= $${paramIndex}`);
+      conditions.push(`psm.sell_price >= $${paramIndex}`);
       params.push(filters.priceMin);
       paramIndex++;
     }
     if (filters.priceMax !== null && filters.priceMax !== undefined) {
-      conditions.push(`${viewAlias}.sell_price <= $${paramIndex}`);
+      conditions.push(`psm.sell_price <= $${paramIndex}`);
       params.push(filters.priceMax);
       paramIndex++;
     }
     
-    // Other filters (exclude the one being aggregated)
-    if (hasItems(filters.gender) && excludeFilter !== 'gender') {
-      conditions.push(`${viewAlias}.gender_slug = ANY($${paramIndex})`);
+    // Apply all active filters (for cross-filter counting)
+    if (hasItems(filters.gender)) {
+      conditions.push(`psm.gender_slug = ANY($${paramIndex})`);
       params.push(filters.gender.map(g => g.toLowerCase()));
       paramIndex++;
     }
-    
-    if (hasItems(filters.ageGroup) && excludeFilter !== 'ageGroup') {
-      conditions.push(`${viewAlias}.age_group_slug = ANY($${paramIndex})`);
+    if (hasItems(filters.ageGroup)) {
+      conditions.push(`psm.age_group_slug = ANY($${paramIndex})`);
       params.push(filters.ageGroup.map(a => a.toLowerCase()));
       paramIndex++;
     }
-    
-    if (hasItems(filters.primaryColour) && excludeFilter !== 'primaryColour') {
-      conditions.push(`${viewAlias}.primary_colour IS NOT NULL AND LOWER(${viewAlias}.primary_colour) = ANY($${paramIndex})`);
+    if (hasItems(filters.primaryColour)) {
+      conditions.push(`LOWER(psm.primary_colour) = ANY($${paramIndex})`);
       params.push(filters.primaryColour.map(c => c.toLowerCase()));
       paramIndex++;
     }
-    
-    if (hasItems(filters.sleeve) && excludeFilter !== 'sleeve') {
-      const normalizedSlugs = filters.sleeve.map(normalizeSlug);
-      conditions.push(`${viewAlias}.sleeve_slugs::text[] && $${paramIndex}::text[]`);
-      params.push(normalizedSlugs);
+    if (hasItems(filters.sleeve)) {
+      conditions.push(`psm.sleeve_slugs::text[] && $${paramIndex}::text[]`);
+      params.push(filters.sleeve.map(s => s.toLowerCase()));
       paramIndex++;
     }
-    
-    if (hasItems(filters.neckline) && excludeFilter !== 'neckline') {
-      const normalizedSlugs = filters.neckline.map(normalizeSlug);
-      conditions.push(`${viewAlias}.neckline_slugs::text[] && $${paramIndex}::text[]`);
-      params.push(normalizedSlugs);
+    if (hasItems(filters.neckline)) {
+      conditions.push(`psm.neckline_slugs::text[] && $${paramIndex}::text[]`);
+      params.push(filters.neckline.map(n => n.toLowerCase()));
       paramIndex++;
     }
-    
-    if (hasItems(filters.fabric) && excludeFilter !== 'fabric') {
-      conditions.push(`${viewAlias}.fabric_slugs::text[] && $${paramIndex}::text[]`);
+    if (hasItems(filters.fabric)) {
+      conditions.push(`psm.fabric_slugs::text[] && $${paramIndex}::text[]`);
       params.push(filters.fabric.map(f => f.toLowerCase()));
       paramIndex++;
     }
     
-    if (hasItems(filters.size) && excludeFilter !== 'size') {
-      conditions.push(`${viewAlias}.size_slugs::text[] && $${paramIndex}::text[]`);
-      params.push(filters.size.map(s => s.toLowerCase()));
-      paramIndex++;
-    }
-    
-    if (hasItems(filters.tag) && excludeFilter !== 'tag') {
-      conditions.push(`LOWER(${viewAlias}.tag_slug) = ANY($${paramIndex})`);
-      params.push(filters.tag.map(t => t.toLowerCase()));
-      paramIndex++;
-    }
-    
-    if (hasItems(filters.effect) && excludeFilter !== 'effect') {
-      const normalizedEffects = filters.effect.map(e => e.toLowerCase());
-      conditions.push(`${viewAlias}.effects_arr::text[] && $${paramIndex}::text[]`);
-      params.push(normalizedEffects);
-      paramIndex++;
-    }
-    
-    if (hasItems(filters.accreditations) && excludeFilter !== 'accreditations') {
-      conditions.push(`${viewAlias}.accreditation_slugs::text[] && $${paramIndex}::text[]`);
-      params.push(filters.accreditations.map(a => a.toLowerCase()));
-      paramIndex++;
-    }
-    
-    if (hasItems(filters.colourShade) && excludeFilter !== 'colourShade') {
-      conditions.push(`${viewAlias}.colour_shade IS NOT NULL AND LOWER(${viewAlias}.colour_shade) = ANY($${paramIndex})`);
-      params.push(filters.colourShade.map(c => c.toLowerCase()));
-      paramIndex++;
-    }
-    
-    if (hasItems(filters.weight) && excludeFilter !== 'weight') {
-      conditions.push(`${viewAlias}.weight_slugs::text[] && $${paramIndex}::text[]`);
-      params.push(filters.weight.map(w => w.toLowerCase()));
-      paramIndex++;
-    }
-    
-    if (hasItems(filters.fit) && excludeFilter !== 'fit') {
-      conditions.push(`${viewAlias}.fit_slug IS NOT NULL AND LOWER(${viewAlias}.fit_slug) = ANY($${paramIndex})`);
-      params.push(filters.fit.map(f => f.toLowerCase()));
-      paramIndex++;
-    }
-    
-    if (hasItems(filters.sector) && excludeFilter !== 'sector') {
-      conditions.push(`${viewAlias}.sector_slugs::text[] && $${paramIndex}::text[]`);
-      params.push(filters.sector.map(s => s.toLowerCase()));
-      paramIndex++;
-    }
-    
-    if (hasItems(filters.sport) && excludeFilter !== 'sport') {
-      conditions.push(`${viewAlias}.sport_slugs::text[] && $${paramIndex}::text[]`);
-      params.push(filters.sport.map(s => s.toLowerCase()));
-      paramIndex++;
-    }
-    
-    if (hasItems(filters.style) && excludeFilter !== 'style') {
-      const normalizedStyles = filters.style.map(normalizeSlug);
-      conditions.push(`${viewAlias}.style_keyword_slugs::text[] && $${paramIndex}::text[]`);
-      params.push(normalizedStyles);
-      paramIndex++;
-    }
-    
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    
     return { whereClause, productTypeJoin, params };
   };
   
-  // Initialize all 8 required filter types (always return all, even if empty)
-  aggregations.gender = {};
-  aggregations.ageGroup = {};
-  aggregations.sleeve = {};
-  aggregations.neckline = {};
-  aggregations.fabric = {};
-  aggregations.size = {};
-  aggregations.feature = {};
-  aggregations.tag = {};
-  
-  // OPTIMIZATION: Use shorter timeout for aggregations when using pre-filtered codes (they should be fast)
-  const aggregationTimeout = usePreFiltered ? 10000 : 15000;
-  
-  // Helper function to run a single aggregation query
-  const runAggregation = async (name, excludeFilter, buildQuery) => {
-    try {
-      const base = buildBaseConditions(excludeFilter);
-      const query = buildQuery(base, viewAlias);
-      const result = await queryWithTimeout(query, base.params, aggregationTimeout);
-      const resultMap = {};
-      result.rows.forEach(row => {
-        resultMap[row.value] = parseInt(row.count);
-      });
-      return resultMap;
-    } catch (err) {
-      console.error(`[ERROR] ${name} aggregation failed:`, err.message);
-      return {};
-    }
-  };
-  
   try {
-    // OPTIMIZATION: Run all aggregations in parallel using Promise.all
-    // This reduces total time from sum of all queries to max of all queries
-    const [
-      genderResult,
-      ageGroupResult,
-      sleeveResult,
-      necklineResult,
-      fabricResult,
-      sizeResult,
-      tagResult
-    ] = await Promise.all([
-      // 1. Gender aggregations
-      runAggregation('Gender', 'gender', (base, alias) => {
-        const whereClause = `${base.whereClause} AND ${alias}.gender_slug IS NOT NULL`;
-        return `
-          SELECT 
-            ${alias}.gender_slug as value,
-            COUNT(DISTINCT ${alias}.style_code) as count
-          FROM product_search_materialized ${alias}
-          ${base.productTypeJoin}
-          ${whereClause}
-          GROUP BY ${alias}.gender_slug
-          ORDER BY count DESC
-        `;
-      }),
-      
-      // 2. Age Group aggregations
-      runAggregation('Age Group', 'ageGroup', (base, alias) => {
-        const whereClause = `${base.whereClause} AND ${alias}.age_group_slug IS NOT NULL`;
-        return `
-          SELECT 
-            ${alias}.age_group_slug as value,
-            COUNT(DISTINCT ${alias}.style_code) as count
-          FROM product_search_materialized ${alias}
-          ${base.productTypeJoin}
-          ${whereClause}
-          GROUP BY ${alias}.age_group_slug
-          ORDER BY count DESC
-        `;
-      }),
-      
-      // 3. Sleeve aggregations (from array) - OPTIMIZED with LIMIT
-      runAggregation('Sleeve', 'sleeve', (base, alias) => {
-        const whereClause = `${base.whereClause} AND ${alias}.sleeve_slugs IS NOT NULL AND array_length(${alias}.sleeve_slugs, 1) > 0`;
-        return `
-          SELECT 
-            sleeve_value as value,
-            COUNT(DISTINCT style_code) as count
-          FROM (
-            SELECT DISTINCT
-              ${alias}.style_code,
-              unnest(${alias}.sleeve_slugs) as sleeve_value
-            FROM product_search_materialized ${alias}
-            ${base.productTypeJoin}
-            ${whereClause}
-          ) subq
-          GROUP BY sleeve_value
-          ORDER BY count DESC
-          LIMIT 30
-        `;
-      }),
-      
-      // 4. Neckline aggregations (from array) - OPTIMIZED with LIMIT
-      runAggregation('Neckline', 'neckline', (base, alias) => {
-        const whereClause = `${base.whereClause} AND ${alias}.neckline_slugs IS NOT NULL AND array_length(${alias}.neckline_slugs, 1) > 0`;
-        return `
-          SELECT 
-            neckline_value as value,
-            COUNT(DISTINCT style_code) as count
-          FROM (
-            SELECT DISTINCT
-              ${alias}.style_code,
-              unnest(${alias}.neckline_slugs) as neckline_value
-            FROM product_search_materialized ${alias}
-            ${base.productTypeJoin}
-            ${whereClause}
-          ) subq
-          GROUP BY neckline_value
-          ORDER BY count DESC
-          LIMIT 30
-        `;
-      }),
-      
-      // 5. Fabric aggregations (from array) - OPTIMIZED with LIMIT
-      runAggregation('Fabric', 'fabric', (base, alias) => {
-        const whereClause = `${base.whereClause} AND ${alias}.fabric_slugs IS NOT NULL AND array_length(${alias}.fabric_slugs, 1) > 0`;
-        return `
-          SELECT 
-            fabric_value as value,
-            COUNT(DISTINCT style_code) as count
-          FROM (
-            SELECT DISTINCT
-              ${alias}.style_code,
-              unnest(${alias}.fabric_slugs) as fabric_value
-            FROM product_search_materialized ${alias}
-            ${base.productTypeJoin}
-            ${whereClause}
-          ) subq
-          GROUP BY fabric_value
-          ORDER BY count DESC
-          LIMIT 30
-        `;
-      }),
-      
-      // 6. Size aggregations (from array) - OPTIMIZED with LIMIT and increased timeout
-      (async () => {
-        try {
-          const sizeBase = buildBaseConditions('size');
-          const sizeWhereClause = `${sizeBase.whereClause} AND ${viewAlias}.size_slugs IS NOT NULL AND array_length(${viewAlias}.size_slugs, 1) > 0`;
-          const sizeQuery = `
-            SELECT 
-              size_value as value,
-              COUNT(DISTINCT style_code) as count
-            FROM (
-              SELECT DISTINCT
-                ${viewAlias}.style_code,
-                unnest(${viewAlias}.size_slugs) as size_value
-              FROM product_search_materialized ${viewAlias}
-              ${sizeBase.productTypeJoin}
-              ${sizeWhereClause}
-            ) subq
-            GROUP BY size_value
-            ORDER BY count DESC
-            LIMIT 50
-          `;
-          const sizeResult = await queryWithTimeout(sizeQuery, sizeBase.params, usePreFiltered ? 15000 : 20000);
-          const resultMap = {};
-          sizeResult.rows.forEach(row => {
-            resultMap[row.value] = parseInt(row.count);
-          });
-          return resultMap;
-        } catch (err) {
-          console.error('[ERROR] Size aggregation failed:', err.message);
-          return {};
-        }
-      })(),
-      
-      // 8. Tag aggregations
-      runAggregation('Tag', 'tag', (base, alias) => {
-        const whereClause = `${base.whereClause} AND ${alias}.tag_slug IS NOT NULL`;
-        return `
-          SELECT 
-            LOWER(${alias}.tag_slug) as value,
-            COUNT(DISTINCT ${alias}.style_code) as count
-          FROM product_search_materialized ${alias}
-          ${base.productTypeJoin}
-          ${whereClause}
-          GROUP BY LOWER(${alias}.tag_slug)
-          ORDER BY count DESC
-          LIMIT 50
-        `;
-      })
-    ]);
+    const base = buildBaseConditions();
     
-    // Assign results
-    aggregations.gender = genderResult;
-    aggregations.ageGroup = ageGroupResult;
-    aggregations.sleeve = sleeveResult;
-    aggregations.neckline = necklineResult;
-    aggregations.fabric = fabricResult;
-    aggregations.size = sizeResult;
-    aggregations.tag = tagResult;
+    // 🚀 ENHANCED: Single combined query with JOINs to lookup tables for names
+    // Returns: filter_type, slug, name, count for fully dynamic frontend
+    const combinedQuery = `
+      WITH base_products AS (
+        SELECT DISTINCT 
+          psm.style_code,
+          psm.gender_slug,
+          psm.age_group_slug,
+          psm.tag_slug,
+          psm.primary_colour,
+          psm.colour_shade,
+          psm.sleeve_slugs,
+          psm.neckline_slugs,
+          psm.fabric_slugs,
+          psm.size_slugs,
+          psm.style_keyword_slugs,
+          psm.weight_slugs,
+          psm.fit_slugs,
+          psm.feature_slugs,
+          psm.effects_arr,
+          psm.accreditation_slugs,
+          psm.sector_slugs,
+          psm.sport_slugs
+        FROM product_search_materialized psm
+        ${base.productTypeJoin}
+        ${base.whereClause}
+      ),
+      
+      -- Gender aggregation with lookup
+      gender_agg AS (
+        SELECT 
+          'gender' as filter_type, 
+          g.slug, 
+          g.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp
+        JOIN genders g ON bp.gender_slug = g.slug
+        WHERE bp.gender_slug IS NOT NULL
+        GROUP BY g.slug, g.name
+        ORDER BY count DESC
+      ),
+      
+      -- Age Group aggregation with lookup
+      age_agg AS (
+        SELECT 
+          'ageGroup' as filter_type, 
+          ag.slug, 
+          ag.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp
+        JOIN age_groups ag ON bp.age_group_slug = ag.slug
+        WHERE bp.age_group_slug IS NOT NULL
+        GROUP BY ag.slug, ag.name
+        ORDER BY count DESC
+      ),
+      
+      -- Tag aggregation with lookup
+      tag_agg AS (
+        SELECT 
+          'tag' as filter_type, 
+          t.slug, 
+          t.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp
+        JOIN tags t ON LOWER(bp.tag_slug) = LOWER(t.slug)
+        WHERE bp.tag_slug IS NOT NULL AND bp.tag_slug != ''
+        GROUP BY t.slug, t.name
+        ORDER BY count DESC
+        LIMIT 20
+      ),
+      
+      -- Primary Colour (name = capitalized slug)
+      primary_colour_agg AS (
+        SELECT 
+          'primaryColour' as filter_type, 
+          LOWER(primary_colour) as slug, 
+          INITCAP(primary_colour) as name,
+          COUNT(DISTINCT style_code)::int as count
+        FROM base_products
+        WHERE primary_colour IS NOT NULL AND primary_colour != ''
+        GROUP BY LOWER(primary_colour), INITCAP(primary_colour)
+        ORDER BY count DESC
+        LIMIT 30
+      ),
+      
+      -- Colour Shade (name from data)
+      colour_shade_agg AS (
+        SELECT 
+          'colourShade' as filter_type, 
+          LOWER(colour_shade) as slug, 
+          colour_shade as name,
+          COUNT(DISTINCT style_code)::int as count
+        FROM base_products
+        WHERE colour_shade IS NOT NULL AND colour_shade != ''
+        GROUP BY LOWER(colour_shade), colour_shade
+        ORDER BY count DESC
+        LIMIT 50
+      ),
+      
+      -- Sleeve aggregation with lookup
+      sleeve_agg AS (
+        SELECT 
+          'sleeve' as filter_type, 
+          sk.slug, 
+          sk.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.sleeve_slugs) as arr_slug
+        JOIN style_keywords sk ON arr_slug = sk.slug
+        WHERE bp.sleeve_slugs IS NOT NULL AND array_length(bp.sleeve_slugs, 1) > 0
+        GROUP BY sk.slug, sk.name
+        ORDER BY count DESC
+        LIMIT 30
+      ),
+      
+      -- Neckline aggregation with lookup
+      neckline_agg AS (
+        SELECT 
+          'neckline' as filter_type, 
+          sk.slug, 
+          sk.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.neckline_slugs) as arr_slug
+        JOIN style_keywords sk ON arr_slug = sk.slug
+        WHERE bp.neckline_slugs IS NOT NULL AND array_length(bp.neckline_slugs, 1) > 0
+        GROUP BY sk.slug, sk.name
+        ORDER BY count DESC
+        LIMIT 30
+      ),
+      
+      -- Fabric aggregation with lookup
+      fabric_agg AS (
+        SELECT 
+          'fabric' as filter_type, 
+          f.slug, 
+          f.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.fabric_slugs) as arr_slug
+        JOIN fabrics f ON arr_slug = f.slug
+        WHERE bp.fabric_slugs IS NOT NULL AND array_length(bp.fabric_slugs, 1) > 0
+        GROUP BY f.slug, f.name
+        ORDER BY count DESC
+        LIMIT 30
+      ),
+      
+      -- Size aggregation with lookup (includes size_order for sorting)
+      size_agg AS (
+        SELECT 
+          'size' as filter_type, 
+          s.slug, 
+          s.name,
+          COUNT(DISTINCT bp.style_code)::int as count,
+          s.size_order
+        FROM base_products bp, unnest(bp.size_slugs) as arr_slug
+        JOIN sizes s ON arr_slug = s.slug
+        WHERE bp.size_slugs IS NOT NULL AND array_length(bp.size_slugs, 1) > 0
+        GROUP BY s.slug, s.name, s.size_order
+        ORDER BY s.size_order ASC NULLS LAST, count DESC
+        LIMIT 50
+      ),
+      
+      -- Style Keywords aggregation with lookup
+      style_agg AS (
+        SELECT 
+          'style' as filter_type, 
+          sk.slug, 
+          sk.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.style_keyword_slugs) as arr_slug
+        JOIN style_keywords sk ON arr_slug = sk.slug
+        WHERE bp.style_keyword_slugs IS NOT NULL AND array_length(bp.style_keyword_slugs, 1) > 0
+        GROUP BY sk.slug, sk.name
+        ORDER BY count DESC
+        LIMIT 50
+      ),
+      
+      -- Weight aggregation with lookup
+      weight_agg AS (
+        SELECT 
+          'weight' as filter_type, 
+          wr.slug, 
+          wr.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.weight_slugs) as arr_slug
+        JOIN weight_ranges wr ON arr_slug = wr.slug
+        WHERE bp.weight_slugs IS NOT NULL AND array_length(bp.weight_slugs, 1) > 0
+        GROUP BY wr.slug, wr.name
+        ORDER BY wr.name ASC
+        LIMIT 20
+      ),
+      
+      -- Fit aggregation with lookup
+      fit_agg AS (
+        SELECT 
+          'fit' as filter_type, 
+          sk.slug, 
+          sk.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.fit_slugs) as arr_slug
+        JOIN style_keywords sk ON arr_slug = sk.slug
+        WHERE bp.fit_slugs IS NOT NULL AND array_length(bp.fit_slugs, 1) > 0
+        GROUP BY sk.slug, sk.name
+        ORDER BY count DESC
+        LIMIT 20
+      ),
+      
+      -- Feature aggregation with lookup
+      feature_agg AS (
+        SELECT 
+          'feature' as filter_type, 
+          sk.slug, 
+          sk.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.feature_slugs) as arr_slug
+        JOIN style_keywords sk ON arr_slug = sk.slug
+        WHERE bp.feature_slugs IS NOT NULL AND array_length(bp.feature_slugs, 1) > 0
+        GROUP BY sk.slug, sk.name
+        ORDER BY count DESC
+        LIMIT 50
+      ),
+      
+      -- Effect aggregation with lookup
+      effect_agg AS (
+        SELECT 
+          'effect' as filter_type, 
+          e.slug, 
+          e.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.effects_arr) as arr_slug
+        JOIN effects e ON arr_slug = e.slug
+        WHERE bp.effects_arr IS NOT NULL AND array_length(bp.effects_arr, 1) > 0
+        GROUP BY e.slug, e.name
+        ORDER BY count DESC
+        LIMIT 20
+      ),
+      
+      -- Accreditations aggregation with lookup
+      accreditations_agg AS (
+        SELECT 
+          'accreditations' as filter_type, 
+          a.slug, 
+          a.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.accreditation_slugs) as arr_slug
+        JOIN accreditations a ON arr_slug = a.slug
+        WHERE bp.accreditation_slugs IS NOT NULL AND array_length(bp.accreditation_slugs, 1) > 0
+        GROUP BY a.slug, a.name
+        ORDER BY count DESC
+        LIMIT 50
+      ),
+      
+      -- Sector aggregation with lookup
+      sector_agg AS (
+        SELECT 
+          'sector' as filter_type, 
+          rs.slug, 
+          rs.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.sector_slugs) as arr_slug
+        JOIN related_sectors rs ON arr_slug = rs.slug
+        WHERE bp.sector_slugs IS NOT NULL AND array_length(bp.sector_slugs, 1) > 0
+        GROUP BY rs.slug, rs.name
+        ORDER BY count DESC
+        LIMIT 20
+      ),
+      
+      -- Sport aggregation with lookup
+      sport_agg AS (
+        SELECT 
+          'sport' as filter_type, 
+          rsp.slug, 
+          rsp.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.sport_slugs) as arr_slug
+        JOIN related_sports rsp ON arr_slug = rsp.slug
+        WHERE bp.sport_slugs IS NOT NULL AND array_length(bp.sport_slugs, 1) > 0
+        GROUP BY rsp.slug, rsp.name
+        ORDER BY count DESC
+        LIMIT 20
+      )
+      
+      -- Combine all aggregations
+      SELECT filter_type, slug, name, count FROM gender_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM age_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM tag_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM primary_colour_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM colour_shade_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM sleeve_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM neckline_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM fabric_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM size_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM style_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM weight_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM fit_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM feature_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM effect_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM accreditations_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM sector_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM sport_agg
+    `;
     
-    // 7. Feature aggregations - SKIPPED: feature column doesn't exist in product_search_materialized
-    // Features are not available in the materialized view, return empty object
+    const result = await queryWithTimeout(combinedQuery, base.params, 30000);
+    
+    // Process results into arrays of objects with full metadata
+    result.rows.forEach(row => {
+      if (row.slug && row.filter_type && aggregations[row.filter_type]) {
+        aggregations[row.filter_type].push({
+          slug: row.slug,
+          name: row.name || row.slug, // Fallback to slug if name is missing
+          count: parseInt(row.count)
+        });
+      }
+    });
+    
+    const duration = Date.now() - startTime;
+    console.log(`[FILTER AGGREGATIONS] Completed in ${duration}ms (single query with names, ${result.rows.length} results)`);
+    
+    // Cache the results
+    setAggregationCache(cacheKey, aggregations);
     
     return aggregations;
   } catch (error) {
-    console.error('[ERROR] buildFilterAggregations failed:', {
-      message: error.message,
-      stack: error.stack,
-      filters: JSON.stringify(filters)
-    });
+    console.error('[ERROR] buildFilterAggregations failed:', error.message);
     // Return initialized aggregations on error (don't break the main query)
     return aggregations;
   }
@@ -925,18 +938,21 @@ async function buildProductListQuery(filters, page, limit) {
     paramIndex++;
   }
 
-  // Fit filter
+  // Fit filter - OPTIMIZED: Use precomputed array column (matches new view structure)
   if (hasItems(filters.fit)) {
-    conditions.push(`${viewAlias}.fit_slug IS NOT NULL AND LOWER(${viewAlias}.fit_slug) = ANY($${paramIndex})`);
-    params.push(filters.fit.map(f => f.toLowerCase()));
+    const normalizedFits = filters.fit.map(normalizeSlug);
+    conditions.push(`${viewAlias}.fit_slugs::text[] && $${paramIndex}::text[]`);
+    params.push(normalizedFits);
     paramIndex++;
   }
 
-  // Features filter - REMOVED: features column doesn't exist in view
-  // If you need features filtering, add it to the view first
-  // if (hasItems(filters.feature)) {
-  //   // Skip - features column doesn't exist
-  // }
+  // Features filter - ENABLED: Uses new feature_slugs column from updated view
+  if (hasItems(filters.feature)) {
+    const normalizedFeatures = filters.feature.map(normalizeSlug);
+    conditions.push(`${viewAlias}.feature_slugs::text[] && $${paramIndex}::text[]`);
+    params.push(normalizedFeatures);
+    paramIndex++;
+  }
 
   // Effect filter - OPTIMIZED: Use array column with GIN index (replaces ILIKE)
   if (hasItems(filters.effect)) {
