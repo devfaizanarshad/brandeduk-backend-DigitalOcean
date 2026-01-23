@@ -7,6 +7,12 @@ if (!process.env.RESEND_API_KEY) {
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+console.log(process.env.RESEND_API_KEY);
+
+
+console.log(resend);
+
+
 // Helper function to escape HTML (like PHP's htmlspecialchars)
 function escapeHtml(text) {
   if (text == null) return '';
@@ -223,6 +229,9 @@ async function sendQuoteEmail(data) {
   try {
     const html = generateQuoteEmailHTML(data);
 
+    console.log(`[EMAIL] Attempting to send quote email to: ${process.env.EMAIL_TO}`);
+    console.log(`[EMAIL] From: ${process.env.EMAIL_FROM}`);
+
     const result = await resend.emails.send({
       from: process.env.EMAIL_FROM,
       to: process.env.EMAIL_TO,
@@ -231,13 +240,282 @@ async function sendQuoteEmail(data) {
       html,
     });
 
-    console.log("✅ Email sent via Resend:", result.id);
-    return { success: true, id: result.id };
+    // Resend API returns { data: { id: '...' } } or { id: '...' } depending on version
+    const emailId = result?.data?.id || result?.id;
+    
+    if (emailId) {
+      console.log("✅ Email sent via Resend. ID:", emailId);
+      console.log("[EMAIL] Full response:", JSON.stringify(result, null, 2));
+      return { success: true, id: emailId };
+    } else {
+      console.warn("⚠️ Email response received but no ID found. Full response:", JSON.stringify(result, null, 2));
+      // Still return success if no error was thrown
+      return { success: true, id: null, warning: "Email sent but no ID returned" };
+    }
 
   } catch (error) {
     console.error("❌ Email sending failed:", error);
+    console.error("[EMAIL] Error details:", {
+      message: error.message,
+      status: error.status,
+      response: error.response?.data || error.response,
+      stack: error.stack
+    });
     throw error;
   }
 }
 
-module.exports = { sendQuoteEmail };
+/* =========================
+   CONTACT FORM EMAIL
+========================= */
+function generateContactEmailHTML(data) {
+  const name = escapeHtml(data.name || 'Anonymous');
+  const email = escapeHtml(data.email || 'Not provided');
+  const interest = escapeHtml(data.interest || 'Not specified');
+  const phone = data.phone ? escapeHtml(data.phone) : null;
+  const address = data.address ? escapeHtml(data.address) : null;
+  const postCode = data.postCode ? escapeHtml(data.postCode) : null;
+  const message = escapeHtml(data.message || '');
+  const submittedAt = data.submittedAt || new Date().toISOString();
+
+  // Format date
+  const date = new Date(submittedAt);
+  const formattedDate = date.toLocaleString('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).replace(',', '');
+
+  // Interest badge colors
+  const interestColors = {
+    embroidery: '#7c3aed',
+    printing: '#2563eb',
+    workwear: '#059669',
+    uniforms: '#dc2626',
+    promotional: '#d97706',
+    other: '#6b7280'
+  };
+  const badgeColor = interestColors[data.interest?.toLowerCase()] || interestColors.other;
+
+  return `
+  <html>
+  <head>
+    <style>
+      body { font-family: Arial, sans-serif; line-height: 1.6; color: #111827; margin: 0; padding: 0; }
+      .container { max-width: 600px; margin: 0 auto; }
+      .header { background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%); color: white; padding: 30px; border-radius: 8px 8px 0 0; }
+      .header h1 { margin: 0; font-size: 24px; }
+      .header p { margin: 10px 0 0; opacity: 0.9; }
+      .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; }
+      .section { margin-bottom: 25px; }
+      .section-title { font-size: 14px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px; }
+      .info-row { display: flex; padding: 10px 0; border-bottom: 1px solid #f3f4f6; }
+      .info-row:last-child { border-bottom: none; }
+      .info-label { font-weight: 600; color: #374151; width: 120px; flex-shrink: 0; }
+      .info-value { color: #111827; }
+      .interest-badge { display: inline-block; background: ${badgeColor}; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
+      .message-box { background: #f9fafb; border-left: 4px solid #7c3aed; padding: 20px; margin-top: 10px; border-radius: 0 8px 8px 0; }
+      .message-text { white-space: pre-wrap; color: #374151; margin: 0; }
+      .footer { background: #f3f4f6; padding: 20px; text-align: center; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none; }
+      .footer p { margin: 0; color: #6b7280; font-size: 12px; }
+      .reply-btn { display: inline-block; background: #7c3aed; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600; margin-top: 15px; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>📬 New Contact Form Submission</h1>
+        <p>Someone has reached out through the website</p>
+      </div>
+
+      <div class="content">
+        <div class="section">
+          <div class="section-title">👤 Contact Information</div>
+          <div class="info-row">
+            <span class="info-label">Name:</span>
+            <span class="info-value"><strong>${name}</strong></span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Email:</span>
+            <span class="info-value"><a href="mailto:${email}" style="color: #7c3aed;">${email}</a></span>
+          </div>
+          ${phone ? `
+          <div class="info-row">
+            <span class="info-label">Phone:</span>
+            <span class="info-value"><a href="tel:${phone}" style="color: #7c3aed;">${phone}</a></span>
+          </div>` : ''}
+          <div class="info-row">
+            <span class="info-label">Interest:</span>
+            <span class="info-value"><span class="interest-badge">${interest}</span></span>
+          </div>
+          ${address || postCode ? `
+          <div class="info-row">
+            <span class="info-label">Location:</span>
+            <span class="info-value">${[address, postCode].filter(Boolean).join(', ')}</span>
+          </div>` : ''}
+        </div>
+
+        <div class="section">
+          <div class="section-title">💬 Message</div>
+          <div class="message-box">
+            <p class="message-text">${message}</p>
+          </div>
+        </div>
+
+        <div class="section" style="text-align: center; margin-bottom: 0;">
+          <a href="mailto:${email}?subject=Re: Your inquiry about ${interest}" class="reply-btn">Reply to ${name.split(' ')[0]}</a>
+        </div>
+      </div>
+
+      <div class="footer">
+        <p>Submitted on ${formattedDate}</p>
+        <p style="margin-top: 5px;">This message was sent from the BrandedUK contact form</p>
+      </div>
+    </div>
+  </body>
+  </html>
+  `;
+}
+
+async function sendContactEmail(data) {
+  try {
+    const html = generateContactEmailHTML(data);
+
+    console.log(html);
+    
+
+    console.log(`[EMAIL] Attempting to send contact email to: ${process.env.EMAIL_TO}`);
+    console.log(`[EMAIL] From: ${process.env.EMAIL_FROM}`);
+
+    const result = await resend.emails.send({
+      from: process.env.EMAIL_FROM,
+      to: process.env.EMAIL_TO,
+      replyTo: data.email,
+      subject: `New Contact Form: ${data.interest?.charAt(0).toUpperCase() + data.interest?.slice(1)} - ${data.name}`,
+      html,
+    });
+
+    console.log("Result" , result);
+    
+
+    // Resend API returns { data: { id: '...' } } or { id: '...' } depending on version
+    const emailId = result?.data?.id || result?.id;
+
+    console.log('Email Id', emailId);
+    
+    
+    if (emailId) {
+      console.log("✅ Contact email sent via Resend. ID:", emailId);
+      console.log("[EMAIL] Full response:", JSON.stringify(result, null, 2));
+      return { success: true, id: emailId };
+    } else {
+      console.warn("⚠️ Email response received but no ID found. Full response:", JSON.stringify(result, null, 2));
+      // Still return success if no error was thrown
+      return { success: true, id: null, warning: "Email sent but no ID returned" };
+    }
+
+  } catch (error) {
+    console.error("❌ Contact email sending failed:", error);
+    console.error("[EMAIL] Error details:", {
+      message: error.message,
+      status: error.status,
+      response: error.response?.data || error.response,
+      stack: error.stack
+    });
+    throw error;
+  }
+}
+
+/* =========================
+   QUOTE EMAIL WITH ATTACHMENTS
+========================= */
+function generateQuoteWithLogosEmailHTML(data, logoUrls = {}) {
+  // Use the existing quote HTML generator
+  let html = generateQuoteEmailHTML(data);
+  
+  // If there are logo URLs, add a section for them
+  if (Object.keys(logoUrls).length > 0) {
+    const logosSection = `
+    <div class="section">
+      <h2>🖼️ Uploaded Logos</h2>
+      <table>
+        ${Object.entries(logoUrls).map(([position, url]) => `
+          <tr>
+            <td class="label">${escapeHtml(position.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()))}:</td>
+            <td class="value">
+              <a href="${escapeHtml(url)}" target="_blank" style="color: #7c3aed;">View Logo</a>
+              ${url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? `<br><img src="${escapeHtml(url)}" alt="Logo" style="max-width: 150px; max-height: 100px; margin-top: 8px; border: 1px solid #e5e7eb; border-radius: 4px;">` : ''}
+            </td>
+          </tr>
+        `).join('')}
+      </table>
+    </div>
+    `;
+    
+    // Insert logos section before the request date section
+    html = html.replace(
+      /<div class="section">\s*<h2>📅 Request Date<\/h2>/,
+      `${logosSection}\n    <div class="section">\n      <h2>📅 Request Date</h2>`
+    );
+  }
+  
+  return html;
+}
+
+async function sendQuoteEmailWithAttachments(data, attachments = [], logoUrls = {}) {
+  try {
+    const html = generateQuoteWithLogosEmailHTML(data, logoUrls);
+
+    console.log(`[EMAIL] Attempting to send quote email with ${attachments.length} attachment(s) to: ${process.env.EMAIL_TO}`);
+    console.log(`[EMAIL] From: ${process.env.EMAIL_FROM}`);
+
+    const emailOptions = {
+      from: process.env.EMAIL_FROM,
+      to: process.env.EMAIL_TO,
+      replyTo: data.customer?.email,
+      subject: `New Quote Request - ${data.customer?.fullName || 'Customer'}`,
+      html,
+    };
+
+    // Add attachments if provided (Resend supports attachments)
+    if (attachments.length > 0) {
+      emailOptions.attachments = attachments.map(att => ({
+        filename: att.filename,
+        content: att.content, // Buffer or base64 string
+      }));
+    }
+
+    const result = await resend.emails.send(emailOptions);
+
+    console.log(result);
+    
+
+    // Resend API returns { data: { id: '...' } } or { id: '...' } depending on version
+    const emailId = result?.data?.id || result?.id;
+    
+    if (emailId) {
+      console.log("✅ Quote email with attachments sent via Resend. ID:", emailId);
+      console.log("[EMAIL] Full response:", JSON.stringify(result, null, 2));
+      return { success: true, id: emailId };
+    } else {
+      console.warn("⚠️ Email response received but no ID found. Full response:", JSON.stringify(result, null, 2));
+      return { success: true, id: null, warning: "Email sent but no ID returned" };
+    }
+
+  } catch (error) {
+    console.error("❌ Quote email with attachments sending failed:", error);
+    console.error("[EMAIL] Error details:", {
+      message: error.message,
+      status: error.status,
+      response: error.response?.data || error.response,
+      stack: error.stack
+    });
+    throw error;
+  }
+}
+
+module.exports = { sendQuoteEmail, sendContactEmail, sendQuoteEmailWithAttachments };

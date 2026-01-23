@@ -20,6 +20,10 @@ info:
     - `GET /api/products/{code}` - Single product details
     - `GET /api/products/{code}/pricing` - Get pricing information for a style code
     
+    ### Contact & Quotes
+    - `POST /api/contact` - Submit contact form inquiry
+    - `POST /api/quotes` - Submit quote request with optional logo file uploads
+    
     ### Filter Endpoints (Testing & Database Exploration)
     Each filter type has TWO endpoints:
     1. **List all values**: Returns all options from that database table
@@ -82,6 +86,10 @@ tags:
     description: Price range filter endpoints
   - name: Health
     description: Server health checks
+  - name: Contact
+    description: Contact form submission endpoints
+  - name: Quotes
+    description: Quote request endpoints with file uploads
 
 paths:
   # ============================================================================
@@ -1793,6 +1801,222 @@ paths:
         '200':
           description: Ready
 
+  # ============================================================================
+  # CONTACT FORM ENDPOINT
+  # ============================================================================
+  
+  /api/contact:
+    post:
+      tags:
+        - Contact
+      summary: Submit contact form
+      description: |
+        Submit a contact form inquiry. Supports rate limiting (max 3 submissions per email per hour).
+        Sends email notification to the configured recipient address.
+      operationId: submitContactForm
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactFormRequest'
+            example:
+              name: "John Doe"
+              email: "john@example.com"
+              interest: "embroidery"
+              phone: "+44 20 1234 5678"
+              address: "123 Main Street, London"
+              postCode: "SW1A 1AA"
+              message: "I need custom workwear for my team of 50 employees."
+      responses:
+        '200':
+          description: Contact form submitted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactFormResponse'
+              example:
+                success: true
+                message: "Thank you for your inquiry. We'll get back to you soon."
+                id: "contact_1769198076999_x80gdu004"
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactFormError'
+              example:
+                success: false
+                error: "Validation failed"
+                errors:
+                  email: "Invalid email format"
+                  name: "Name is required"
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: "Too many submissions"
+                  message:
+                    type: string
+                    example: "Maximum 3 contact form submissions per hour. Please try again later."
+                  retryAfter:
+                    type: integer
+                    example: 1800
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============================================================================
+  # QUOTE REQUEST ENDPOINT
+  # ============================================================================
+  
+  /api/quotes:
+    post:
+      tags:
+        - Quotes
+      summary: Submit quote request with optional logo uploads
+      description: |
+        Submit a quote request for custom products. Supports two formats:
+        1. **multipart/form-data** - When logo files are included (recommended)
+        2. **application/json** - Backward compatible format without files
+        
+        Logo files are named using the pattern: `logo_{position-slug}` (e.g., `logo_left-breast`, `logo_large-front-center`).
+        Maximum 10 logo files, 5MB each. Only image files (jpg, png, gif, webp) are accepted.
+      operationId: submitQuoteRequest
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - quoteData
+              properties:
+                quoteData:
+                  type: string
+                  description: JSON string containing all quote data (customer, basket, customizations, summary, timestamp)
+                  example: '{"customer":{"fullName":"John Doe","email":"john@example.com","phone":"+44 20 1234 5678","company":"Acme Corp","address":"123 Main St"},"basket":[{"name":"Product Name","code":"PROD-123","color":"Navy","quantity":50,"sizes":{"S":10,"M":20,"L":20},"unitPrice":10.00,"itemTotal":500.00}],"customizations":[{"position":"Left Breast","method":"Embroidery","type":"logo","hasLogo":true,"unitPrice":5.00,"lineTotal":250.00,"quantity":50}],"summary":{"totalQuantity":50,"totalItems":1,"garmentCost":500.00,"customizationCost":250.00,"digitizingFee":25.00,"subtotal":775.00,"vatRate":0.20,"vatAmount":155.00,"totalExVat":775.00,"totalIncVat":930.00,"vatMode":"inc","displayTotal":930.00},"timestamp":"2026-01-15T10:30:00.000Z"}'
+                logo_left-breast:
+                  type: string
+                  format: binary
+                  description: Logo image file for left breast position (max 5MB, jpg/png/gif/webp)
+                logo_right-breast:
+                  type: string
+                  format: binary
+                  description: Logo image file for right breast position (max 5MB, jpg/png/gif/webp)
+                logo_large-front-center:
+                  type: string
+                  format: binary
+                  description: Logo image file for large front center position (max 5MB, jpg/png/gif/webp)
+                logo_small-centre-front:
+                  type: string
+                  format: binary
+                  description: Logo image file for small centre front position (max 5MB, jpg/png/gif/webp)
+                logo_back-center:
+                  type: string
+                  format: binary
+                  description: Logo image file for back center position (max 5MB, jpg/png/gif/webp)
+                logo_left-sleeve:
+                  type: string
+                  format: binary
+                  description: Logo image file for left sleeve position (max 5MB, jpg/png/gif/webp)
+                logo_right-sleeve:
+                  type: string
+                  format: binary
+                  description: Logo image file for right sleeve position (max 5MB, jpg/png/gif/webp)
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuoteRequest'
+            example:
+              customer:
+                fullName: "John Doe"
+                company: "Acme Corp"
+                phone: "+44 20 1234 5678"
+                email: "john@example.com"
+                address: "123 Main St, London"
+              summary:
+                totalQuantity: 50
+                totalItems: 1
+                garmentCost: 500.00
+                customizationCost: 250.00
+                digitizingFee: 25.00
+                subtotal: 775.00
+                vatRate: 0.20
+                vatAmount: 155.00
+                totalExVat: 775.00
+                totalIncVat: 930.00
+                vatMode: "inc"
+                displayTotal: 930.00
+              basket:
+                - name: "Product Name"
+                  code: "PROD-123"
+                  color: "Navy"
+                  quantity: 50
+                  sizes:
+                    S: 10
+                    M: 20
+                    L: 20
+                  sizesSummary: "S: 10, M: 20, L: 20"
+                  unitPrice: 10.00
+                  itemTotal: 500.00
+              customizations:
+                - position: "Left Breast"
+                  method: "Embroidery"
+                  type: "logo"
+                  hasLogo: true
+                  unitPrice: 5.00
+                  lineTotal: 250.00
+                  quantity: 50
+              timestamp: "2026-01-15T10:30:00.000Z"
+      responses:
+        '200':
+          description: Quote submitted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuoteResponse'
+              example:
+                success: true
+                message: "Quote submitted successfully"
+                quoteId: "quote_1769198120482_i98a3pwgg"
+        '400':
+          description: Validation error or file upload error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    examples:
+                      - "Customer email is required"
+                      - "Customer full name is required"
+                      - "Customer phone is required"
+                      - "Basket is required"
+                      - "File too large. Maximum size is 5MB per file."
+                      - "Too many files. Maximum 10 logo files allowed."
+                      - "Only image files are allowed."
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
 components:
   schemas:
     FilterItem:
@@ -1904,3 +2128,234 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Category'
+
+    ContactFormRequest:
+      type: object
+      required:
+        - name
+        - email
+        - interest
+        - message
+      properties:
+        name:
+          type: string
+          description: Contact's full name (2-100 characters)
+          example: "John Doe"
+        email:
+          type: string
+          format: email
+          description: Valid email address
+          example: "john@example.com"
+        interest:
+          type: string
+          enum: [embroidery, printing, workwear, uniforms, promotional, other]
+          description: What they're interested in
+          example: "embroidery"
+        phone:
+          type: string
+          description: Phone number (optional, 7-20 characters)
+          example: "+44 20 1234 5678"
+        address:
+          type: string
+          description: Street address (optional, desktop form only)
+          example: "123 Main Street, London"
+        postCode:
+          type: string
+          description: UK post code (optional, desktop form only)
+          example: "SW1A 1AA"
+        message:
+          type: string
+          description: User's message/query (10-5000 characters)
+          example: "I need custom workwear for my team of 50 employees."
+
+    ContactFormResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Thank you for your inquiry. We'll get back to you soon."
+        id:
+          type: string
+          description: Unique contact submission ID
+          example: "contact_1769198076999_x80gdu004"
+
+    ContactFormError:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: "Validation failed"
+        errors:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            email: "Invalid email format"
+            name: "Name is required"
+            interest: "Interest is required"
+            message: "Message must be at least 10 characters"
+
+    QuoteRequest:
+      type: object
+      required:
+        - customer
+        - basket
+      properties:
+        customer:
+          type: object
+          required:
+            - fullName
+            - email
+            - phone
+          properties:
+            fullName:
+              type: string
+              example: "John Doe"
+            company:
+              type: string
+              nullable: true
+              example: "Acme Corp"
+            phone:
+              type: string
+              example: "+44 20 1234 5678"
+            email:
+              type: string
+              format: email
+              example: "john@example.com"
+            address:
+              type: string
+              nullable: true
+              example: "123 Main St, London"
+        summary:
+          type: object
+          properties:
+            totalQuantity:
+              type: integer
+              example: 50
+            totalItems:
+              type: integer
+              example: 1
+            garmentCost:
+              type: number
+              example: 500.00
+            customizationCost:
+              type: number
+              example: 250.00
+            digitizingFee:
+              type: number
+              example: 25.00
+            subtotal:
+              type: number
+              example: 775.00
+            vatRate:
+              type: number
+              example: 0.20
+            vatAmount:
+              type: number
+              example: 155.00
+            totalExVat:
+              type: number
+              example: 775.00
+            totalIncVat:
+              type: number
+              example: 930.00
+            vatMode:
+              type: string
+              enum: [inc, ex]
+              example: "inc"
+            displayTotal:
+              type: number
+              example: 930.00
+        basket:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                example: "Product Name"
+              code:
+                type: string
+                example: "PROD-123"
+              color:
+                type: string
+                example: "Navy"
+              quantity:
+                type: integer
+                example: 50
+              sizes:
+                type: object
+                additionalProperties:
+                  type: integer
+                example:
+                  S: 10
+                  M: 20
+                  L: 20
+              sizesSummary:
+                type: string
+                example: "S: 10, M: 20, L: 20"
+              unitPrice:
+                type: number
+                example: 10.00
+              itemTotal:
+                type: number
+                example: 500.00
+              image:
+                type: string
+                nullable: true
+                example: "https://example.com/image.jpg"
+        customizations:
+          type: array
+          items:
+            type: object
+            properties:
+              position:
+                type: string
+                example: "Left Breast"
+              method:
+                type: string
+                enum: [Embroidery, Print]
+                example: "Embroidery"
+              type:
+                type: string
+                example: "logo"
+              hasLogo:
+                type: boolean
+                example: true
+              text:
+                type: string
+                nullable: true
+                example: null
+              unitPrice:
+                type: number
+                example: 5.00
+              lineTotal:
+                type: number
+                example: 250.00
+              quantity:
+                type: integer
+                example: 50
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-01-15T10:30:00.000Z"
+
+    QuoteResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Quote submitted successfully"
+        quoteId:
+          type: string
+          description: Unique quote submission ID
+          example: "quote_1769198120482_i98a3pwgg"

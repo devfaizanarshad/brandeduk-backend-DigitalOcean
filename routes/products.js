@@ -39,6 +39,8 @@ router.get('/', async (req, res) => {
       effect,
       productType, // Product type filter - accepts product type names
       productTypes, // Accept both 'productType' and 'productTypes' parameters
+      category,     // Alias for productType (used by mobile)
+      categories,   // Alias for productTypes (used by mobile)
       sort = 'newest',
       order = 'desc'
     } = req.query;
@@ -132,7 +134,7 @@ router.get('/', async (req, res) => {
       sport: parseArray(sport),
       tag: parseArray(tag),
       effect: parseArray(effect),
-      productType: parseArray(productType || productTypes), // Accept both 'productType' and 'productTypes', supports product type names
+      productType: parseArray(productType || productTypes || category || categories), // Accept productType, productTypes, category, categories (mobile uses category)
       sort: normalizedSort || 'newest', // Use normalized sort value
       order: normalizedOrder ? (normalizedOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC') : 'DESC' // Use normalized order value
     };
@@ -224,7 +226,9 @@ router.get('/filters', async (req, res) => {
       size,
       tag,
       productType,
-      productTypes
+      productTypes,
+      category,      // Alias for productType (used by mobile)
+      categories     // Alias for productTypes (used by mobile)
     } = req.query;
 
     const parseArray = (val) => {
@@ -245,7 +249,8 @@ router.get('/filters', async (req, res) => {
       fabric: parseArray(fabric),
       size: parseArray(size),
       tag: parseArray(tag),
-      productType: parseArray(productType || productTypes)
+      // Support both productType and category (mobile uses category)
+      productType: parseArray(productType || productTypes || category || categories)
     };
 
     const { buildFilterAggregations } = require('../services/productService');
