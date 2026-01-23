@@ -733,6 +733,52 @@ router.get('/necklines/:slug/products', async (req, res) => {
 });
 
 // ============================================================================
+// FEATURE ENDPOINTS
+// ============================================================================
+
+/**
+ * GET /api/filters/features
+ * Returns all features from the database (from style_keywords where keyword_type = 'feature')
+ */
+router.get('/features', async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        sk.id,
+        sk.name,
+        sk.slug,
+        COUNT(DISTINCT psm.style_code) as product_count
+      FROM style_keywords sk
+      LEFT JOIN product_search_materialized psm ON psm.feature_slugs && ARRAY[sk.slug] AND psm.sku_status = 'Live'
+      WHERE sk.keyword_type = 'feature'
+      GROUP BY sk.id, sk.name, sk.slug
+      ORDER BY product_count DESC, sk.name ASC
+    `;
+    const result = await queryWithTimeout(query, [], 10000);
+    res.json({ features: result.rows, total: result.rows.length });
+  } catch (error) {
+    console.error('[ERROR] Failed to fetch features:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * GET /api/filters/features/:slug/products
+ * Returns products matching a specific feature slug
+ */
+router.get('/features/:slug/products', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const { page = 1, limit = 24 } = req.query;
+    const result = await getArrayFilteredProductsWithDetails('feature_slugs', slug.toLowerCase(), page, limit);
+    res.json(result);
+  } catch (error) {
+    console.error('[ERROR] Failed to fetch products by feature:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+// ============================================================================
 // FABRIC ENDPOINTS
 // ============================================================================
 
@@ -1050,7 +1096,7 @@ router.get('/weights', async (req, res) => {
         w.name,
         w.slug,
         COUNT(DISTINCT psm.style_code) as product_count
-      FROM weights w
+      FROM weight_ranges w
       LEFT JOIN product_search_materialized psm ON psm.weight_slugs && ARRAY[w.slug] AND psm.sku_status = 'Live'
       GROUP BY w.id, w.name, w.slug
       ORDER BY w.name ASC
@@ -1085,20 +1131,21 @@ router.get('/weights/:slug/products', async (req, res) => {
 
 /**
  * GET /api/filters/fits
- * Returns all fit types from the database
+ * Returns all fit types from the database (from style_keywords where keyword_type = 'fit')
  */
 router.get('/fits', async (req, res) => {
   try {
     const query = `
       SELECT 
-        f.id,
-        f.name,
-        f.slug,
+        sk.id,
+        sk.name,
+        sk.slug,
         COUNT(DISTINCT psm.style_code) as product_count
-      FROM fits f
-      LEFT JOIN product_search_materialized psm ON LOWER(psm.fit_slug) = LOWER(f.slug) AND psm.sku_status = 'Live'
-      GROUP BY f.id, f.name, f.slug
-      ORDER BY product_count DESC, f.name ASC
+      FROM style_keywords sk
+      LEFT JOIN product_search_materialized psm ON psm.fit_slugs && ARRAY[sk.slug] AND psm.sku_status = 'Live'
+      WHERE sk.keyword_type = 'fit'
+      GROUP BY sk.id, sk.name, sk.slug
+      ORDER BY product_count DESC, sk.name ASC
     `;
     const result = await queryWithTimeout(query, [], 10000);
     res.json({ fits: result.rows, total: result.rows.length });
@@ -1116,7 +1163,7 @@ router.get('/fits/:slug/products', async (req, res) => {
   try {
     const { slug } = req.params;
     const { page = 1, limit = 24 } = req.query;
-    const result = await getLowerFilteredProductsWithDetails('fit_slug', slug.toLowerCase(), page, limit);
+    const result = await getArrayFilteredProductsWithDetails('fit_slugs', slug.toLowerCase(), page, limit);
     res.json(result);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products by fit:', error.message);
@@ -1140,7 +1187,7 @@ router.get('/sectors', async (req, res) => {
         s.name,
         s.slug,
         COUNT(DISTINCT psm.style_code) as product_count
-      FROM sectors s
+      FROM related_sectors s
       LEFT JOIN product_search_materialized psm ON psm.sector_slugs && ARRAY[s.slug] AND psm.sku_status = 'Live'
       GROUP BY s.id, s.name, s.slug
       ORDER BY product_count DESC, s.name ASC
@@ -1185,7 +1232,7 @@ router.get('/sports', async (req, res) => {
         s.name,
         s.slug,
         COUNT(DISTINCT psm.style_code) as product_count
-      FROM sports s
+      FROM related_sports s
       LEFT JOIN product_search_materialized psm ON psm.sport_slugs && ARRAY[s.slug] AND psm.sku_status = 'Live'
       GROUP BY s.id, s.name, s.slug
       ORDER BY product_count DESC, s.name ASC
