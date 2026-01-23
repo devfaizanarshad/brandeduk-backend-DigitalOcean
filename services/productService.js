@@ -575,12 +575,24 @@ async function buildProductListQuery(filters, page, limit) {
     return cached;
   }
 
-  // When price filters are active, fetch more items to account for post-filtering
-  // This ensures we return the correct number of items after filtering on final displayed prices
+  // ENTERPRISE-LEVEL: When color or price filters are active, fetch more items to account for post-filtering
+  // This ensures we return the correct number of items after strict filtering
   const hasPriceFilter = (filters.priceMin !== null && filters.priceMin !== undefined) || 
                          (filters.priceMax !== null && filters.priceMax !== undefined);
-  const fetchLimit = hasPriceFilter ? Math.min(limit * 3, 200) : limit; // Fetch up to 3x limit or 200, whichever is smaller
+  const hasColorFilter = hasItems(filters.primaryColour) || hasItems(filters.colourShade) || hasItems(filters.colour);
+  const hasStrictFilters = hasPriceFilter || hasColorFilter;
+  const fetchLimit = hasStrictFilters ? Math.min(limit * 3, 200) : limit; // Fetch up to 3x limit or 200, whichever is smaller
   const offset = (page - 1) * limit;
+  
+  // ENTERPRISE-LEVEL: Log active filters for debugging
+  const activeFilters = {
+    primaryColour: filters.primaryColour,
+    colourShade: filters.colourShade,
+    colour: filters.colour,
+    priceMin: filters.priceMin,
+    priceMax: filters.priceMax
+  };
+  console.log(`[FILTER DEBUG] Active color/price filters:`, JSON.stringify(activeFilters));
   const conditions = [];
   let params = [];
   let paramIndex = 1;
@@ -1273,8 +1285,37 @@ async function buildProductListQuery(filters, page, limit) {
     
     console.log(`[PAGINATION] Batch query limit: ${dynamicBatchLimit} (for ${styleCodes.length} style codes)`);
     
+    // ENTERPRISE-LEVEL: Build color filter conditions for batch query
+    // When color filters are applied, we MUST filter the batch query too
+    // Otherwise, products with multiple colors will show ALL colors instead of just filtered ones
+    const batchParams = [styleCodes, dynamicBatchLimit];
+    let batchColorConditions = [];
+    let batchParamIndex = 3;
+    
+    // Apply primaryColour filter to batch query
+    if (hasItems(filters.primaryColour)) {
+      batchColorConditions.push(`LOWER(p.primary_colour) = ANY($${batchParamIndex}::text[])`);
+      batchParams.push(filters.primaryColour.map(c => c.toLowerCase()));
+      batchParamIndex++;
+      console.log(`[FILTER DEBUG] Applying primaryColour filter to batch: ${filters.primaryColour.join(', ')}`);
+    }
+    
+    // Apply colourShade filter to batch query
+    if (hasItems(filters.colourShade)) {
+      batchColorConditions.push(`LOWER(p.colour_shade) = ANY($${batchParamIndex}::text[])`);
+      batchParams.push(filters.colourShade.map(c => c.toLowerCase()));
+      batchParamIndex++;
+      console.log(`[FILTER DEBUG] Applying colourShade filter to batch: ${filters.colourShade.join(', ')}`);
+    }
+    
+    // Build the color WHERE clause (if any filters are active)
+    const batchColorWhereClause = batchColorConditions.length > 0 
+      ? `AND (${batchColorConditions.join(' OR ')})` 
+      : '';
+    
     // OPTIMIZED: Use DISTINCT ON to reduce rows - one per style_code+colour combination
     // Dynamic limit ensures all requested products are retrieved regardless of color count
+    // CRITICAL FIX: Apply color filters to batch query to ensure only matching colors are returned
     const batchQuery = `
       SELECT DISTINCT ON (p.style_code, p.colour_name)
         p.style_code as code,
@@ -1301,11 +1342,12 @@ async function buildProductListQuery(filters, page, limit) {
       LEFT JOIN sizes sz ON p.size_id = sz.id
       LEFT JOIN tags t ON p.tag_id = t.id
       WHERE p.style_code = ANY($1::text[]) AND p.sku_status = 'Live'
+      ${batchColorWhereClause}
       ORDER BY p.style_code, p.colour_name, COALESCE(sz.size_order, 999)
       LIMIT $2
     `;
 
-    const batchResult = await queryWithTimeout(batchQuery, [styleCodes, dynamicBatchLimit], 30000); // 30s timeout for larger batch queries
+    const batchResult = await queryWithTimeout(batchQuery, batchParams, 30000); // 30s timeout for larger batch queries
     const batchQueryTime = Date.now() - batchStartTime;
     console.log(`[QUERY] Details query: ${batchQueryTime}ms (${batchResult.rows.length} rows returned)`);
 
@@ -1313,6 +1355,14 @@ async function buildProductListQuery(filters, page, limit) {
     const productsMap = new Map();
     const priceMinFilter = filters.priceMin;
     const priceMaxFilter = filters.priceMax;
+    
+    // ENTERPRISE-LEVEL: Track filtered colors for each product
+    // When color filters are active, we track which colors matched to prioritize them in display
+    const colorFilterActive = hasItems(filters.primaryColour) || hasItems(filters.colourShade);
+    const filteredPrimaryColours = (filters.primaryColour || []).map(c => c.toLowerCase());
+    const filteredColourShades = (filters.colourShade || []).map(c => c.toLowerCase());
+    
+    console.log(`[FILTER DEBUG] Color filter active: ${colorFilterActive}, primaryColours: ${filteredPrimaryColours.join(',')}, colourShades: ${filteredColourShades.join(',')}`);
     
     batchResult.rows.forEach(row => {
       // If price filters are active, ignore SKUs whose sell_price is outside the requested range
@@ -1330,6 +1380,35 @@ async function buildProductListQuery(filters, page, limit) {
         }
       }
       
+      // ENTERPRISE-LEVEL: When color filter is active, verify this row matches the filter
+      // This is a safety check - the SQL should already filter, but we double-check here
+      if (colorFilterActive) {
+        const rowPrimaryColour = (row.primary_colour || '').toLowerCase();
+        const rowColourShade = (row.colour_shade || '').toLowerCase();
+        
+        let colorMatches = false;
+        
+        // Check if row matches primaryColour filter
+        if (filteredPrimaryColours.length > 0 && filteredPrimaryColours.includes(rowPrimaryColour)) {
+          colorMatches = true;
+        }
+        
+        // Check if row matches colourShade filter
+        if (filteredColourShades.length > 0 && filteredColourShades.includes(rowColourShade)) {
+          colorMatches = true;
+        }
+        
+        // If no specific filters but colorFilterActive, we've already filtered in SQL
+        if (filteredPrimaryColours.length === 0 && filteredColourShades.length === 0) {
+          colorMatches = true;
+        }
+        
+        if (!colorMatches) {
+          console.log(`[FILTER DEBUG] Skipping row - color doesn't match: ${row.code}, primary_colour: ${rowPrimaryColour}, colour_shade: ${rowColourShade}`);
+          return; // Skip this row
+        }
+      }
+      
       const styleCode = row.code;
       if (!productsMap.has(styleCode)) {
         productsMap.set(styleCode, {
@@ -1343,7 +1422,9 @@ async function buildProductListQuery(filters, page, limit) {
           packPrice: null,
           cartonPrice: null,
           customization: new Set(),
-          primaryImageUrl: row.primary_image_url
+          primaryImageUrl: row.primary_image_url,
+          // ENTERPRISE-LEVEL: Track the first filtered color's image for priority display
+          filteredColorImage: null
         });
       }
 
@@ -1354,12 +1435,20 @@ async function buildProductListQuery(filters, page, limit) {
       }
 
       const colorKey = row.colour_name || row.primary_colour || 'Unknown';
+      const colorImage = row.colour_image_url || row.primary_image_url || '';
+      
       if (!product.colorsMap.has(colorKey)) {
         product.colorsMap.set(colorKey, {
           name: colorKey,
-          main: row.colour_image_url || row.primary_image_url || '',
-          thumb: row.colour_image_url || row.primary_image_url || ''
+          main: colorImage,
+          thumb: colorImage
         });
+        
+        // ENTERPRISE-LEVEL: If this is the first color and color filter is active, 
+        // use this color's image as the primary display image
+        if (colorFilterActive && !product.filteredColorImage && colorImage) {
+          product.filteredColorImage = colorImage;
+        }
       }
 
       if (row.single_price) {
@@ -1399,6 +1488,13 @@ async function buildProductListQuery(filters, page, limit) {
         missingProducts.push(styleCode);
         return null;
       }
+      
+      // ENTERPRISE-LEVEL: When color filter is active, product must have at least one matching color
+      // If colorsMap is empty after filtering, this product shouldn't be shown
+      if (colorFilterActive && product.colorsMap.size === 0) {
+        console.log(`[FILTER DEBUG] Excluding product ${styleCode} - no matching colors after filter`);
+        return null;
+      }
 
       // Use the sorted sell_price from SQL query to ensure displayed price matches sort order
       // This ensures consistency: the price shown is the same price used for sorting
@@ -1423,13 +1519,28 @@ async function buildProductListQuery(filters, page, limit) {
         return a.localeCompare(b);
       });
 
+      // ENTERPRISE-LEVEL: When color filter is active, use the filtered color's image
+      // This ensures the product thumbnail shows the color the user filtered for
+      // Falls back to primaryImageUrl or first available color image
+      let displayImage = product.primaryImageUrl || '';
+      if (colorFilterActive && product.filteredColorImage) {
+        displayImage = product.filteredColorImage;
+        console.log(`[FILTER DEBUG] Using filtered color image for ${styleCode}: ${displayImage.substring(0, 50)}...`);
+      } else if (product.colorsMap.size > 0) {
+        // Fallback to first color's image if no filtered image
+        const firstColor = product.colorsMap.values().next().value;
+        if (firstColor && firstColor.main) {
+          displayImage = firstColor.main;
+        }
+      }
+
       // Price should match priceBreaks[0].price (1-9 tier with 0% discount)
       // Use basePrice which is the single price after markup, same as product details API
       return {
         code: product.code,
         name: product.name,
         price: basePrice,
-        image: product.primaryImageUrl || '',
+        image: displayImage,
         colors: Array.from(product.colorsMap.values()),
         sizes,
         customization,
@@ -1446,7 +1557,8 @@ async function buildProductListQuery(filters, page, limit) {
       invalidPriceCount: invalidPriceProducts.length,
       finalItemsCount: items.length,
       batchRowsReturned: batchResult.rows.length,
-      batchLimit: dynamicBatchLimit
+      batchLimit: dynamicBatchLimit,
+      colorFilterActive: colorFilterActive
     };
     
     if (missingProducts.length > 0 || invalidPriceProducts.length > 0) {
@@ -1455,6 +1567,17 @@ async function buildProductListQuery(filters, page, limit) {
         invalidPriceProducts: invalidPriceProducts.slice(0, 5),
         paginationHealth
       });
+    }
+    
+    // ENTERPRISE-LEVEL: When color filter is active, log additional debugging info
+    if (colorFilterActive) {
+      console.log(`[FILTER DEBUG] Color filter results: SQL returned ${styleCodes.length} style_codes, batch returned ${batchResult.rows.length} rows, final items: ${items.length}`);
+      
+      // Warn if significant filtering happened post-SQL (indicates data quality issues)
+      const filterLossRate = styleCodes.length > 0 ? ((styleCodes.length - items.length) / styleCodes.length * 100).toFixed(1) : 0;
+      if (filterLossRate > 20) {
+        console.warn(`[FILTER WARNING] High post-SQL filter loss: ${filterLossRate}% of products filtered out. This may indicate stale materialized view data.`);
+      }
     }
     
     console.log(`[PAGINATION] Health: requested=${paginationHealth.requestedStyleCodes}, returned=${paginationHealth.finalItemsCount}, missing=${paginationHealth.missingCount}`);
@@ -1488,9 +1611,24 @@ async function buildProductListQuery(filters, page, limit) {
       ? filteredPriceRange
       : priceRange;
 
+    // ENTERPRISE-LEVEL: Adjust total count when filters cause significant page shortfall
+    // If we requested 'limit' items but got fewer (not on last page), something is wrong
+    // This can happen when the materialized view has stale color data
+    let adjustedTotal = total;
+    const expectedItemsOnPage = Math.min(limit, total - offset);
+    const actualItemsOnPage = filteredItems.length;
+    
+    // Only adjust if we're getting significantly fewer items than expected AND filters are active
+    if (hasStrictFilters && actualItemsOnPage < expectedItemsOnPage && actualItemsOnPage > 0) {
+      // Calculate adjustment factor based on what we actually got vs expected
+      const actualRatio = actualItemsOnPage / expectedItemsOnPage;
+      adjustedTotal = Math.ceil(total * actualRatio);
+      console.log(`[FILTER ADJUSTMENT] Adjusted total from ${total} to ${adjustedTotal} (ratio: ${actualRatio.toFixed(2)})`);
+    }
+
     const queryResponse = { 
       items: filteredItems, 
-      total, 
+      total: adjustedTotal, 
       priceRange: markedUpPriceRange
     };
     
