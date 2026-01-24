@@ -48,8 +48,6 @@ router.post('/', async (req, res) => {
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
       errors.message = 'Message is required';
-    } else if (message.trim().length < 10) {
-      errors.message = 'Message must be at least 10 characters';
     } else if (message.trim().length > 5000) {
       errors.message = 'Message must be less than 5000 characters';
     }
@@ -63,13 +61,6 @@ router.post('/', async (req, res) => {
       }
     }
 
-    if (postCode && typeof postCode === 'string' && postCode.trim().length > 0) {
-      // UK postcode validation (loose pattern)
-      const postcodeRegex = /^[A-Z]{1,2}[0-9][0-9A-Z]?\s?[0-9][A-Z]{2}$/i;
-      if (!postcodeRegex.test(postCode.trim())) {
-        errors.postCode = 'Invalid UK post code format';
-      }
-    }
 
     // Return validation errors
     if (Object.keys(errors).length > 0) {
