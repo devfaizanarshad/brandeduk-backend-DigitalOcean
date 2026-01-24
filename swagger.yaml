@@ -1569,6 +1569,170 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProductListResponse'
 
+  /api/filters/brands/{slug}/filters:
+    get:
+      tags:
+        - Brands
+      summary: Get all sidebar filter aggregations for a specific brand
+      description: |
+        Returns all filter options with counts for products within a specific brand.
+        Includes: gender, ageGroup, sleeve, neckline, fabric, size, weight, fit, feature, 
+        effect, accreditations, sector, sport, tag, primaryColour, colourShade, productType, priceRange.
+        Uses the same CTE approach as the main product filters for consistency.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Brand slug (e.g., "nike", "awdis", "under-armour")
+          schema:
+            type: string
+          example: "nike"
+      responses:
+        '200':
+          description: Successful response with all filter aggregations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  brand:
+                    type: string
+                    description: The brand slug that was queried
+                    example: "nike"
+                  totalProducts:
+                    type: integer
+                    description: Total number of styles for this brand
+                    example: 60
+                  filters:
+                    type: object
+                    properties:
+                      gender:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterAggregation'
+                      ageGroup:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterAggregation'
+                      sleeve:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterAggregation'
+                      neckline:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterAggregation'
+                      accreditations:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterAggregation'
+                      primaryColour:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterAggregation'
+                      colourShade:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterAggregation'
+                      style:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterAggregation'
+                      feature:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterAggregation'
+                      size:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/SizeFilterAggregation'
+                      fabric:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterAggregation'
+                      weight:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterAggregation'
+                      fit:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterAggregation'
+                      sector:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterAggregation'
+                      sport:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterAggregation'
+                      tag:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterAggregation'
+                      effect:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterAggregation'
+                      productType:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterAggregation'
+                      priceRange:
+                        type: object
+                        properties:
+                          min:
+                            type: number
+                            example: 12.50
+                          max:
+                            type: number
+                            example: 85.00
+              example:
+                brand: "nike"
+                totalProducts: 60
+                filters:
+                  gender:
+                    - slug: "male"
+                      name: "Male"
+                      count: 28
+                    - slug: "unisex"
+                      name: "Unisex"
+                      count: 24
+                  ageGroup:
+                    - slug: "adult"
+                      name: "Adult"
+                      count: 60
+                  sleeve:
+                    - slug: "long-sleeve"
+                      name: "Long Sleeve"
+                      count: 2
+                  size:
+                    - slug: "s"
+                      name: "S"
+                      count: 36
+                      sizeOrder: 3
+                  fabric:
+                    - slug: "polyester-100"
+                      name: "Polyester (100%)"
+                      count: 25
+                  sport:
+                    - slug: "golf"
+                      name: "Golf"
+                      count: 52
+                  productType:
+                    - slug: "polos"
+                      name: "Polos"
+                      count: 10
+                  priceRange:
+                    min: 12.50
+                    max: 85.00
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   # ============================================================================
   # PRICE RANGE ENDPOINTS
   # ============================================================================
@@ -2041,6 +2205,44 @@ components:
           type: string
         product_count:
           type: integer
+
+    FilterAggregation:
+      type: object
+      description: Filter option with count
+      properties:
+        slug:
+          type: string
+          description: URL-friendly identifier
+          example: "male"
+        name:
+          type: string
+          description: Display name
+          example: "Male"
+        count:
+          type: integer
+          description: Number of products matching this filter
+          example: 28
+
+    SizeFilterAggregation:
+      type: object
+      description: Size filter option with count and order
+      properties:
+        slug:
+          type: string
+          description: URL-friendly identifier
+          example: "s"
+        name:
+          type: string
+          description: Display name
+          example: "S"
+        count:
+          type: integer
+          description: Number of products matching this size
+          example: 36
+        sizeOrder:
+          type: integer
+          description: Sort order for sizes
+          example: 3
 
     ProductListResponse:
       type: object

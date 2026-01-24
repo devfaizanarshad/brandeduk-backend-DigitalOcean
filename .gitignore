@@ -3,12 +3,13 @@ node_modules/
 *.log
 npm-debug.log*
 yarn-debug.log*
+yarn-error.log*
 test-quote.js
 
 #Digital Ocean
 DigitalOcean_BrandedUk
 
-# Product Data
+# Large data files
 ProductDataFull.csv
 
 .env
