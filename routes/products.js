@@ -37,6 +37,8 @@ router.get('/', async (req, res) => {
       sport,
       tag,
       effect,
+      brand,        // Brand filter - accepts brand slug(s) or name(s)
+      brands,       // Accept both 'brand' and 'brands' parameters
       productType, // Product type filter - accepts product type names
       productTypes, // Accept both 'productType' and 'productTypes' parameters
       category,     // Alias for productType (used by mobile)
@@ -134,6 +136,7 @@ router.get('/', async (req, res) => {
       sport: parseArray(sport),
       tag: parseArray(tag),
       effect: parseArray(effect),
+      brand: parseArray(brand || brands), // Accept brand or brands parameter
       productType: parseArray(productType || productTypes || category || categories), // Accept productType, productTypes, category, categories (mobile uses category)
       sort: normalizedSort || 'newest', // Use normalized sort value
       order: normalizedOrder ? (normalizedOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC') : 'DESC' // Use normalized order value

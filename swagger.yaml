@@ -200,6 +200,17 @@ paths:
           in: query
           schema:
             type: string
+        - name: brand
+          in: query
+          description: Brand slug(s) or name(s) - accepts multiple values
+          schema:
+            type: string
+          example: "awdis"
+        - name: brands
+          in: query
+          description: Alias for brand parameter (accepts multiple values)
+          schema:
+            type: string
         - name: colourShade
           in: query
           schema:

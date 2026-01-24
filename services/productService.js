@@ -161,7 +161,8 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
     sector: [],
     sport: [],
     tag: [],
-    effect: []
+    effect: [],
+    brand: []
   };
   
   // Build base WHERE conditions (applied to all aggregations)
@@ -246,6 +247,22 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
       paramIndex++;
     }
     
+    // Brand filter - Match by brand name or slug format
+    // Materialized view has 'brand' column (name), match against both slug format and name
+    if (hasItems(filters.brand)) {
+      const brandConditions = filters.brand.map(b => {
+        const normalized = b.toLowerCase().trim();
+        // Match by slug format (LOWER(REPLACE(brand, ' ', '-')) or by name (LOWER(brand))
+        return `(LOWER(REPLACE(psm.brand, ' ', '-')) = $${paramIndex} OR LOWER(psm.brand) = $${paramIndex})`;
+      });
+      conditions.push(`(${brandConditions.join(' OR ')})`);
+      // Add each brand value
+      filters.brand.forEach(b => {
+        params.push(b.toLowerCase().trim());
+      });
+      paramIndex += filters.brand.length;
+    }
+    
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     return { whereClause, productTypeJoin, params };
   };
@@ -264,6 +281,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
           psm.tag_slug,
           psm.primary_colour,
           psm.colour_shade,
+          psm.brand,
           psm.sleeve_slugs,
           psm.neckline_slugs,
           psm.fabric_slugs,
@@ -445,7 +463,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
       
       -- Fit aggregation with lookup
       fit_agg AS (
-        SELECT 
+          SELECT 
           'fit' as filter_type, 
           sk.slug, 
           sk.name,
@@ -454,13 +472,13 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
         JOIN style_keywords sk ON arr_slug = sk.slug
         WHERE bp.fit_slugs IS NOT NULL AND array_length(bp.fit_slugs, 1) > 0
         GROUP BY sk.slug, sk.name
-        ORDER BY count DESC
+          ORDER BY count DESC
         LIMIT 20
       ),
       
       -- Feature aggregation with lookup
       feature_agg AS (
-        SELECT 
+          SELECT 
           'feature' as filter_type, 
           sk.slug, 
           sk.name,
@@ -469,13 +487,13 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
         JOIN style_keywords sk ON arr_slug = sk.slug
         WHERE bp.feature_slugs IS NOT NULL AND array_length(bp.feature_slugs, 1) > 0
         GROUP BY sk.slug, sk.name
-        ORDER BY count DESC
+          ORDER BY count DESC
         LIMIT 50
       ),
       
       -- Effect aggregation with lookup
       effect_agg AS (
-        SELECT 
+          SELECT 
           'effect' as filter_type, 
           e.slug, 
           e.name,
@@ -484,13 +502,13 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
         JOIN effects e ON arr_slug = e.slug
         WHERE bp.effects_arr IS NOT NULL AND array_length(bp.effects_arr, 1) > 0
         GROUP BY e.slug, e.name
-        ORDER BY count DESC
+          ORDER BY count DESC
         LIMIT 20
       ),
       
       -- Accreditations aggregation with lookup
       accreditations_agg AS (
-        SELECT 
+          SELECT 
           'accreditations' as filter_type, 
           a.slug, 
           a.name,
@@ -499,13 +517,13 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
         JOIN accreditations a ON arr_slug = a.slug
         WHERE bp.accreditation_slugs IS NOT NULL AND array_length(bp.accreditation_slugs, 1) > 0
         GROUP BY a.slug, a.name
-        ORDER BY count DESC
+          ORDER BY count DESC
         LIMIT 50
       ),
       
       -- Sector aggregation with lookup
       sector_agg AS (
-        SELECT 
+          SELECT 
           'sector' as filter_type, 
           rs.slug, 
           rs.name,
@@ -514,13 +532,13 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
         JOIN related_sectors rs ON arr_slug = rs.slug
         WHERE bp.sector_slugs IS NOT NULL AND array_length(bp.sector_slugs, 1) > 0
         GROUP BY rs.slug, rs.name
-        ORDER BY count DESC
+          ORDER BY count DESC
         LIMIT 20
       ),
       
       -- Sport aggregation with lookup
       sport_agg AS (
-        SELECT 
+            SELECT 
           'sport' as filter_type, 
           rsp.slug, 
           rsp.name,
@@ -529,8 +547,22 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
         JOIN related_sports rsp ON arr_slug = rsp.slug
         WHERE bp.sport_slugs IS NOT NULL AND array_length(bp.sport_slugs, 1) > 0
         GROUP BY rsp.slug, rsp.name
-        ORDER BY count DESC
+            ORDER BY count DESC
         LIMIT 20
+      ),
+      
+      -- Brand aggregation (using brand name from materialized view, generate slug)
+      brand_agg AS (
+        SELECT 
+          'brand' as filter_type,
+          LOWER(REPLACE(bp.brand, ' ', '-')) as slug,
+          bp.brand as name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp
+        WHERE bp.brand IS NOT NULL AND bp.brand != ''
+        GROUP BY LOWER(REPLACE(bp.brand, ' ', '-')), bp.brand
+        ORDER BY count DESC
+        LIMIT 50
       )
       
       -- Combine all aggregations
@@ -551,6 +583,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
       UNION ALL SELECT filter_type, slug, name, count FROM accreditations_agg
       UNION ALL SELECT filter_type, slug, name, count FROM sector_agg
       UNION ALL SELECT filter_type, slug, name, count FROM sport_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM brand_agg
     `;
     
     const result = await queryWithTimeout(combinedQuery, base.params, 30000);
@@ -1005,6 +1038,22 @@ async function buildProductListQuery(filters, page, limit) {
     conditions.push(`${viewAlias}.fabric_slugs::text[] && $${paramIndex}::text[]`);
     params.push(filters.fabric.map(f => f.toLowerCase()));
     paramIndex++;
+  }
+
+  // Brand filter - Match by brand name or slug format
+  // Materialized view has 'brand' column (name), match against both slug format and name
+  if (hasItems(filters.brand)) {
+    const brandConditions = filters.brand.map(b => {
+      const normalized = b.toLowerCase().trim();
+      // Match by slug format (LOWER(REPLACE(brand, ' ', '-')) or by name (LOWER(brand))
+      return `(LOWER(REPLACE(${viewAlias}.brand, ' ', '-')) = $${paramIndex} OR LOWER(${viewAlias}.brand) = $${paramIndex})`;
+    });
+    conditions.push(`(${brandConditions.join(' OR ')})`);
+    // Add each brand value
+    filters.brand.forEach(b => {
+      params.push(b.toLowerCase().trim());
+    });
+    paramIndex += filters.brand.length;
   }
 
   // Flag filter - OPTIMIZED: Use precomputed array column
