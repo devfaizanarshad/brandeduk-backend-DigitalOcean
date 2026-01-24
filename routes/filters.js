@@ -1451,6 +1451,414 @@ router.get('/brands/:slug/products', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/filters/brands/:slug/filters
+ * Returns all sidebar filter aggregations for a specific brand
+ * Uses the same CTE approach as buildFilterAggregations for consistency
+ * Includes: gender, ageGroup, sleeve, neckline, fabric, size, weight, fit, feature, effect, accreditations, sector, sport, tag, primaryColour, colourShade, productType
+ */
+router.get('/brands/:slug/filters', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const brandSlug = slug.toLowerCase().trim();
+    
+    // Combined query using CTEs - same approach as buildFilterAggregations in productService
+    const combinedQuery = `
+      WITH base_products AS (
+        SELECT DISTINCT 
+          psm.style_code,
+          psm.gender_slug,
+          psm.age_group_slug,
+          psm.tag_slug,
+          psm.primary_colour,
+          psm.colour_shade,
+          psm.brand,
+          psm.sleeve_slugs,
+          psm.neckline_slugs,
+          psm.fabric_slugs,
+          psm.size_slugs,
+          psm.style_keyword_slugs,
+          psm.weight_slugs,
+          psm.fit_slugs,
+          psm.feature_slugs,
+          psm.effects_arr,
+          psm.accreditation_slugs,
+          psm.sector_slugs,
+          psm.sport_slugs,
+          psm.sell_price
+        FROM product_search_materialized psm
+        WHERE psm.sku_status = 'Live'
+          AND (LOWER(REPLACE(psm.brand, ' ', '-')) = $1 
+               OR LOWER(psm.brand) = $1 
+               OR LOWER(REPLACE(REPLACE(psm.brand, ' ', '-'), '''', '')) = $1)
+      ),
+      
+      -- Gender aggregation with lookup
+      gender_agg AS (
+        SELECT 
+          'gender' as filter_type, 
+          g.slug, 
+          g.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp
+        JOIN genders g ON bp.gender_slug = g.slug
+        WHERE bp.gender_slug IS NOT NULL
+        GROUP BY g.slug, g.name
+        ORDER BY count DESC
+      ),
+      
+      -- Age Group aggregation with lookup
+      age_agg AS (
+        SELECT 
+          'ageGroup' as filter_type, 
+          ag.slug, 
+          ag.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp
+        JOIN age_groups ag ON bp.age_group_slug = ag.slug
+        WHERE bp.age_group_slug IS NOT NULL
+        GROUP BY ag.slug, ag.name
+        ORDER BY count DESC
+      ),
+      
+      -- Tag aggregation with lookup
+      tag_agg AS (
+        SELECT 
+          'tag' as filter_type, 
+          t.slug, 
+          t.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp
+        JOIN tags t ON LOWER(bp.tag_slug) = LOWER(t.slug)
+        WHERE bp.tag_slug IS NOT NULL AND bp.tag_slug != ''
+        GROUP BY t.slug, t.name
+        ORDER BY count DESC
+        LIMIT 20
+      ),
+      
+      -- Primary Colour (name = capitalized slug)
+      primary_colour_agg AS (
+        SELECT 
+          'primaryColour' as filter_type, 
+          LOWER(primary_colour) as slug, 
+          INITCAP(primary_colour) as name,
+          COUNT(DISTINCT style_code)::int as count
+        FROM base_products
+        WHERE primary_colour IS NOT NULL AND primary_colour != ''
+        GROUP BY LOWER(primary_colour), INITCAP(primary_colour)
+        ORDER BY count DESC
+        LIMIT 30
+      ),
+      
+      -- Colour Shade (name from data)
+      colour_shade_agg AS (
+        SELECT 
+          'colourShade' as filter_type, 
+          LOWER(colour_shade) as slug, 
+          colour_shade as name,
+          COUNT(DISTINCT style_code)::int as count
+        FROM base_products
+        WHERE colour_shade IS NOT NULL AND colour_shade != ''
+        GROUP BY LOWER(colour_shade), colour_shade
+        ORDER BY count DESC
+        LIMIT 50
+      ),
+      
+      -- Sleeve aggregation with lookup
+      sleeve_agg AS (
+        SELECT 
+          'sleeve' as filter_type, 
+          sk.slug, 
+          sk.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.sleeve_slugs) as arr_slug
+        JOIN style_keywords sk ON arr_slug = sk.slug
+        WHERE bp.sleeve_slugs IS NOT NULL AND array_length(bp.sleeve_slugs, 1) > 0
+        GROUP BY sk.slug, sk.name
+        ORDER BY count DESC
+        LIMIT 30
+      ),
+      
+      -- Neckline aggregation with lookup
+      neckline_agg AS (
+        SELECT 
+          'neckline' as filter_type, 
+          sk.slug, 
+          sk.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.neckline_slugs) as arr_slug
+        JOIN style_keywords sk ON arr_slug = sk.slug
+        WHERE bp.neckline_slugs IS NOT NULL AND array_length(bp.neckline_slugs, 1) > 0
+        GROUP BY sk.slug, sk.name
+        ORDER BY count DESC
+        LIMIT 30
+      ),
+      
+      -- Fabric aggregation with lookup
+      fabric_agg AS (
+        SELECT 
+          'fabric' as filter_type, 
+          f.slug, 
+          f.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.fabric_slugs) as arr_slug
+        JOIN fabrics f ON arr_slug = f.slug
+        WHERE bp.fabric_slugs IS NOT NULL AND array_length(bp.fabric_slugs, 1) > 0
+        GROUP BY f.slug, f.name
+        ORDER BY count DESC
+        LIMIT 30
+      ),
+      
+      -- Size aggregation with lookup (includes size_order for sorting)
+      size_agg AS (
+        SELECT 
+          'size' as filter_type, 
+          s.slug, 
+          s.name,
+          COUNT(DISTINCT bp.style_code)::int as count,
+          s.size_order
+        FROM base_products bp, unnest(bp.size_slugs) as arr_slug
+        JOIN sizes s ON arr_slug = s.slug
+        WHERE bp.size_slugs IS NOT NULL AND array_length(bp.size_slugs, 1) > 0
+        GROUP BY s.slug, s.name, s.size_order
+        ORDER BY s.size_order ASC NULLS LAST, count DESC
+        LIMIT 50
+      ),
+      
+      -- Style Keywords aggregation with lookup
+      style_agg AS (
+        SELECT 
+          'style' as filter_type, 
+          sk.slug, 
+          sk.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.style_keyword_slugs) as arr_slug
+        JOIN style_keywords sk ON arr_slug = sk.slug
+        WHERE bp.style_keyword_slugs IS NOT NULL AND array_length(bp.style_keyword_slugs, 1) > 0
+        GROUP BY sk.slug, sk.name
+        ORDER BY count DESC
+        LIMIT 50
+      ),
+      
+      -- Weight aggregation with lookup
+      weight_agg AS (
+        SELECT 
+          'weight' as filter_type, 
+          wr.slug, 
+          wr.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.weight_slugs) as arr_slug
+        JOIN weight_ranges wr ON arr_slug = wr.slug
+        WHERE bp.weight_slugs IS NOT NULL AND array_length(bp.weight_slugs, 1) > 0
+        GROUP BY wr.slug, wr.name
+        ORDER BY wr.name ASC
+        LIMIT 20
+      ),
+      
+      -- Fit aggregation with lookup
+      fit_agg AS (
+        SELECT 
+          'fit' as filter_type, 
+          sk.slug, 
+          sk.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.fit_slugs) as arr_slug
+        JOIN style_keywords sk ON arr_slug = sk.slug
+        WHERE bp.fit_slugs IS NOT NULL AND array_length(bp.fit_slugs, 1) > 0
+        GROUP BY sk.slug, sk.name
+        ORDER BY count DESC
+        LIMIT 20
+      ),
+      
+      -- Feature aggregation with lookup
+      feature_agg AS (
+        SELECT 
+          'feature' as filter_type, 
+          sk.slug, 
+          sk.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.feature_slugs) as arr_slug
+        JOIN style_keywords sk ON arr_slug = sk.slug
+        WHERE bp.feature_slugs IS NOT NULL AND array_length(bp.feature_slugs, 1) > 0
+        GROUP BY sk.slug, sk.name
+        ORDER BY count DESC
+        LIMIT 50
+      ),
+      
+      -- Effect aggregation with lookup
+      effect_agg AS (
+        SELECT 
+          'effect' as filter_type, 
+          e.slug, 
+          e.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.effects_arr) as arr_slug
+        JOIN effects e ON arr_slug = e.slug
+        WHERE bp.effects_arr IS NOT NULL AND array_length(bp.effects_arr, 1) > 0
+        GROUP BY e.slug, e.name
+        ORDER BY count DESC
+        LIMIT 20
+      ),
+      
+      -- Accreditations aggregation with lookup
+      accreditations_agg AS (
+        SELECT 
+          'accreditations' as filter_type, 
+          a.slug, 
+          a.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.accreditation_slugs) as arr_slug
+        JOIN accreditations a ON arr_slug = a.slug
+        WHERE bp.accreditation_slugs IS NOT NULL AND array_length(bp.accreditation_slugs, 1) > 0
+        GROUP BY a.slug, a.name
+        ORDER BY count DESC
+        LIMIT 50
+      ),
+      
+      -- Sector aggregation with lookup
+      sector_agg AS (
+        SELECT 
+          'sector' as filter_type, 
+          rs.slug, 
+          rs.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.sector_slugs) as arr_slug
+        JOIN related_sectors rs ON arr_slug = rs.slug
+        WHERE bp.sector_slugs IS NOT NULL AND array_length(bp.sector_slugs, 1) > 0
+        GROUP BY rs.slug, rs.name
+        ORDER BY count DESC
+        LIMIT 20
+      ),
+      
+      -- Sport aggregation with lookup
+      sport_agg AS (
+        SELECT 
+          'sport' as filter_type, 
+          rsp.slug, 
+          rsp.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp, unnest(bp.sport_slugs) as arr_slug
+        JOIN related_sports rsp ON arr_slug = rsp.slug
+        WHERE bp.sport_slugs IS NOT NULL AND array_length(bp.sport_slugs, 1) > 0
+        GROUP BY rsp.slug, rsp.name
+        ORDER BY count DESC
+        LIMIT 20
+      ),
+      
+      -- Product Type aggregation
+      product_type_agg AS (
+        SELECT 
+          'productType' as filter_type, 
+          COALESCE(pt.slug, LOWER(REPLACE(pt.name, ' ', '-'))) as slug, 
+          pt.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp
+        JOIN styles s ON bp.style_code = s.style_code
+        JOIN product_types pt ON s.product_type_id = pt.id
+        GROUP BY pt.slug, pt.name
+        ORDER BY count DESC
+        LIMIT 50
+      ),
+      
+      -- Price range
+      price_range AS (
+        SELECT 
+          MIN(sell_price) as min_price,
+          MAX(sell_price) as max_price
+        FROM base_products
+        WHERE sell_price IS NOT NULL AND sell_price > 0
+      ),
+      
+      -- Total count
+      total_count AS (
+        SELECT COUNT(DISTINCT style_code)::int as total FROM base_products
+      )
+      
+      -- Combine all aggregations
+      SELECT filter_type, slug, name, count, NULL::int as size_order FROM gender_agg
+      UNION ALL SELECT filter_type, slug, name, count, NULL FROM age_agg
+      UNION ALL SELECT filter_type, slug, name, count, NULL FROM tag_agg
+      UNION ALL SELECT filter_type, slug, name, count, NULL FROM primary_colour_agg
+      UNION ALL SELECT filter_type, slug, name, count, NULL FROM colour_shade_agg
+      UNION ALL SELECT filter_type, slug, name, count, NULL FROM sleeve_agg
+      UNION ALL SELECT filter_type, slug, name, count, NULL FROM neckline_agg
+      UNION ALL SELECT filter_type, slug, name, count, NULL FROM fabric_agg
+      UNION ALL SELECT filter_type, slug, name, count, size_order FROM size_agg
+      UNION ALL SELECT filter_type, slug, name, count, NULL FROM style_agg
+      UNION ALL SELECT filter_type, slug, name, count, NULL FROM weight_agg
+      UNION ALL SELECT filter_type, slug, name, count, NULL FROM fit_agg
+      UNION ALL SELECT filter_type, slug, name, count, NULL FROM feature_agg
+      UNION ALL SELECT filter_type, slug, name, count, NULL FROM effect_agg
+      UNION ALL SELECT filter_type, slug, name, count, NULL FROM accreditations_agg
+      UNION ALL SELECT filter_type, slug, name, count, NULL FROM sector_agg
+      UNION ALL SELECT filter_type, slug, name, count, NULL FROM sport_agg
+      UNION ALL SELECT filter_type, slug, name, count, NULL FROM product_type_agg
+      UNION ALL SELECT 'priceRange' as filter_type, 'min' as slug, min_price::text as name, 0 as count, NULL FROM price_range
+      UNION ALL SELECT 'priceRange' as filter_type, 'max' as slug, max_price::text as name, 0 as count, NULL FROM price_range
+      UNION ALL SELECT 'total' as filter_type, 'total' as slug, total::text as name, total as count, NULL FROM total_count
+    `;
+    
+    const result = await queryWithTimeout(combinedQuery, [brandSlug], 30000);
+    
+    // Initialize all filter types
+    const filters = {
+      gender: [],
+      ageGroup: [],
+      sleeve: [],
+      neckline: [],
+      accreditations: [],
+      primaryColour: [],
+      colourShade: [],
+      style: [],
+      feature: [],
+      size: [],
+      fabric: [],
+      weight: [],
+      fit: [],
+      sector: [],
+      sport: [],
+      tag: [],
+      effect: [],
+      productType: []
+    };
+    
+    let priceRange = { min: 0, max: 0 };
+    let totalProducts = 0;
+    
+    // Process results into structured response
+    result.rows.forEach(row => {
+      if (row.filter_type === 'priceRange') {
+        if (row.slug === 'min') priceRange.min = parseFloat(row.name) || 0;
+        if (row.slug === 'max') priceRange.max = parseFloat(row.name) || 0;
+      } else if (row.filter_type === 'total') {
+        totalProducts = parseInt(row.count) || 0;
+      } else if (row.slug && filters[row.filter_type]) {
+        const item = {
+          slug: row.slug,
+          name: row.name || row.slug,
+          count: parseInt(row.count)
+        };
+        if (row.size_order !== null) {
+          item.sizeOrder = row.size_order;
+        }
+        filters[row.filter_type].push(item);
+      }
+    });
+    
+    res.json({
+      brand: brandSlug,
+      totalProducts,
+      filters: {
+        ...filters,
+        priceRange
+      }
+    });
+  } catch (error) {
+    console.error('[ERROR] Failed to fetch brand filters:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
 // ============================================================================
 // PRODUCT TYPE ENDPOINTS
 // ============================================================================
