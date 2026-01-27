@@ -1058,8 +1058,13 @@ async function buildProductListQuery(filters, page, limit) {
 
   // Flag filter - OPTIMIZED: Use precomputed array column
   if (hasItems(filters.flag)) {
-    conditions.push(`${viewAlias}.flag_slugs::text[] && $${paramIndex}::text[]`);
-    params.push(filters.flag.map(f => f.toLowerCase()));
+    // Materialized view stores flag IDs (int[]) not slugs.
+    // Convert incoming flag slugs -> IDs via special_flags, then filter using array overlap.
+    // NOTE: COALESCE ensures a missing slug list doesn't turn the condition into NULL.
+    conditions.push(
+      `${viewAlias}.flag_ids && COALESCE((SELECT array_agg(id)::int[] FROM special_flags WHERE slug = ANY($${paramIndex}::text[])), '{}'::int[])`
+    );
+    params.push(filters.flag.map(f => f.toLowerCase().trim()));
     paramIndex++;
   }
 
