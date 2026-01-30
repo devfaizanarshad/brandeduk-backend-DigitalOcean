@@ -54,7 +54,8 @@ router.get('/', async (req, res) => {
     let normalizedOrder = order;
     
     if (sort === 'best') {
-      normalizedSort = 'newest'; // Best sellers - use newest as proxy (can be changed to use sales data if available)
+      // Keep 'best' as-is so productService can prioritise special flags
+      normalizedSort = 'best';
       normalizedOrder = 'desc';
     } else if (sort === 'brand-az') {
       normalizedSort = 'brand';
@@ -478,7 +479,8 @@ router.get('/:code/pricing', async (req, res) => {
         pr.markup_percent,
         pr.from_price as rule_from_price,
         pr.to_price as rule_to_price,
-        pr.version as rule_version
+        pr.version as rule_version,
+        NULL::text as rule_description
       FROM products p
       LEFT JOIN pricing_rules pr ON pr.active = true
         AND COALESCE(NULLIF(p.carton_price, 0), NULLIF(p.single_price, 0))
@@ -512,7 +514,7 @@ router.get('/:code/pricing', async (req, res) => {
         from_price: parseFloat(row.rule_from_price),
         to_price: parseFloat(row.rule_to_price),
         markup_percent: parseFloat(row.markup_percent),
-        description: row.rule_description
+        description: row.rule_description || null
       } : null
     });
   } catch (error) {

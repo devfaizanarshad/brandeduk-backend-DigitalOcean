@@ -42,6 +42,10 @@ servers:
 tags:
   - name: Products
     description: Main product listing, search, and details
+  - name: Pricing
+    description: Pricing rules and repricing jobs
+  - name: Admin
+    description: Admin endpoints for managing all tables and product pricing (no auth)
   - name: Categories
     description: Category endpoints for dropdown menu and navigation
   - name: Product Types
@@ -82,6 +86,8 @@ tags:
     description: Colour shade filter endpoints
   - name: Brands
     description: Brand filter endpoints
+  - name: Display Order
+    description: Admin endpoints for managing custom product display order by brand and product type
   - name: Price Range
     description: Price range filter endpoints
   - name: Health
@@ -524,6 +530,696 @@ paths:
                     example: "Product not found or has no pricing information"
                   style_code:
                     type: string
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============================================================================
+  # PRICING ENDPOINTS
+  # ============================================================================
+
+  /api/pricing/rules:
+    get:
+      tags:
+        - Pricing
+      summary: List pricing rules
+      description: |
+        Returns all pricing rules. You can optionally filter to only active rules.
+      operationId: listPricingRules
+      parameters:
+        - name: active
+          in: query
+          required: false
+          description: If "true", only return active rules
+          schema:
+            type: string
+            enum: ["true","false"]
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        version:
+                          type: string
+                          example: "1.0"
+                        from_price:
+                          type: number
+                          example: 10.00
+                        to_price:
+                          type: number
+                          example: 14.99
+                        markup_percent:
+                          type: number
+                          example: 127.00
+                        active:
+                          type: boolean
+                          example: true
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - Pricing
+      summary: Create a new pricing rule
+      operationId: createPricingRule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - from_price
+                - to_price
+                - markup_percent
+              properties:
+                version:
+                  type: string
+                  description: Version label for this rule set
+                  default: "1.0"
+                  example: "1.0"
+                from_price:
+                  type: number
+                  example: 10.00
+                to_price:
+                  type: number
+                  example: 14.99
+                markup_percent:
+                  type: number
+                  example: 127.00
+                active:
+                  type: boolean
+                  description: Whether this rule is active
+                  default: false
+      responses:
+        '201':
+          description: Pricing rule created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      version:
+                        type: string
+                      from_price:
+                        type: number
+                      to_price:
+                        type: number
+                      markup_percent:
+                        type: number
+                      active:
+                        type: boolean
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/pricing/rules/{id}:
+    put:
+      tags:
+        - Pricing
+      summary: Update an existing pricing rule
+      description: |
+        Update a pricing rule identified by a composite key.
+
+        You can either:
+        - Pass `id` in the path as `version:from_price:to_price`, e.g. `1.0:10.00:14.99`, or
+        - Provide the original key in the body via `originalVersion`, `originalFromPrice`, `originalToPrice`.
+      operationId: updatePricingRule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Composite key in the format `version:from_price:to_price`
+          schema:
+            type: string
+            example: "1.0:10.00:14.99"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                version:
+                  type: string
+                  description: New version value (optional)
+                from_price:
+                  type: number
+                  description: New from_price (optional)
+                to_price:
+                  type: number
+                  description: New to_price (optional)
+                markup_percent:
+                  type: number
+                  description: New markup percentage (optional)
+                active:
+                  type: boolean
+                  description: New active flag (optional)
+                originalVersion:
+                  type: string
+                  description: Original version key (optional)
+                originalFromPrice:
+                  type: number
+                  description: Original from_price key (optional)
+                originalToPrice:
+                  type: number
+                  description: Original to_price key (optional)
+      responses:
+        '200':
+          description: Pricing rule updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      version:
+                        type: string
+                      from_price:
+                        type: number
+                      to_price:
+                        type: number
+                      markup_percent:
+                        type: number
+                      active:
+                        type: boolean
+        '400':
+          description: Validation error (missing key or fields)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Pricing rule not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/pricing/reprice:
+    post:
+      tags:
+        - Pricing
+      summary: Recalculate sell_price for all products
+      description: |
+        Recalculates `sell_price` for all products using the currently active pricing rules
+        and refreshes the `product_search_materialized` view.
+      operationId: repriceProducts
+      responses:
+        '200':
+          description: Repricing job completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Repricing job completed"
+                  updatedProducts:
+                    type: integer
+                    description: Number of products updated
+                  materializedViewRefreshed:
+                    type: boolean
+                  refreshError:
+                    type: string
+                    nullable: true
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/pricing/products/{code}/sell-price:
+    put:
+      tags:
+        - Pricing
+      summary: Direct sell_price updates are disabled
+      description: |
+        This endpoint is deprecated. Direct `sell_price` updates are no longer allowed.
+        Use the admin carton price endpoint instead:
+        `PUT /api/admin/products/{code}/carton-price`, which recalculates `sell_price`
+        from the current pricing rules.
+      operationId: overrideSellPrice
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: Product style code (e.g. JC001)
+          schema:
+            type: string
+            example: "JC001"
+      requestBody:
+        required: false
+      responses:
+        '400':
+          description: Direct sell_price updates are disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============================================================================
+  # ADMIN ENDPOINTS
+  # ============================================================================
+
+  /api/admin/tables:
+    get:
+      tags:
+        - Admin
+      summary: List all public tables
+      description: Returns all base tables in the public schema for admin use.
+      operationId: listAdminTables
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tables:
+                    type: array
+                    items:
+                      type: string
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/admin/{table}:
+    get:
+      tags:
+        - Admin
+      summary: List rows from a table
+      description: |
+        Generic admin endpoint to list rows from any public table.
+        Assumes table is in the `public` schema.
+      operationId: listAdminTableRows
+      parameters:
+        - name: table
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Table name (e.g. products, pricing_rules)
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '400':
+          description: Invalid table name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - Admin
+      summary: Insert a new row into a table
+      description: |
+        Generic admin endpoint to insert a new row into any public table.
+        Body keys are used as column names.
+      operationId: insertAdminRow
+      parameters:
+        - name: table
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: Row created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+        '400':
+          description: Validation error (invalid table/column or empty body)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/admin/{table}/{id}:
+    get:
+      tags:
+        - Admin
+      summary: Get a single row by id
+      description: Assumes the table has an `id` primary key column.
+      operationId: getAdminRow
+      parameters:
+        - name: table
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: Invalid table name or id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Row not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      tags:
+        - Admin
+      summary: Update a row by id
+      description: Assumes the table has an `id` primary key column.
+      operationId: updateAdminRow
+      parameters:
+        - name: table
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Row updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Row not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+        - Admin
+      summary: Delete a row by id
+      description: Assumes the table has an `id` primary key column.
+      operationId: deleteAdminRow
+      parameters:
+        - name: table
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Row deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+        '400':
+          description: Invalid table name or id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Row not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/admin/products/{code}/carton-price:
+    put:
+      tags:
+        - Admin
+      summary: Update carton_price for a style and recalculate sell_price
+      description: |
+        Updates `carton_price` for all live SKUs of a style code and recalculates `sell_price`
+        using the current active pricing rules. Also refreshes the `product_search_materialized`
+        view and clears caches so changes are visible immediately.
+      operationId: updateCartonPriceForStyle
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Product style code (e.g. GD002)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - carton_price
+              properties:
+                carton_price:
+                  type: number
+                  description: New carton price to apply
+                  example: 4.65
+      responses:
+        '200':
+          description: carton_price and sell_price updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  updatedCount:
+                    type: integer
+                  materializedViewRefreshed:
+                    type: boolean
+                  refreshError:
+                    type: string
+                    nullable: true
+                  items:
+                    type: array
+                    items:
+                      type: object
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No matching products found to update
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/admin/products/{code}/price-preview:
+    get:
+      tags:
+        - Admin
+      summary: Preview sell_price for a proposed carton_price
+      description: |
+        Returns a preview of `sell_price` for a given `carton_price` using the current
+        active pricing rules. Does **not** modify the database.
+      operationId: previewCartonPrice
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Product style code (e.g. GD002)
+        - name: carton_price
+          in: query
+          required: true
+          schema:
+            type: number
+          description: Proposed carton price to preview
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  style_code:
+                    type: string
+                  carton_price:
+                    type: number
+                  sell_price:
+                    type: number
+                  markup_percent:
+                    type: number
+                    nullable: true
+                  pricing_rule:
+                    type: object
+                    nullable: true
+                    properties:
+                      version:
+                        type: string
+                      from_price:
+                        type: number
+                      to_price:
+                        type: number
+                      markup_percent:
+                        type: number
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '500':
           description: Internal server error
           content:
@@ -1734,6 +2430,459 @@ paths:
                 $ref: '#/components/schemas/Error'
 
   # ============================================================================
+  # DISPLAY ORDER ENDPOINTS
+  # ============================================================================
+
+  /api/display-order:
+    get:
+      tags:
+        - Display Order
+      summary: List display order entries
+      description: |
+        Returns paginated list of `product_display_order` entries.
+        You can optionally filter by `brand_id`, `product_type_id` and/or `style_code`.
+      parameters:
+        - name: brand_id
+          in: query
+          schema:
+            type: integer
+          description: Filter by brand ID
+        - name: product_type_id
+          in: query
+          schema:
+            type: integer
+          description: Filter by product type ID
+        - name: style_code
+          in: query
+          schema:
+            type: string
+          description: Filter by style code (partial match)
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DisplayOrderEntry'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags:
+        - Display Order
+      summary: Create or update a single display order entry
+      description: |
+        Upserts a `product_display_order` row for a specific style code and optional brand/product type context.
+        Context uniqueness is enforced on `(style_code, brand_id, product_type_id)`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - style_code
+                - display_order
+              properties:
+                style_code:
+                  type: string
+                  description: Product style code (e.g. "JC001")
+                  example: "JC001"
+                brand_id:
+                  type: integer
+                  nullable: true
+                  description: Optional brand context ID
+                  example: 28
+                product_type_id:
+                  type: integer
+                  nullable: true
+                  description: Optional product type context ID
+                  example: 21
+                display_order:
+                  type: integer
+                  description: Lower numbers appear first (1 = first)
+                  example: 1
+      responses:
+        '201':
+          description: Display order saved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Display order saved successfully
+                  data:
+                    $ref: '#/components/schemas/DisplayOrderEntry'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Style code not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/display-order/bulk:
+    post:
+      tags:
+        - Display Order
+      summary: Bulk update display orders in a context
+      description: |
+        Bulk upsert multiple display order entries in a single transaction
+        for an optional `brand_id` and/or `product_type_id` context.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DisplayOrderBulkRequest'
+            example:
+              brand_id: 28
+              product_type_id: 21
+              orders:
+                - style_code: "YP047"
+                  display_order: 1
+                - style_code: "YP049"
+                  display_order: 2
+      responses:
+        '200':
+          description: Bulk update successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Successfully updated 2 display orders
+                  updated:
+                    type: integer
+                    example: 2
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DisplayOrderEntry'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/display-order/{id}:
+    put:
+      tags:
+        - Display Order
+      summary: Update a display order entry by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - display_order
+              properties:
+                display_order:
+                  type: integer
+                  description: New display order value
+                  example: 5
+      responses:
+        '200':
+          description: Display order updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Display order updated successfully
+                  data:
+                    $ref: '#/components/schemas/DisplayOrderEntry'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Entry not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+        - Display Order
+      summary: Delete a display order entry by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Display order deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Display order deleted successfully
+                  data:
+                    $ref: '#/components/schemas/DisplayOrderEntry'
+        '404':
+          description: Entry not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/display-order/by-context:
+    delete:
+      tags:
+        - Display Order
+      summary: Delete display order entry by style/context
+      description: |
+        Delete a display order row by `style_code` and optional `brand_id`/`product_type_id` context.
+        If no context IDs are provided, the global (no brand/type) entry for that style will be deleted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - style_code
+              properties:
+                style_code:
+                  type: string
+                  description: Product style code
+                  example: "YP047"
+                brand_id:
+                  type: integer
+                  nullable: true
+                  example: 28
+                product_type_id:
+                  type: integer
+                  nullable: true
+                  example: 21
+      responses:
+        '200':
+          description: Display order deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Display order deleted successfully
+                  data:
+                    $ref: '#/components/schemas/DisplayOrderEntry'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Entry not found for this context
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/display-order/products:
+    get:
+      tags:
+        - Display Order
+      summary: Get products with display order for admin
+      description: |
+        Returns all products for a brand and/or product type including their current
+        `display_order` value, for use in the admin sorting interface.
+      parameters:
+        - name: brand_id
+          in: query
+          schema:
+            type: integer
+          description: Filter products by brand ID
+        - name: product_type_id
+          in: query
+          schema:
+            type: integer
+          description: Filter products by product type ID
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DisplayOrderProduct'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+                  filters:
+                    type: object
+                    properties:
+                      brand_id:
+                        type: integer
+                        nullable: true
+                      product_type_id:
+                        type: integer
+                        nullable: true
+        '400':
+          description: Missing required brand_id or product_type_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/display-order/brands:
+    get:
+      tags:
+        - Display Order
+      summary: Get brands with product counts for display ordering
+      description: Returns brands that have at least one live product, including product counts and existing brand display_order.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DisplayOrderBrand'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/display-order/product-types:
+    get:
+      tags:
+        - Display Order
+      summary: Get product types with product counts for display ordering
+      description: Returns product types that have at least one live product, including product counts and display_order.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DisplayOrderProductType'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ============================================================================
   # PRICE RANGE ENDPOINTS
   # ============================================================================
   
@@ -2572,3 +3721,132 @@ components:
           type: string
           description: Unique quote submission ID
           example: "quote_1769198120482_i98a3pwgg"
+
+    DisplayOrderEntry:
+      type: object
+      description: Single product_display_order row with joined metadata
+      properties:
+        id:
+          type: integer
+        style_code:
+          type: string
+          example: "YP047"
+        brand_id:
+          type: integer
+          nullable: true
+        brand_name:
+          type: string
+          nullable: true
+        product_type_id:
+          type: integer
+          nullable: true
+        product_type_name:
+          type: string
+          nullable: true
+        display_order:
+          type: integer
+          description: Lower numbers appear first (1 = first)
+          example: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        product_name:
+          type: string
+          nullable: true
+          description: Name of the style from styles table
+
+    DisplayOrderBulkRequest:
+      type: object
+      required:
+        - orders
+      properties:
+        brand_id:
+          type: integer
+          nullable: true
+          description: Optional brand context for all orders in this request
+        product_type_id:
+          type: integer
+          nullable: true
+          description: Optional product type context for all orders in this request
+        orders:
+          type: array
+          description: List of style codes and their desired display_order
+          items:
+            type: object
+            required:
+              - style_code
+              - display_order
+            properties:
+              style_code:
+                type: string
+                example: "YP047"
+              display_order:
+                type: integer
+                example: 1
+
+    DisplayOrderProduct:
+      type: object
+      description: Product row as returned from /api/display-order/products
+      properties:
+        style_code:
+          type: string
+          example: "YP047"
+        product_name:
+          type: string
+          example: "Flexfit Classic"
+        brand_id:
+          type: integer
+        brand_name:
+          type: string
+        product_type_id:
+          type: integer
+        product_type_name:
+          type: string
+        display_order_id:
+          type: integer
+          nullable: true
+          description: Underlying product_display_order.id if it exists
+        display_order:
+          type: integer
+          description: Effective display order (defaults to 999999 when not set)
+        display_order_created_at:
+          type: string
+          format: date-time
+          nullable: true
+        image:
+          type: string
+          nullable: true
+          description: Primary product image URL
+
+    DisplayOrderBrand:
+      type: object
+      description: Brand summary used for display-order admin
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        slug:
+          type: string
+        display_order:
+          type: integer
+        product_count:
+          type: integer
+
+    DisplayOrderProductType:
+      type: object
+      description: Product type summary used for display-order admin
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        slug:
+          type: string
+        display_order:
+          type: integer
+        product_count:
+          type: integer

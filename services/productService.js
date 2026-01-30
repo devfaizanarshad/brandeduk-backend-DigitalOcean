@@ -40,13 +40,13 @@ function getCacheKey(filters, page, limit, type = 'results') {
       normalizedFilters[key] = value;
     }
   });
-  
+
   const filterString = Object.keys(normalizedFilters)
     .map(key => `${key}:${Array.isArray(normalizedFilters[key]) ? normalizedFilters[key].join(',') : normalizedFilters[key]}`)
     .join('|');
-  
+
   const key = `${filterString}|page:${page}|limit:${limit}|type:${type}`;
-  
+
   let hash = 0;
   for (let i = 0; i < key.length; i++) {
     const char = key.charCodeAt(i);
@@ -60,12 +60,12 @@ function getCacheKey(filters, page, limit, type = 'results') {
 function getCached(key, cacheMap = queryCache) {
   const cached = cacheMap.get(key);
   if (!cached) return null;
-  
+
   if (Date.now() - cached.timestamp > cached.ttl) {
     cacheMap.delete(key);
     return null;
   }
-  
+
   return cached.data;
 }
 
@@ -74,7 +74,7 @@ function setAggregationCache(key, data, ttl = AGGREGATION_CACHE_TTL) {
     const firstKey = aggregationCache.keys().next().value;
     aggregationCache.delete(firstKey);
   }
-  
+
   aggregationCache.set(key, {
     data,
     timestamp: Date.now(),
@@ -91,7 +91,7 @@ function setCache(key, data, ttl = CACHE_TTL) {
     const firstKey = queryCache.keys().next().value;
     queryCache.delete(firstKey);
   }
-  
+
   queryCache.set(key, {
     data,
     timestamp: Date.now(),
@@ -140,9 +140,9 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
     console.log('[FILTER AGGREGATIONS] Cache hit');
     return cachedAggregations;
   }
-  
+
   const startTime = Date.now();
-  
+
   // Initialize ALL filter types as arrays (always return all, even if empty)
   const aggregations = {
     gender: [],
@@ -164,26 +164,26 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
     effect: [],
     brand: []
   };
-  
+
   // Build base WHERE conditions (applied to all aggregations)
   const buildBaseConditions = () => {
     const conditions = [];
     const params = [];
     let paramIndex = 1;
-    
+
     // Pre-filtered style codes for search optimization
     const hasSearch = !!(filters.q || filters.text);
     const usePreFiltered = hasSearch && preFilteredStyleCodes && preFilteredStyleCodes.length > 0 && preFilteredStyleCodes.length < 5000;
-    
+
     if (usePreFiltered) {
       conditions.push(`psm.style_code = ANY($${paramIndex}::text[])`);
       params.push(preFilteredStyleCodes);
       paramIndex++;
     }
-    
+
     // Always filter by Live status
     conditions.push(`psm.sku_status = 'Live'`);
-    
+
     // Product type filter
     let productTypeJoin = '';
     if (hasItems(filters.productType)) {
@@ -202,7 +202,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
       params.push(uniqueProductTypes);
       paramIndex++;
     }
-    
+
     // Price filters
     if (filters.priceMin !== null && filters.priceMin !== undefined) {
       conditions.push(`psm.sell_price >= $${paramIndex}`);
@@ -214,7 +214,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
       params.push(filters.priceMax);
       paramIndex++;
     }
-    
+
     // Apply all active filters (for cross-filter counting)
     if (hasItems(filters.gender)) {
       conditions.push(`psm.gender_slug = ANY($${paramIndex})`);
@@ -246,7 +246,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
       params.push(filters.fabric.map(f => f.toLowerCase()));
       paramIndex++;
     }
-    
+
     // Brand filter - Match by brand name or slug format
     // Materialized view has 'brand' column (name), match against both slug format and name
     if (hasItems(filters.brand)) {
@@ -262,14 +262,14 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
       });
       paramIndex += filters.brand.length;
     }
-    
+
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     return { whereClause, productTypeJoin, params };
   };
-  
+
   try {
     const base = buildBaseConditions();
-    
+
     // 🚀 ENHANCED: Single combined query with JOINs to lookup tables for names
     // Returns: filter_type, slug, name, count for fully dynamic frontend
     const combinedQuery = `
@@ -585,9 +585,9 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
       UNION ALL SELECT filter_type, slug, name, count FROM sport_agg
       UNION ALL SELECT filter_type, slug, name, count FROM brand_agg
     `;
-    
+
     const result = await queryWithTimeout(combinedQuery, base.params, 30000);
-    
+
     // Process results into arrays of objects with full metadata
     result.rows.forEach(row => {
       if (row.slug && row.filter_type && aggregations[row.filter_type]) {
@@ -598,13 +598,13 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
         });
       }
     });
-    
+
     const duration = Date.now() - startTime;
     console.log(`[FILTER AGGREGATIONS] Completed in ${duration}ms (single query with names, ${result.rows.length} results)`);
-    
+
     // Cache the results
     setAggregationCache(cacheKey, aggregations);
-    
+
     return aggregations;
   } catch (error) {
     console.error('[ERROR] buildFilterAggregations failed:', error.message);
@@ -623,13 +623,13 @@ async function buildProductListQuery(filters, page, limit) {
 
   // ENTERPRISE-LEVEL: When color or price filters are active, fetch more items to account for post-filtering
   // This ensures we return the correct number of items after strict filtering
-  const hasPriceFilter = (filters.priceMin !== null && filters.priceMin !== undefined) || 
-                         (filters.priceMax !== null && filters.priceMax !== undefined);
+  const hasPriceFilter = (filters.priceMin !== null && filters.priceMin !== undefined) ||
+    (filters.priceMax !== null && filters.priceMax !== undefined);
   const hasColorFilter = hasItems(filters.primaryColour) || hasItems(filters.colourShade) || hasItems(filters.colour);
   const hasStrictFilters = hasPriceFilter || hasColorFilter;
   const fetchLimit = hasStrictFilters ? Math.min(limit * 3, 200) : limit; // Fetch up to 3x limit or 200, whichever is smaller
   const offset = (page - 1) * limit;
-  
+
   // ENTERPRISE-LEVEL: Log active filters for debugging
   const activeFilters = {
     primaryColour: filters.primaryColour,
@@ -647,18 +647,18 @@ async function buildProductListQuery(filters, page, limit) {
   const order = filters.order || 'DESC';
   const viewAlias = 'psm';
   const searchText = filters.q || filters.text;
-  
+
   // Enhanced natural language search
   let searchCondition = '';
   let searchRelevanceSelect = '';
   let searchRelevanceOrder = '';
   let hasSearch = false;
-  
+
   if (searchText) {
     hasSearch = true;
     const trimmedSearch = searchText.trim();
     const searchLength = trimmedSearch.length;
-    
+
     if (searchLength <= 2) {
       // Very short queries: exact/prefix matching on style_code only
       searchCondition = `(
@@ -668,7 +668,7 @@ async function buildProductListQuery(filters, page, limit) {
       params.push(trimmedSearch);
       params.push(`${trimmedSearch}%`);
       paramIndex += 2;
-      
+
       // Relevance: exact code match = highest priority
       searchRelevanceSelect = `
         CASE 
@@ -676,20 +676,20 @@ async function buildProductListQuery(filters, page, limit) {
           WHEN ${viewAlias}.style_code ILIKE $${paramIndex - 1} THEN 50
           ELSE 0
         END as relevance_score`;
-      
+
       searchRelevanceOrder = 'relevance_score DESC';
     } else {
       // OPTIMIZED: Natural language search - Performance focused with flexible matching
       const searchTerms = trimmedSearch.split(/\s+/).filter(t => t.length > 0);
-      
+
       // Create flexible search variations (handle hyphens/spaces)
       const createSearchVariations = (term) => {
         const variations = new Set();
         const lower = term.toLowerCase();
-        
+
         // Original term
         variations.add(lower);
-        
+
         // Common hyphen variations
         if (lower.includes('tshirt')) {
           variations.add(lower.replace(/tshirt/g, 't-shirt'));
@@ -705,16 +705,16 @@ async function buildProductListQuery(filters, page, limit) {
         if (lower.includes('crewneck')) {
           variations.add(lower.replace(/crewneck/g, 'crew-neck'));
         }
-        
+
         // Without hyphens (tshirt from t-shirt)
         variations.add(lower.replace(/-/g, ''));
-        
+
         // With spaces (t shirt from t-shirt)
         variations.add(lower.replace(/-/g, ' '));
-        
+
         return Array.from(variations);
       };
-      
+
       // Generate all search variations
       const allVariations = searchTerms.flatMap(createSearchVariations);
       // For full-text search, include variations so "tshirts" also searches for "t-shirts"
@@ -722,7 +722,7 @@ async function buildProductListQuery(filters, page, limit) {
       const searchVariationsForText = allVariations.filter((v, i, arr) => arr.indexOf(v) === i); // unique
       const normalizedSearch = searchVariationsForText.join(' ');
       const searchUpper = normalizedSearch.toUpperCase();
-      
+
       // Create hyphen-normalized version for array matching
       const normalizeTerm = (term, type) => {
         const lower = term.toLowerCase();
@@ -731,7 +731,7 @@ async function buildProductListQuery(filters, page, limit) {
           const base = lower.replace(/tshirt/g, 't-shirt');
           return base.replace(/[^a-z0-9-]/g, '-');
         }
-        switch(type) {
+        switch (type) {
           case 'neckline':
             if (lower.includes('crew') || lower.includes('crewneck')) return 'crew-neck-2';
             if (lower.includes('vneck') || lower.includes('v-neck')) return 'v-neck-2';
@@ -744,16 +744,16 @@ async function buildProductListQuery(filters, page, limit) {
             return lower.replace(/[^a-z0-9]/g, '-');
         }
       };
-      
+
       // Pre-compute normalized terms (try both with and without hyphens)
       // This ensures "tshirt" matches "t-shirt" in array columns
       const getTermVariations = (term, type) => {
         const normalized = normalizeTerm(term, type);
         const variations = new Set([normalized]);
-        
+
         // Add without hyphens
         variations.add(normalized.replace(/-/g, ''));
-        
+
         // Add with hyphens for common cases
         if (term.toLowerCase().includes('tshirt')) {
           variations.add('t-shirt');
@@ -765,37 +765,37 @@ async function buildProductListQuery(filters, page, limit) {
         if (term.toLowerCase().includes('crewneck')) {
           variations.add('crew-neck-2');
         }
-        
+
         return Array.from(variations);
       };
-      
+
       const colorTerms = searchTerms.flatMap(t => getTermVariations(t, 'color'));
       const fabricTerms = searchTerms.flatMap(t => getTermVariations(t, 'fabric'));
       const necklineTerms = searchTerms.flatMap(t => getTermVariations(t, 'neckline'));
       const sleeveTerms = searchTerms.flatMap(t => getTermVariations(t, 'sleeve'));
       const styleTerms = searchTerms.flatMap(t => getTermVariations(t, 'style'));
-      
+
       // OPTIMIZED: Prioritize indexed operations - full-text search first (GIN index)
       // Use to_tsquery with OR for flexible matching
       const fullTextParam = paramIndex;
       params.push(normalizedSearch);
-    paramIndex++;
-      
+      paramIndex++;
+
       const codeParam = paramIndex;
       params.push(searchUpper);
       paramIndex++;
-      
+
       const codePrefixParam = paramIndex;
       params.push(`${searchUpper}%`);
       paramIndex++;
-      
+
       // Add flexible name matching (handles hyphens) - use regex pattern
       const namePatternParam = paramIndex;
       // Create pattern that matches both "tshirt" and "t-shirt" in style_name
       const namePattern = searchTerms.map(t => {
         const lower = t.toLowerCase().trim();
         let pattern = lower;
-        
+
         // CRITICAL: Handle tshirt/tshirts -> t-shirt/t-shirts (user types without hyphen)
         // When user types "tshirts", we need to match "t-shirts" in database
         if (lower.match(/^tshirts?$/)) {
@@ -823,33 +823,33 @@ async function buildProductListQuery(filters, page, limit) {
           // Escape special regex chars
           pattern = pattern.replace(/([.*+?^${}()|[\]\\])/g, '\\$1');
         }
-        
+
         return pattern;
       }).join('.*');
       params.push(namePattern);
       paramIndex++;
-      
+
       // Array parameters (use GIN indexes efficiently)
       const colorArrayParam = paramIndex;
       params.push(colorTerms);
       paramIndex++;
-      
+
       const fabricArrayParam = paramIndex;
       params.push(fabricTerms);
       paramIndex++;
-      
+
       const necklineArrayParam = paramIndex;
       params.push(necklineTerms);
       paramIndex++;
-      
+
       const sleeveArrayParam = paramIndex;
       params.push(sleeveTerms);
       paramIndex++;
-      
+
       const styleArrayParam = paramIndex;
       params.push(styleTerms);
       paramIndex++;
-      
+
       // Normalize product type search terms - convert all variations to "tshirts" format
       // Handles: tshirts, tshirt, t shirt, t-shirt, t-shirts -> all match "tshirts" in DB
       const normalizeProductTypeForSearch = (searchText) => {
@@ -862,13 +862,13 @@ async function buildProductListQuery(filters, page, limit) {
         }
         return normalized;
       };
-      
+
       // Check if search might be looking for a product type
       const productTypeSearchTerm = normalizeProductTypeForSearch(trimmedSearch);
       const productTypeParam = paramIndex;
       params.push(productTypeSearchTerm);
       paramIndex++;
-      
+
       // ULTRA-OPTIMIZED: Prioritize ONLY the fastest indexed operations
       // Add flexible name matching with pattern (handles hyphen variations)
       // Include product type name matching - all variations match "tshirts" in DB
@@ -889,7 +889,7 @@ async function buildProductListQuery(filters, page, limit) {
             AND LOWER(REPLACE(REPLACE(pt_search.name, '-', ''), ' ', '')) = $${productTypeParam}
         )
       )`;
-      
+
       // ULTRA-OPTIMIZED: Simplified relevance - removed expensive calculations
       // Only calculate relevance for indexed operations (fast)
       searchRelevanceSelect = `
@@ -917,10 +917,10 @@ async function buildProductListQuery(filters, page, limit) {
           CASE WHEN ${viewAlias}.style_keyword_slugs::text[] && $${styleArrayParam}::text[] THEN 15 ELSE 0 END
         ) as relevance_score`;
       // REMOVED: ts_rank_cd calculation - too expensive
-      
+
       searchRelevanceOrder = 'relevance_score DESC';
     }
-    
+
     conditions.push(searchCondition);
   }
 
@@ -1115,11 +1115,11 @@ async function buildProductListQuery(filters, page, limit) {
       }
       return cleaned;
     };
-    
+
     const normalizedProductTypes = filters.productType.map(normalizeProductType);
     // Remove duplicates
     const uniqueProductTypes = [...new Set(normalizedProductTypes)];
-    
+
     // Build JOIN clause for first CTE - this ensures strict filtering at source
     // Apply filter directly in JOIN ON clause for stricter filtering
     // Match by removing hyphens/spaces from DB name and comparing
@@ -1128,17 +1128,17 @@ async function buildProductListQuery(filters, page, limit) {
       INNER JOIN product_types pt_pt ON s_pt.product_type_id = pt_pt.id 
         AND LOWER(REPLACE(REPLACE(pt_pt.name, '-', ''), ' ', '')) = ANY($${paramIndex}::text[])`;
     params.push(uniqueProductTypes);
-        paramIndex++;
+    paramIndex++;
   }
 
   // Always filter by Live status - MUST be first for index matching
   // Index predicates require: WHERE sku_status = 'Live' AND ...
   // Putting this first ensures planner recognizes index can be used
-  const whereClause = conditions.length > 0 
+  const whereClause = conditions.length > 0
     ? `WHERE ${viewAlias}.sku_status = 'Live' AND ${conditions.join(' AND ')}`
     : `WHERE ${viewAlias}.sku_status = 'Live'`;
 
-  // Sorting - determine sort field and order
+  // Sorting - determine sort field and order (fallbacks, main ordering handled via orderByClause below)
   let sortField = 'created_at';
   if (sort === 'price') {
     sortField = 'sell_price';
@@ -1149,7 +1149,7 @@ async function buildProductListQuery(filters, page, limit) {
   } else if (sort === 'code') {
     sortField = 'style_code';
   }
-  
+
   const orderBy = `${sortField} ${order}`;
 
   // Add price filter parameters to params array (for HAVING clause in style_codes_with_meta)
@@ -1161,13 +1161,60 @@ async function buildProductListQuery(filters, page, limit) {
   if (filters.priceMax !== null && filters.priceMax !== undefined) {
     params.push(filters.priceMax);
   }
-  
+
   const limitParamIndex = params.length + 1;
   const offsetParamIndex = params.length + 2;
-  
+
+  // Custom Display Order Logic
+  // Join with product_display_order table depending on active filters
+  const hasBrandFilter = hasItems(filters.brand);
+  const hasTypeFilter = hasItems(filters.productType);
+
+  // Build JOIN condition to pick the most specific display order rule
+  let pdoJoinCondition = 'FALSE'; // Default: don't join anything useful
+  if (hasBrandFilter && hasTypeFilter) {
+    // Prioritize rules that match BOTH context if available
+    pdoJoinCondition = 'pdo.brand_id = s.brand_id AND pdo.product_type_id = s.product_type_id';
+  } else if (hasBrandFilter) {
+    // Match brand rules
+    pdoJoinCondition = 'pdo.brand_id = s.brand_id AND pdo.product_type_id IS NULL';
+  } else if (hasTypeFilter) {
+    // Match product type rules
+    pdoJoinCondition = 'pdo.brand_id IS NULL AND pdo.product_type_id = s.product_type_id';
+  }
+
+  // Determine if we should prioritize custom order
+  // Only prioritize if sort is 'newest' (default)
+  const prioritizeCustomOrder = sort === 'newest';
+
   // Construct ORDER BY clause
-  const orderByClause = sort === 'price' ? `sell_price ${order}, product_type_priority ASC` : sort === 'name' ? `style_name ${order}, product_type_priority ASC` : sort === 'brand' ? `brand_name ${order}, product_type_priority ASC` : sort === 'code' ? `style_code ${order}, product_type_priority ASC` : `product_type_priority ASC, created_at ${order}`;
-  
+  // If prioritizeCustomOrder is true, put custom_display_order FIRST
+  let orderByClause = '';
+
+  if (prioritizeCustomOrder) {
+    // Default (newest/best-sellers proxy) – honour custom display order first
+    orderByClause = `custom_display_order ASC, product_type_priority ASC, created_at ${order}`;
+  } else if (sort === 'best') {
+    // "Best" sort: prioritise products flagged as "best" (special_flags.slug = 'best')
+    orderByClause = `is_best DESC, is_recommended DESC, custom_display_order ASC, product_type_priority ASC, created_at ${order}`;
+  } else if (sort === 'recommended') {
+    // "Recommended" sort: prioritise products flagged as "recommended"
+    orderByClause = `is_recommended DESC, is_best DESC, custom_display_order ASC, product_type_priority ASC, created_at ${order}`;
+  } else {
+    // Normal sorting, but keep custom_display_order available if needed
+    if (sort === 'price') {
+      orderByClause = `sell_price ${order}, product_type_priority ASC`;
+    } else if (sort === 'name') {
+      orderByClause = `style_name ${order}, product_type_priority ASC`;
+    } else if (sort === 'brand') {
+      orderByClause = `brand_name ${order}, product_type_priority ASC`;
+    } else if (sort === 'code') {
+      orderByClause = `style_code ${order}, product_type_priority ASC`;
+    } else {
+      orderByClause = `product_type_priority ASC, created_at ${order}`;
+    }
+  }
+
   // ULTRA-OPTIMIZATION: Restructure query for search - use indexed operations first
   // For search, prioritize full-text search index by structuring query properly
   const optimizedQuery = `
@@ -1185,7 +1232,11 @@ async function buildProductListQuery(filters, page, limit) {
         MIN(p.sell_price) as sell_price,
         MIN(${viewAlias}.created_at) as created_at,
         MIN(COALESCE(pt.display_order, 999)) as product_type_priority,
-        MIN(COALESCE(b.name, '')) as brand_name
+        MIN(COALESCE(b.name, '')) as brand_name,
+        MIN(COALESCE(pdo.display_order, 999999)) as custom_display_order,
+        -- Flag-based priorities (special_flags / product_flags)
+        COALESCE(MAX(CASE WHEN sf.slug = 'best' THEN 1 ELSE 0 END), 0) as is_best,
+        COALESCE(MAX(CASE WHEN sf.slug = 'recommended' THEN 1 ELSE 0 END), 0) as is_recommended
         ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
       FROM style_codes_filtered scf
       INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
@@ -1193,6 +1244,9 @@ async function buildProductListQuery(filters, page, limit) {
       LEFT JOIN styles s ON ${viewAlias}.style_code = s.style_code
         LEFT JOIN product_types pt ON s.product_type_id = pt.id
         LEFT JOIN brands b ON s.brand_id = b.id
+        LEFT JOIN product_display_order pdo ON s.style_code = pdo.style_code AND (${pdoJoinCondition})
+        LEFT JOIN product_flags pf ON p.id = pf.product_id
+        LEFT JOIN special_flags sf ON pf.flag_id = sf.id
       WHERE ${viewAlias}.sku_status = 'Live'
       GROUP BY scf.style_code
       HAVING 
@@ -1230,18 +1284,18 @@ async function buildProductListQuery(filters, page, limit) {
       CROSS JOIN total_count tc
       CROSS JOIN price_range pr
     `;
-    
-    params.push(fetchLimit, offset);
-  
+
+  params.push(fetchLimit, offset);
+
   try {
     const startTime = Date.now();
-    
+
     // Check cache for total count and price range (they change less frequently)
     const countCacheKey = getCacheKey(filters, 0, 0, 'count');
     const priceRangeCacheKey = getCacheKey(filters, 0, 0, 'priceRange');
     const cachedCount = getCached(countCacheKey);
     const cachedPriceRange = getCached(priceRangeCacheKey);
-    
+
     // STEP 1: Get style codes only (FAST - uses materialized view with array columns)
     // If we have cached count/priceRange, we can simplify the query
     let queryResult;
@@ -1262,7 +1316,10 @@ async function buildProductListQuery(filters, page, limit) {
             MIN(p.sell_price) as sell_price,
             MIN(${viewAlias}.created_at) as created_at,
             MIN(COALESCE(pt.display_order, 999)) as product_type_priority,
-            MIN(COALESCE(b.name, '')) as brand_name
+            MIN(COALESCE(b.name, '')) as brand_name,
+            MIN(COALESCE(pdo.display_order, 999999)) as custom_display_order,
+            COALESCE(MAX(CASE WHEN sf.slug = 'best' THEN 1 ELSE 0 END), 0) as is_best,
+            COALESCE(MAX(CASE WHEN sf.slug = 'recommended' THEN 1 ELSE 0 END), 0) as is_recommended
             ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
           FROM style_codes_filtered scf
           INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
@@ -1270,6 +1327,9 @@ async function buildProductListQuery(filters, page, limit) {
           LEFT JOIN styles s ON ${viewAlias}.style_code = s.style_code
       LEFT JOIN product_types pt ON s.product_type_id = pt.id
             LEFT JOIN brands b ON s.brand_id = b.id
+            LEFT JOIN product_display_order pdo ON s.style_code = pdo.style_code AND (${pdoJoinCondition})
+            LEFT JOIN product_flags pf ON p.id = pf.product_id
+            LEFT JOIN special_flags sf ON pf.flag_id = sf.id
           WHERE ${viewAlias}.sku_status = 'Live'
           GROUP BY scf.style_code
           HAVING 
@@ -1298,14 +1358,14 @@ async function buildProductListQuery(filters, page, limit) {
     } else {
       queryResult = await queryWithTimeout(optimizedQuery, params, 20000);
     }
-    
+
     const queryTime = Date.now() - startTime;
     console.log(`[QUERY] Style codes query: ${queryTime}ms, rows: ${queryResult.rows.length}`);
-    
+
     if (queryResult.rows.length === 0) {
       return { items: [], total: 0, priceRange: { min: 0, max: 0 } };
     }
-    
+
     const firstRow = queryResult.rows[0];
     let total = parseInt(firstRow.total) || 0;
     let priceRange = {
@@ -1319,13 +1379,13 @@ async function buildProductListQuery(filters, page, limit) {
     } else {
       total = cachedCount;
     }
-    
+
     if (!cachedPriceRange) {
       setCache(priceRangeCacheKey, priceRange, COUNT_CACHE_TTL);
     } else {
       priceRange = cachedPriceRange;
     }
-    
+
     const styleCodes = queryResult.rows.map(row => row.style_code);
     // Store the sorted sell_price from SQL query for each style code
     const sortedPricesMap = new Map();
@@ -1334,14 +1394,14 @@ async function buildProductListQuery(filters, page, limit) {
         sortedPricesMap.set(row.style_code, parseFloat(row.sorted_sell_price));
       }
     });
-  
+
     if (styleCodes.length === 0) {
       return { items: [], total, priceRange };
     }
 
     // STEP 2: Fetch full details for only the paginated style codes (SMALL DATASET)
     const batchStartTime = Date.now();
-    
+
     // ENTERPRISE-LEVEL: Dynamic batch limit calculation
     // Each product can have multiple colors, so we need enough rows to cover all products
     // Formula: styleCodes.length * MAX_COLORS_PER_PRODUCT, capped at MAX_BATCH_ROWS
@@ -1352,16 +1412,16 @@ async function buildProductListQuery(filters, page, limit) {
         PAGINATION_CONFIG.MAX_BATCH_ROWS
       )
     );
-    
+
     console.log(`[PAGINATION] Batch query limit: ${dynamicBatchLimit} (for ${styleCodes.length} style codes)`);
-    
+
     // ENTERPRISE-LEVEL: Build color filter conditions for batch query
     // When color filters are applied, we MUST filter the batch query too
     // Otherwise, products with multiple colors will show ALL colors instead of just filtered ones
     const batchParams = [styleCodes, dynamicBatchLimit];
     let batchColorConditions = [];
     let batchParamIndex = 3;
-    
+
     // Apply primaryColour filter to batch query
     if (hasItems(filters.primaryColour)) {
       batchColorConditions.push(`LOWER(p.primary_colour) = ANY($${batchParamIndex}::text[])`);
@@ -1369,7 +1429,7 @@ async function buildProductListQuery(filters, page, limit) {
       batchParamIndex++;
       console.log(`[FILTER DEBUG] Applying primaryColour filter to batch: ${filters.primaryColour.join(', ')}`);
     }
-    
+
     // Apply colourShade filter to batch query
     if (hasItems(filters.colourShade)) {
       batchColorConditions.push(`LOWER(p.colour_shade) = ANY($${batchParamIndex}::text[])`);
@@ -1377,12 +1437,12 @@ async function buildProductListQuery(filters, page, limit) {
       batchParamIndex++;
       console.log(`[FILTER DEBUG] Applying colourShade filter to batch: ${filters.colourShade.join(', ')}`);
     }
-    
+
     // Build the color WHERE clause (if any filters are active)
-    const batchColorWhereClause = batchColorConditions.length > 0 
-      ? `AND (${batchColorConditions.join(' OR ')})` 
+    const batchColorWhereClause = batchColorConditions.length > 0
+      ? `AND (${batchColorConditions.join(' OR ')})`
       : '';
-    
+
     // OPTIMIZED: Use DISTINCT ON to reduce rows - one per style_code+colour combination
     // Dynamic limit ensures all requested products are retrieved regardless of color count
     // CRITICAL FIX: Apply color filters to batch query to ensure only matching colors are returned
@@ -1425,15 +1485,15 @@ async function buildProductListQuery(filters, page, limit) {
     const productsMap = new Map();
     const priceMinFilter = filters.priceMin;
     const priceMaxFilter = filters.priceMax;
-    
+
     // ENTERPRISE-LEVEL: Track filtered colors for each product
     // When color filters are active, we track which colors matched to prioritize them in display
     const colorFilterActive = hasItems(filters.primaryColour) || hasItems(filters.colourShade);
     const filteredPrimaryColours = (filters.primaryColour || []).map(c => c.toLowerCase());
     const filteredColourShades = (filters.colourShade || []).map(c => c.toLowerCase());
-    
+
     console.log(`[FILTER DEBUG] Color filter active: ${colorFilterActive}, primaryColours: ${filteredPrimaryColours.join(',')}, colourShades: ${filteredColourShades.join(',')}`);
-    
+
     batchResult.rows.forEach(row => {
       // If price filters are active, ignore SKUs whose sell_price is outside the requested range
       const sellPriceValue = row.sell_price !== null && row.sell_price !== undefined ? parseFloat(row.sell_price) : null;
@@ -1449,36 +1509,36 @@ async function buildProductListQuery(filters, page, limit) {
           return;
         }
       }
-      
+
       // ENTERPRISE-LEVEL: When color filter is active, verify this row matches the filter
       // This is a safety check - the SQL should already filter, but we double-check here
       if (colorFilterActive) {
         const rowPrimaryColour = (row.primary_colour || '').toLowerCase();
         const rowColourShade = (row.colour_shade || '').toLowerCase();
-        
+
         let colorMatches = false;
-        
+
         // Check if row matches primaryColour filter
         if (filteredPrimaryColours.length > 0 && filteredPrimaryColours.includes(rowPrimaryColour)) {
           colorMatches = true;
         }
-        
+
         // Check if row matches colourShade filter
         if (filteredColourShades.length > 0 && filteredColourShades.includes(rowColourShade)) {
           colorMatches = true;
         }
-        
+
         // If no specific filters but colorFilterActive, we've already filtered in SQL
         if (filteredPrimaryColours.length === 0 && filteredColourShades.length === 0) {
           colorMatches = true;
         }
-        
+
         if (!colorMatches) {
           console.log(`[FILTER DEBUG] Skipping row - color doesn't match: ${row.code}, primary_colour: ${rowPrimaryColour}, colour_shade: ${rowColourShade}`);
           return; // Skip this row
         }
       }
-      
+
       const styleCode = row.code;
       if (!productsMap.has(styleCode)) {
         productsMap.set(styleCode, {
@@ -1506,14 +1566,14 @@ async function buildProductListQuery(filters, page, limit) {
 
       const colorKey = row.colour_name || row.primary_colour || 'Unknown';
       const colorImage = row.colour_image_url || row.primary_image_url || '';
-      
+
       if (!product.colorsMap.has(colorKey)) {
         product.colorsMap.set(colorKey, {
           name: colorKey,
           main: colorImage,
           thumb: colorImage
         });
-        
+
         // ENTERPRISE-LEVEL: If this is the first color and color filter is active, 
         // use this color's image as the primary display image
         if (colorFilterActive && !product.filteredColorImage && colorImage) {
@@ -1550,7 +1610,7 @@ async function buildProductListQuery(filters, page, limit) {
     // ENTERPRISE-LEVEL: Track missing products for debugging and monitoring
     const missingProducts = [];
     const invalidPriceProducts = [];
-    
+
     // Build response items with MARKUP applied
     const items = styleCodes.map(styleCode => {
       const product = productsMap.get(styleCode);
@@ -1558,7 +1618,7 @@ async function buildProductListQuery(filters, page, limit) {
         missingProducts.push(styleCode);
         return null;
       }
-      
+
       // ENTERPRISE-LEVEL: When color filter is active, product must have at least one matching color
       // If colorsMap is empty after filtering, this product shouldn't be shown
       if (colorFilterActive && product.colorsMap.size === 0) {
@@ -1573,7 +1633,7 @@ async function buildProductListQuery(filters, page, limit) {
         invalidPriceProducts.push({ code: styleCode, sortedPrice: sortedPricesMap.get(styleCode), productPrice: product.sellPrice });
         return null;
       }
-      
+
       const priceBreaks = buildPriceBreaks(basePrice);
 
       // Always hardcode customization options
@@ -1618,7 +1678,7 @@ async function buildProductListQuery(filters, page, limit) {
         priceBreaks
       };
     }).filter(item => item !== null);
-    
+
     // ENTERPRISE-LEVEL: Log pagination health metrics
     const paginationHealth = {
       requestedStyleCodes: styleCodes.length,
@@ -1630,7 +1690,7 @@ async function buildProductListQuery(filters, page, limit) {
       batchLimit: dynamicBatchLimit,
       colorFilterActive: colorFilterActive
     };
-    
+
     if (missingProducts.length > 0 || invalidPriceProducts.length > 0) {
       console.warn(`[PAGINATION WARNING] Missing: ${missingProducts.length}, Invalid price: ${invalidPriceProducts.length}`, {
         missingProducts: missingProducts.slice(0, 10), // Log first 10 for debugging
@@ -1638,18 +1698,18 @@ async function buildProductListQuery(filters, page, limit) {
         paginationHealth
       });
     }
-    
+
     // ENTERPRISE-LEVEL: When color filter is active, log additional debugging info
     if (colorFilterActive) {
       console.log(`[FILTER DEBUG] Color filter results: SQL returned ${styleCodes.length} style_codes, batch returned ${batchResult.rows.length} rows, final items: ${items.length}`);
-      
+
       // Warn if significant filtering happened post-SQL (indicates data quality issues)
       const filterLossRate = styleCodes.length > 0 ? ((styleCodes.length - items.length) / styleCodes.length * 100).toFixed(1) : 0;
       if (filterLossRate > 20) {
         console.warn(`[FILTER WARNING] High post-SQL filter loss: ${filterLossRate}% of products filtered out. This may indicate stale materialized view data.`);
       }
     }
-    
+
     console.log(`[PAGINATION] Health: requested=${paginationHealth.requestedStyleCodes}, returned=${paginationHealth.finalItemsCount}, missing=${paginationHealth.missingCount}`);
 
     // Final safety net: ensure displayed prices honor priceMin/priceMax
@@ -1666,9 +1726,9 @@ async function buildProductListQuery(filters, page, limit) {
     // Recompute price range based on filtered items for accurate UI feedback
     const filteredPriceRange = filteredItems.length
       ? {
-          min: Math.min(...filteredItems.map(i => i.price)),
-          max: Math.max(...filteredItems.map(i => i.price))
-        }
+        min: Math.min(...filteredItems.map(i => i.price)),
+        max: Math.max(...filteredItems.map(i => i.price))
+      }
       : { min: 0, max: 0 };
 
     const totalTime = Date.now() - startTime;
@@ -1676,8 +1736,8 @@ async function buildProductListQuery(filters, page, limit) {
 
     // Price range is already in sell_price (marked-up), no conversion needed
     // Use filtered price range when price filters are active to avoid misleading UI
-    const markedUpPriceRange = (priceMinFilter !== null && priceMinFilter !== undefined) || 
-                               (priceMaxFilter !== null && priceMaxFilter !== undefined)
+    const markedUpPriceRange = (priceMinFilter !== null && priceMinFilter !== undefined) ||
+      (priceMaxFilter !== null && priceMaxFilter !== undefined)
       ? filteredPriceRange
       : priceRange;
 
@@ -1687,7 +1747,7 @@ async function buildProductListQuery(filters, page, limit) {
     let adjustedTotal = total;
     const expectedItemsOnPage = Math.min(limit, total - offset);
     const actualItemsOnPage = filteredItems.length;
-    
+
     // Only adjust if we're getting significantly fewer items than expected AND filters are active
     if (hasStrictFilters && actualItemsOnPage < expectedItemsOnPage && actualItemsOnPage > 0) {
       // Calculate adjustment factor based on what we actually got vs expected
@@ -1696,16 +1756,16 @@ async function buildProductListQuery(filters, page, limit) {
       console.log(`[FILTER ADJUSTMENT] Adjusted total from ${total} to ${adjustedTotal} (ratio: ${actualRatio.toFixed(2)})`);
     }
 
-    const queryResponse = { 
-      items: filteredItems, 
-      total: adjustedTotal, 
+    const queryResponse = {
+      items: filteredItems,
+      total: adjustedTotal,
       priceRange: markedUpPriceRange
     };
-    
+
     // Cache the response
     const cacheTTL = (filters.q || filters.text) ? SEARCH_CACHE_TTL : CACHE_TTL;
     setCache(cacheKey, queryResponse, cacheTTL);
-    console.log(`[CACHE] Result cached (TTL: ${cacheTTL/1000}s)`);
+    console.log(`[CACHE] Result cached (TTL: ${cacheTTL / 1000}s)`);
 
     return queryResponse;
   } catch (error) {
@@ -1733,35 +1793,35 @@ function buildPriceBreaks(basePrice) {
   };
 
   // Calculate all 6 price break tiers based on base price and discount percentages
-  breaks.push({ 
-    min: 1, 
-    max: 9, 
-    price: Math.round(basePrice * 100) / 100 
+  breaks.push({
+    min: 1,
+    max: 9,
+    price: Math.round(basePrice * 100) / 100
   });
-  breaks.push({ 
-    min: 10, 
-    max: 24, 
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['10-24']) * 100) / 100 
+  breaks.push({
+    min: 10,
+    max: 24,
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['10-24']) * 100) / 100
   });
-  breaks.push({ 
-    min: 25, 
-    max: 49, 
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['25-49']) * 100) / 100 
+  breaks.push({
+    min: 25,
+    max: 49,
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['25-49']) * 100) / 100
   });
-  breaks.push({ 
-    min: 50, 
-    max: 99, 
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['50-99']) * 100) / 100 
+  breaks.push({
+    min: 50,
+    max: 99,
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['50-99']) * 100) / 100
   });
-  breaks.push({ 
-    min: 100, 
-    max: 249, 
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['100-249']) * 100) / 100 
+  breaks.push({
+    min: 100,
+    max: 249,
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['100-249']) * 100) / 100
   });
-  breaks.push({ 
-    min: 250, 
-    max: 99999, 
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['250+']) * 100) / 100 
+  breaks.push({
+    min: 250,
+    max: 99999,
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['250+']) * 100) / 100
   });
 
   return breaks;
@@ -1776,7 +1836,7 @@ async function buildProductDetailQuery(styleCode) {
   }
 
   const startTime = Date.now();
-  
+
   const detailQuery = `
     SELECT 
       s.style_code,
@@ -1810,7 +1870,7 @@ async function buildProductDetailQuery(styleCode) {
   const detailResult = await queryWithTimeout(detailQuery, [styleCode], 10000); // 10s timeout for detail query
   const queryTime = Date.now() - startTime;
   console.log(`[QUERY] Product detail: ${queryTime}ms`);
-  
+
   if (detailResult.rows.length === 0) {
     return null;
   }
@@ -1870,7 +1930,7 @@ async function buildProductDetailQuery(styleCode) {
   }).slice(0, 5);
 
   const colors = Array.from(colorsMap.values());
-  
+
   if (colors.length === 0) {
     colors.push({
       name: 'Unknown',
@@ -1881,15 +1941,15 @@ async function buildProductDetailQuery(styleCode) {
 
   const images = [];
   let productMainImage = mainImage;
-  
+
   if (!productMainImage && colors.length > 0 && colors[0].main) {
     productMainImage = colors[0].main;
   }
-  
+
   if (productMainImage) {
     images.push({ url: productMainImage, type: 'main' });
   }
-  
+
   colors.forEach(color => {
     if (color.main && color.main !== productMainImage) {
       images.push({ url: color.main, type: 'thumb' });
@@ -1898,7 +1958,7 @@ async function buildProductDetailQuery(styleCode) {
 
   // Price and basePrice should be the same (single unit price after markup)
   // The 1-9 tier in priceBreaks also equals basePrice (0% discount)
-  
+
   const productDetail = {
     code: styleCode,
     name: firstRow.style_name || '',
@@ -1922,7 +1982,7 @@ async function buildProductDetailQuery(styleCode) {
 
   // Cache product details (longer TTL - product details change less frequently)
   setCache(cacheKey, productDetail, COUNT_CACHE_TTL);
-  
+
   return productDetail;
 }
 

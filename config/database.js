@@ -9,21 +9,21 @@ const pool = new Pool({
   database: process.env.DB_NAME || 'brandeduk_prod',
   user: process.env.DB_USER || 'brandeduk',
   password: process.env.DB_PASSWORD || 'omglol123',
-  
+
   // 🎯 CRITICAL: Minimal connections to avoid hitting per-role limits
   max: parseInt(process.env.DB_POOL_MAX) || 3,      // MAX: 3 connections (very conservative)
   min: parseInt(process.env.DB_POOL_MIN) || 1,      // MIN: 1 connection
   idleTimeoutMillis: 5000,                          // 5 seconds idle before release (faster cleanup)
-  
+
   // Connection management
   connectionTimeoutMillis: 30000,                   // 30s to acquire connection (wait longer)
-  statement_timeout: 30000,                         // PostgreSQL kills queries >30s
-  query_timeout: 30000,                             // App-level timeout 30s
-  
+  statement_timeout: 600000,                        // PostgreSQL kills queries >10min (needed for MV refresh)
+  query_timeout: 600000,                            // App-level timeout 10min
+
   // Application settings
   application_name: 'branded-uk-api',
   allowExitOnIdle: true,                            // Allow connections to close when idle
-  
+
   // SSL - only for remote connections
   ssl: process.env.DB_HOST !== 'localhost' ? { rejectUnauthorized: false } : false
 });
@@ -97,28 +97,28 @@ async function queryWithTimeout(text, params, timeoutMs = 20000) {
   const startTime = Date.now();
   const queryType = detectQueryType(text);
   const adjustedTimeout = adjustTimeout(timeoutMs, queryType);
-  
+
   // Retry logic for connection errors
   const maxRetries = 3;
   let lastError = null;
-  
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     // Wait for semaphore slot
     await acquireSemaphore();
-    
+
     let client = null;
     let timeoutId = null;
     let queryCompleted = false;
-    
+
     try {
       // Get a dedicated client from the pool with timeout
       const connectPromise = pool.connect();
       const connectTimeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('Connection acquisition timeout')), 15000);
       });
-      
+
       client = await Promise.race([connectPromise, connectTimeoutPromise]);
-      
+
       // Create a promise that will reject on timeout
       const timeoutPromise = new Promise((_, reject) => {
         timeoutId = setTimeout(() => {
@@ -128,33 +128,33 @@ async function queryWithTimeout(text, params, timeoutMs = 20000) {
           }
         }, adjustedTimeout);
       });
-      
+
       // Execute the actual query
       const queryPromise = client.query(text, params);
-      
+
       // Race between query and timeout
       const result = await Promise.race([queryPromise, timeoutPromise]);
       queryCompleted = true;
-      
+
       const duration = Date.now() - startTime;
       poolStats.completedQueries++;
-      
+
       // Log slow queries (>5s)
       if (duration > 5000) {
         console.warn(`[DB] Slow query (${duration}ms):`, text.substring(0, 100) + '...');
       }
-      
+
       return result;
     } catch (error) {
       lastError = error;
       const duration = Date.now() - startTime;
-      
+
       // Check if this is a connection limit error that might be recoverable
       const isConnectionError = error.message.includes('too many connections') ||
-                                 error.message.includes('too many clients') ||
-                                 error.message.includes('Connection acquisition timeout') ||
-                                 error.message.includes('connection slots');
-      
+        error.message.includes('too many clients') ||
+        error.message.includes('Connection acquisition timeout') ||
+        error.message.includes('connection slots');
+
       if (isConnectionError && attempt < maxRetries - 1) {
         // Wait before retrying (exponential backoff)
         const retryDelay = Math.min(2000 * Math.pow(2, attempt), 10000);
@@ -162,7 +162,7 @@ async function queryWithTimeout(text, params, timeoutMs = 20000) {
         await new Promise(resolve => setTimeout(resolve, retryDelay));
         continue;
       }
-      
+
       // Log the error
       console.error('[DB] Query failed:', {
         type: queryType,
@@ -170,14 +170,14 @@ async function queryWithTimeout(text, params, timeoutMs = 20000) {
         error: error.message,
         query: text.substring(0, 80) + '...'
       });
-      
+
       throw error;
     } finally {
       // 🔒 CRITICAL: Always clear timeout and release client
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
-      
+
       if (client) {
         try {
           client.release(true); // Release with destroy=true to not reuse problematic connections
@@ -185,11 +185,11 @@ async function queryWithTimeout(text, params, timeoutMs = 20000) {
           // Ignore release errors
         }
       }
-      
+
       releaseSemaphore();
     }
   }
-  
+
   // If we've exhausted all retries, throw the last error
   throw lastError;
 }
@@ -210,7 +210,7 @@ function acquireSemaphore() {
 // 🔒 Semaphore release
 function releaseSemaphore() {
   activeQueryCount--;
-  
+
   if (queryQueue.length > 0) {
     const next = queryQueue.shift();
     activeQueryCount++;
@@ -222,7 +222,7 @@ function releaseSemaphore() {
 // Helper: Detect query type for smart timeout adjustment
 function detectQueryType(query) {
   const lowerQuery = query.toLowerCase();
-  
+
   if (lowerQuery.includes('select count(*)') || lowerQuery.includes('select 1')) {
     return 'count';
   }
@@ -240,6 +240,11 @@ function detectQueryType(query) {
 
 // Helper: Adjust timeout based on query type
 function adjustTimeout(baseTimeout, queryType) {
+  // usage: queryWithTimeout(sql, params, 600000) -> should respect 600000
+  if (baseTimeout > 30000) {
+    return baseTimeout;
+  }
+
   const adjustments = {
     'count': 8000,           // Count queries: 8s
     'simple': 10000,         // Simple SELECTs: 10s
@@ -247,7 +252,7 @@ function adjustTimeout(baseTimeout, queryType) {
     'product_search': 20000, // Product searches: 20s
     'complex': 25000         // Complex joins: 25s
   };
-  
+
   return Math.min(adjustments[queryType] || baseTimeout, 25000);
 }
 
@@ -264,22 +269,22 @@ async function simpleQuery(text, params) {
 // 🛡️ Resilient query with exponential backoff (uses proper connection management)
 async function resilientQuery(text, params, maxRetries = 2) {
   let lastError;
-  
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await queryWithTimeout(text, params);
     } catch (error) {
       lastError = error;
-      
+
       // Don't retry timeouts, syntax errors, or connection limit errors
-      if (error.message.includes('timeout') || 
-          error.message.includes('syntax') ||
-          error.message.includes('permission') ||
-          error.message.includes('too many connections') ||
-          error.message.includes('too many clients')) {
+      if (error.message.includes('timeout') ||
+        error.message.includes('syntax') ||
+        error.message.includes('permission') ||
+        error.message.includes('too many connections') ||
+        error.message.includes('too many clients')) {
         break;
       }
-      
+
       if (attempt < maxRetries) {
         const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
         console.log(`[DB] Retry ${attempt + 1}/${maxRetries} in ${delay}ms...`);
@@ -287,7 +292,7 @@ async function resilientQuery(text, params, maxRetries = 2) {
       }
     }
   }
-  
+
   throw lastError;
 }
 
@@ -297,13 +302,13 @@ async function closePool() {
     activeQueries: poolStats.activeQueries,
     queuedQueries: queryQueue.length
   });
-  
+
   // Wait for queued queries to drain (max 10s)
   const drainStart = Date.now();
   while (queryQueue.length > 0 && Date.now() - drainStart < 10000) {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
-  
+
   try {
     await pool.end();
     console.log('[DB] Pool closed successfully');
@@ -320,7 +325,7 @@ module.exports = {
   resilientQuery,
   checkDatabaseHealth,
   closePool,
-  
+
   // Stats getter
   getStats: () => ({
     ...poolStats,
@@ -330,7 +335,7 @@ module.exports = {
     activeQueryCount,
     queueLength: queryQueue.length
   }),
-  
+
   // Quick connection test
   testConnection: async () => {
     try {
