@@ -1187,6 +1187,10 @@ async function buildProductListQuery(filters, page, limit) {
   // Only prioritize if sort is 'newest' (default)
   const prioritizeCustomOrder = sort === 'newest';
 
+  // PERFORMANCE FIX: Only join product_flags when needed for 'best' or 'recommended' sorting
+  // The product_flags table has 220K+ rows and causes ~20s+ query times when joined unnecessarily
+  const needsFlagJoin = sort === 'best' || sort === 'recommended';
+
   // Construct ORDER BY clause
   // If prioritizeCustomOrder is true, put custom_display_order FIRST
   let orderByClause = '';
@@ -1217,6 +1221,16 @@ async function buildProductListQuery(filters, page, limit) {
 
   // ULTRA-OPTIMIZATION: Restructure query for search - use indexed operations first
   // For search, prioritize full-text search index by structuring query properly
+  // PERFORMANCE FIX: Conditionally include product_flags JOIN only when sorting by 'best' or 'recommended'
+  const flagJoinClause = needsFlagJoin
+    ? `LEFT JOIN product_flags pf ON p.id = pf.product_id
+        LEFT JOIN special_flags sf ON pf.flag_id = sf.id`
+    : '';
+  const flagSelectClause = needsFlagJoin
+    ? `COALESCE(MAX(CASE WHEN sf.slug = 'best' THEN 1 ELSE 0 END), 0) as is_best,
+        COALESCE(MAX(CASE WHEN sf.slug = 'recommended' THEN 1 ELSE 0 END), 0) as is_recommended`
+    : `0 as is_best, 0 as is_recommended`;
+
   const optimizedQuery = `
     WITH style_codes_filtered AS (
       SELECT DISTINCT ${viewAlias}.style_code
@@ -1234,9 +1248,8 @@ async function buildProductListQuery(filters, page, limit) {
         MIN(COALESCE(pt.display_order, 999)) as product_type_priority,
         MIN(COALESCE(b.name, '')) as brand_name,
         MIN(COALESCE(pdo.display_order, 999999)) as custom_display_order,
-        -- Flag-based priorities (special_flags / product_flags)
-        COALESCE(MAX(CASE WHEN sf.slug = 'best' THEN 1 ELSE 0 END), 0) as is_best,
-        COALESCE(MAX(CASE WHEN sf.slug = 'recommended' THEN 1 ELSE 0 END), 0) as is_recommended
+        -- Flag-based priorities (only computed when sorting by best/recommended)
+        ${flagSelectClause}
         ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
       FROM style_codes_filtered scf
       INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
@@ -1245,8 +1258,7 @@ async function buildProductListQuery(filters, page, limit) {
         LEFT JOIN product_types pt ON s.product_type_id = pt.id
         LEFT JOIN brands b ON s.brand_id = b.id
         LEFT JOIN product_display_order pdo ON s.style_code = pdo.style_code AND (${pdoJoinCondition})
-        LEFT JOIN product_flags pf ON p.id = pf.product_id
-        LEFT JOIN special_flags sf ON pf.flag_id = sf.id
+        ${flagJoinClause}
       WHERE ${viewAlias}.sku_status = 'Live'
       GROUP BY scf.style_code
       HAVING 
@@ -1318,8 +1330,7 @@ async function buildProductListQuery(filters, page, limit) {
             MIN(COALESCE(pt.display_order, 999)) as product_type_priority,
             MIN(COALESCE(b.name, '')) as brand_name,
             MIN(COALESCE(pdo.display_order, 999999)) as custom_display_order,
-            COALESCE(MAX(CASE WHEN sf.slug = 'best' THEN 1 ELSE 0 END), 0) as is_best,
-            COALESCE(MAX(CASE WHEN sf.slug = 'recommended' THEN 1 ELSE 0 END), 0) as is_recommended
+            ${flagSelectClause}
             ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
           FROM style_codes_filtered scf
           INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
@@ -1328,8 +1339,7 @@ async function buildProductListQuery(filters, page, limit) {
       LEFT JOIN product_types pt ON s.product_type_id = pt.id
             LEFT JOIN brands b ON s.brand_id = b.id
             LEFT JOIN product_display_order pdo ON s.style_code = pdo.style_code AND (${pdoJoinCondition})
-            LEFT JOIN product_flags pf ON p.id = pf.product_id
-            LEFT JOIN special_flags sf ON pf.flag_id = sf.id
+            ${flagJoinClause}
           WHERE ${viewAlias}.sku_status = 'Live'
           GROUP BY scf.style_code
           HAVING 
@@ -1856,15 +1866,18 @@ async function buildProductDetailQuery(styleCode) {
       p.pack_price,
       p.carton_price,
       p.sell_price,
-      t.name as tag
+      t.name as tag,
+      pr.markup_percent
     FROM styles s
     LEFT JOIN brands b ON s.brand_id = b.id
     LEFT JOIN product_types pt ON s.product_type_id = pt.id
     LEFT JOIN products p ON p.style_code = s.style_code AND p.sku_status = 'Live'
     LEFT JOIN sizes sz ON p.size_id = sz.id
     LEFT JOIN tags t ON p.tag_id = t.id
+    LEFT JOIN pricing_rules pr ON pr.active = true
+      AND COALESCE(NULLIF(p.carton_price, 0), NULLIF(p.single_price, 0)) BETWEEN pr.from_price AND pr.to_price
     WHERE s.style_code = $1
-    ORDER BY p.colour_name, sz.size_order
+    ORDER BY p.colour_name, sz.size_order, pr.from_price DESC
   `;
 
   const detailResult = await queryWithTimeout(detailQuery, [styleCode], 10000); // 10s timeout for detail query
@@ -1881,7 +1894,9 @@ async function buildProductDetailQuery(styleCode) {
   const prices = [];
   const customizationSet = new Set();
   let mainImage = firstRow.primary_image_url || '';
-  let maxSellPrice = 0; // Track maximum sell_price across all rows (consistent with product list API)
+  let maxSellPrice = 0; // Track minimum sell_price across all rows (consistent with product list API)
+  let cartonPrice = null;
+  let markupPercent = null;
 
   detailResult.rows.forEach(row => {
     if (row.size) {
@@ -1899,7 +1914,15 @@ async function buildProductDetailQuery(styleCode) {
     }
 
     if (row.single_price) prices.push(parseFloat(row.single_price));
-    if (row.carton_price) prices.push(parseFloat(row.carton_price));
+    if (row.carton_price != null) {
+      const cp = parseFloat(row.carton_price);
+      if (!isNaN(cp)) cartonPrice = cartonPrice ?? cp;
+    }
+
+    if (row.markup_percent != null && markupPercent == null) {
+      const mp = parseFloat(row.markup_percent);
+      if (!isNaN(mp)) markupPercent = mp;
+    }
 
     // Track minimum sell_price (consistent with product list API which uses MIN)
     if (row.sell_price) {
@@ -1959,6 +1982,9 @@ async function buildProductDetailQuery(styleCode) {
   // Price and basePrice should be the same (single unit price after markup)
   // The 1-9 tier in priceBreaks also equals basePrice (0% discount)
 
+  // Base price for markup: carton_price or single_price if carton is 0
+  const basePriceForMarkup = cartonPrice && cartonPrice > 0 ? cartonPrice : (prices[0] ?? 0);
+
   const productDetail = {
     code: styleCode,
     name: firstRow.style_name || '',
@@ -1966,6 +1992,9 @@ async function buildProductDetailQuery(styleCode) {
     productType: firstRow.product_type || '',
     price: basePrice,  // Same as basePrice - single unit price after markup
     basePrice: basePrice,  // Single price after markup (matches 1-9 tier)
+    sell_price: basePrice,  // Explicit sell price (same as price)
+    cartonPrice: cartonPrice != null ? cartonPrice : (basePriceForMarkup || null),
+    markupPercent: markupPercent != null ? markupPercent : null,
     priceBreaks: priceBreaks || [],
     colors: colors,
     sizes: sizes.length > 0 ? sizes : [],

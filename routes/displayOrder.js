@@ -317,69 +317,91 @@ router.post('/', async (req, res) => {
  * Body: { brand_id?, product_type_id?, orders: [{ style_code, display_order }] }
  */
 router.post('/bulk', async (req, res) => {
+  const client = await pool.connect();
+
   try {
-    const { brand_id, product_type_id, orders } = req.body;
+    const { brand_id = null, product_type_id = null, orders } = req.body;
 
-    if (!orders || !Array.isArray(orders) || orders.length === 0) {
-      return res.status(400).json({ 
-        error: 'Bad request', 
-        message: 'orders array is required and must not be empty' 
+    if (!Array.isArray(orders) || orders.length === 0) {
+      return res.status(400).json({
+        error: 'Bad request',
+        message: 'orders array is required and must not be empty'
       });
     }
 
-    const client = await pool.connect();
-    
-    try {
-      await client.query('BEGIN');
+    // 1️⃣ Normalize + validate
+    const normalizedOrders = orders
+      .filter(o => o.style_code && Number.isInteger(+o.display_order))
+      .map(o => ({
+        style_code: o.style_code.toUpperCase(),
+        display_order: Math.max(1, parseInt(o.display_order))
+      }))
+      .sort((a, b) => a.display_order - b.display_order);
 
-      const results = [];
-      
-      for (const order of orders) {
-        const { style_code, display_order } = order;
-        
-        if (!style_code || display_order === undefined) {
-          continue; // Skip invalid entries
-        }
+    // 2️⃣ Reassign sequential order (no gaps / duplicates)
+    normalizedOrders.forEach((o, index) => {
+      o.display_order = index + 1;
+    });
 
-        const query = `
-          INSERT INTO product_display_order (style_code, brand_id, product_type_id, display_order, updated_at)
-          VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-          ON CONFLICT (style_code, brand_id, product_type_id) 
-          DO UPDATE SET display_order = $4, updated_at = CURRENT_TIMESTAMP
-          RETURNING *
-        `;
+    await client.query('BEGIN');
 
-        const result = await client.query(query, [
-          style_code.toUpperCase(),
-          brand_id || null,
-          product_type_id || null,
-          parseInt(display_order)
-        ]);
+    const results = [];
 
-        results.push(result.rows[0]);
-      }
+    for (const order of normalizedOrders) {
+      const result = await client.query(
+        `
+        INSERT INTO product_display_order (
+          style_code,
+          brand_id,
+          product_type_id,
+          display_order,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+        ON CONFLICT (
+          style_code,
+          COALESCE(brand_id, 0),
+          COALESCE(product_type_id, 0)
+        )
+        DO UPDATE SET
+          display_order = EXCLUDED.display_order,
+          updated_at = CURRENT_TIMESTAMP
+        RETURNING *
+        `,
+        [
+          order.style_code,
+          brand_id,
+          product_type_id,
+          order.display_order
+        ]
+      );
 
-      await client.query('COMMIT');
-
-      // Clear product list cache so new display order is applied immediately
-      clearCache();
-
-      res.json({
-        message: `Successfully updated ${results.length} display orders`,
-        updated: results.length,
-        data: results
-      });
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
+      results.push(result.rows[0]);
     }
+
+    await client.query('COMMIT');
+
+    clearCache();
+
+    res.json({
+      message: `Successfully updated ${results.length} display orders`,
+      updated: results.length,
+      data: results
+    });
+
   } catch (error) {
-    console.error('[ERROR] Failed to bulk update display orders:', error.message);
-    res.status(500).json({ error: 'Internal server error', message: error.message });
+    await client.query('ROLLBACK');
+    console.error('[ERROR] Bulk display order failed:', error.message);
+
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
+  } finally {
+    client.release();
   }
 });
+
 
 /**
  * PUT /api/display-order/:id

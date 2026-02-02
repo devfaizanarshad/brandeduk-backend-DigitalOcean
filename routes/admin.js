@@ -283,6 +283,183 @@ router.put('/products/bulk-status', async (req, res) => {
 });
 
 /**
+ * PUT /api/admin/products/:code/discontinue
+ * Set sku_status = 'Discontinued' for ALL variants (colors, sizes) of a style_code.
+ * Products with this style_code will no longer appear in listings.
+ */
+router.put('/products/:code/discontinue', async (req, res) => {
+  try {
+    const { code } = req.params;
+    const styleCode = code.toUpperCase();
+
+    const query = `
+      UPDATE products
+      SET sku_status = 'Discontinued', updated_at = NOW()
+      WHERE style_code = $1
+      RETURNING id, style_code, sku_code, sku_status
+    `;
+
+    const result = await queryWithTimeout(query, [styleCode], 30000);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Not found',
+        message: `No products found for style_code: ${styleCode}`
+      });
+    }
+
+    clearCache();
+
+    res.json({
+      message: `Discontinued ${result.rows.length} product(s)`,
+      style_code: styleCode,
+      updatedCount: result.rows.length,
+      items: result.rows
+    });
+  } catch (error) {
+    console.error('[ADMIN] Failed to discontinue product:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * PUT /api/admin/products/:code/activate
+ * Set sku_status = 'Live' for ALL variants (colors, sizes) of a style_code.
+ * Reverses a discontinue action.
+ */
+router.put('/products/:code/activate', async (req, res) => {
+  try {
+    const { code } = req.params;
+    const styleCode = code.toUpperCase();
+
+    const query = `
+      UPDATE products
+      SET sku_status = 'Live', updated_at = NOW()
+      WHERE style_code = $1
+      RETURNING id, style_code, sku_code, sku_status
+    `;
+
+    const result = await queryWithTimeout(query, [styleCode], 30000);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Not found',
+        message: `No products found for style_code: ${styleCode}`
+      });
+    }
+
+    clearCache();
+
+    res.json({
+      message: `Activated ${result.rows.length} product(s)`,
+      style_code: styleCode,
+      updatedCount: result.rows.length,
+      items: result.rows
+    });
+  } catch (error) {
+    console.error('[ADMIN] Failed to activate product:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * PUT /api/admin/products/:code
+ * Update product detail for a style_code.
+ * Body: { style_name?, specification?, fabric_description?, primary_image_url?, colorImages?: [{ colour_name, url }] }
+ */
+router.put('/products/:code', async (req, res) => {
+  try {
+    const { code } = req.params;
+    const styleCode = code.toUpperCase();
+    const { style_name, specification, fabric_description, primary_image_url, colorImages } = req.body;
+
+    // Check style exists
+    const styleCheck = await queryWithTimeout(
+      'SELECT style_code FROM styles WHERE style_code = $1',
+      [styleCode],
+      5000
+    );
+    if (styleCheck.rows.length === 0) {
+      return res.status(404).json({
+        error: 'Not found',
+        message: `Product with style_code ${styleCode} not found`
+      });
+    }
+
+    const updates = [];
+
+    // Update styles table
+    if (style_name !== undefined || specification !== undefined || fabric_description !== undefined) {
+      const styleFields = [];
+      const styleParams = [];
+      let idx = 1;
+      if (style_name !== undefined) {
+        styleFields.push(`style_name = $${idx++}`);
+        styleParams.push(style_name);
+      }
+      if (specification !== undefined) {
+        styleFields.push(`specification = $${idx++}`);
+        styleParams.push(specification);
+      }
+      if (fabric_description !== undefined) {
+        styleFields.push(`fabric_description = $${idx++}`);
+        styleParams.push(fabric_description);
+      }
+      styleFields.push('updated_at = NOW()');
+      styleParams.push(styleCode);
+
+      await queryWithTimeout(
+        `UPDATE styles SET ${styleFields.join(', ')} WHERE style_code = $${idx}`,
+        styleParams,
+        10000
+      );
+      updates.push('styles');
+    }
+
+    // Update primary_image_url for all products with this style_code
+    if (primary_image_url !== undefined) {
+      const imgResult = await queryWithTimeout(
+        `UPDATE products SET primary_image_url = $1, updated_at = NOW() WHERE style_code = $2 RETURNING id`,
+        [primary_image_url, styleCode],
+        10000
+      );
+      if (imgResult.rows.length > 0) updates.push(`primary_image (${imgResult.rows.length} products)`);
+    }
+
+    // Update colour-specific images
+    if (colorImages && Array.isArray(colorImages) && colorImages.length > 0) {
+      for (const { colour_name, url } of colorImages) {
+        if (!colour_name || !url) continue;
+        const colorResult = await queryWithTimeout(
+          `UPDATE products SET colour_image_url = $1, updated_at = NOW() WHERE style_code = $2 AND (colour_name = $3 OR primary_colour = $3) RETURNING id`,
+          [url, styleCode, colour_name],
+          10000
+        );
+        if (colorResult.rows.length > 0) updates.push(`colour_image (${colour_name})`);
+      }
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({
+        error: 'Bad request',
+        message: 'At least one field must be provided: style_name, specification, fabric_description, primary_image_url, or colorImages'
+      });
+    }
+
+    clearCache();
+
+    res.json({
+      message: 'Product updated successfully',
+      style_code: styleCode,
+      updated: updates
+    });
+  } catch (error) {
+    console.error('[ADMIN] Failed to update product:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+/**
  * PUT /api/admin/products/bulk-carton-price
  * Bulk update carton_price for multiple style codes
  * Body: { updates: [{ style_code: "GD002", carton_price: 4.65 }, ...] }

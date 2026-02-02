@@ -450,7 +450,90 @@ Content-Type: application/json
 
 ---
 
-### 2.8 Bulk delete products
+### 2.8 Discontinue product by style_code
+
+Set `sku_status = 'Discontinued'` for **all variants** (colors, sizes) of a style_code. Products will no longer appear in listings.
+
+```http
+PUT /api/admin/products/{code}/discontinue
+```
+
+**Response 200**
+```json
+{
+  "message": "Discontinued 45 product(s)",
+  "style_code": "GD067",
+  "updatedCount": 45,
+  "items": [
+    { "id": 123, "style_code": "GD067", "sku_code": "GD067-BLK-M", "sku_status": "Discontinued" },
+    ...
+  ]
+}
+```
+
+**Response 404** – No products found for this style_code.
+
+---
+
+### 2.9 Activate product by style_code
+
+Set `sku_status = 'Live'` for all variants. Reverses a discontinue action.
+
+```http
+PUT /api/admin/products/{code}/activate
+```
+
+**Response 200** – Same shape as discontinue.
+
+---
+
+### 2.10 Update product detail
+
+Update name, description, images for a style_code.
+
+**Note:** The public `GET /api/products/:code` response now includes `cartonPrice`, `markupPercent`, and `sell_price` for admin visibility.
+
+```http
+PUT /api/admin/products/{code}
+Content-Type: application/json
+
+{
+  "style_name": "New Product Name",
+  "specification": "Updated description...",
+  "fabric_description": "Fabric info...",
+  "primary_image_url": "https://...",
+  "colorImages": [
+    { "colour_name": "Black", "url": "https://..." },
+    { "colour_name": "Natural", "url": "https://..." }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `style_name` | string | Product name |
+| `specification` | string | Description |
+| `fabric_description` | string | Fabric info |
+| `primary_image_url` | string | Main image URL (applies to all variants) |
+| `colorImages` | array | Per-color images: `{ colour_name, url }` |
+
+At least one field required.
+
+**Response 200**
+```json
+{
+  "message": "Product updated successfully",
+  "style_code": "JC001",
+  "updated": ["styles", "primary_image (12 products)", "colour_image (Black)"]
+}
+```
+
+**Response 400** – No fields provided.  
+**Response 404** – style_code not found.
+
+---
+
+### 2.11 Bulk delete products
 
 ```http
 DELETE /api/admin/products/bulk
@@ -994,6 +1077,9 @@ All endpoints use the same error shape:
 | GET | `/api/admin/products/by-style/:code` | SKUs by style |
 | GET | `/api/admin/products/statistics` | Product stats |
 | GET | `/api/admin/products/:code/price-preview` | Price preview |
+| PUT | `/api/admin/products/:code/discontinue` | Discontinue all variants by style_code |
+| PUT | `/api/admin/products/:code/activate` | Activate all variants by style_code |
+| PUT | `/api/admin/products/:code` | Update product detail (name, description, images) |
 | PUT | `/api/admin/products/:code/carton-price` | Set carton price (one style) |
 | PUT | `/api/admin/products/bulk-carton-price` | Bulk carton price |
 | PUT | `/api/admin/products/bulk-status` | Bulk status |
@@ -1011,6 +1097,53 @@ All endpoints use the same error shape:
 | PUT | `/api/display-order/:id` | Update order |
 | DELETE | `/api/display-order/:id` | Delete order |
 | DELETE | `/api/display-order/by-context` | Delete by context |
+
+---
+
+---
+
+# Production Cache Behavior (Display Order / Stale Data)
+
+## Problem
+
+On production, after updating display order in the admin panel, the products API (`/api/products`) may still return **old data** for some time. Locally it updates immediately.
+
+## Root Cause
+
+**Multiple Node.js processes.** In production you likely run:
+- PM2 with `instances > 1` (cluster mode)
+- Docker/Kubernetes with multiple replicas
+- Load balancer with multiple backend servers
+
+Each process has its own **in-memory cache**. When you update display order:
+- The request goes to **one** process → it clears its cache and saves to DB
+- Other processes still have the old cached data
+- Customer requests can hit any process → sometimes old data, sometimes new (after TTL expires or if they hit the updated process)
+
+## Solution: Redis Pub/Sub (Recommended)
+
+The API supports **Redis** for cache invalidation across all instances:
+
+1. **Add Redis** – Use Redis from your host (e.g. Railway Redis, Render Redis, Heroku Redis, Upstash).
+2. **Set env var** – `REDIS_URL=redis://...` (connection string).
+3. **Restart** – On display-order (or any admin) update, the process that handles it publishes `cache:clear`. All processes subscribed to Redis receive it and clear their local cache.
+4. **Install dependency** – `npm install` (adds `ioredis`).
+
+When `REDIS_URL` is set, cache invalidation is broadcast to all Node instances.
+
+## Alternative: Single Instance
+
+If you don't want Redis:
+- Run **one** Node process (e.g. PM2 `instances: 1`, single Docker replica).
+- Cache clears apply immediately.
+- Trade-off: no horizontal scaling for the API.
+
+## CDN Caching
+
+If you use Cloudflare or another CDN in front of the API:
+- Ensure the products API is not cached for long (e.g. `Cache-Control: private, max-age=60` or `no-store` for admin-sensitive responses).
+- Or purge CDN cache after display-order updates.
+- The main fix is still Redis (or single instance) for API-level cache.
 
 ---
 
