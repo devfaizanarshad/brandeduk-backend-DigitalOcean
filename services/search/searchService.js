@@ -285,28 +285,29 @@ async function getSearchSuggestions(query) {
     return { brands: [], types: [], products: [] };
   }
 
-  const likeTerm = `${searchTerm}%`;  // Prefix match
+  const words = searchTerm.split(/\s+/).filter(w => w.length >= 2);
+  const wordMatch = words.map((_, i) => `(s.style_name ILIKE $${i + 1} OR b.name ILIKE $${i + 1} OR s.style_code ILIKE $${i + 1})`).join(' AND ');
+  const wordParams = words.map(w => `%${w}%`);
 
   // Parallel queries to fetch suggestions
   const [brandsRes, typesRes, productsRes] = await Promise.all([
-    // 1. Brands (Prefix match)
+    // 1. Brands (Prefix match on any word)
     queryWithTimeout(`
       SELECT name, slug FROM brands 
-      WHERE name ILIKE $1 
+      WHERE ${words.map((_, i) => `name ILIKE $${i + 1}`).join(' OR ')}
       ORDER BY name ASC 
       LIMIT 3
-    `, [likeTerm]),
+    `, wordParams),
 
-    // 2. Product Types (Prefix match)
+    // 2. Product Types (Prefix match on any word)
     queryWithTimeout(`
       SELECT name, slug FROM product_types 
-      WHERE name ILIKE $1 
+      WHERE ${words.map((_, i) => `name ILIKE $${i + 1}`).join(' OR ')}
       ORDER BY name ASC 
       LIMIT 3
-    `, [likeTerm]),
+    `, wordParams),
 
-    // 3. Products (Trigram match on name OR style code prefix)
-    // Querying base tables to ensure robust column access (images, etc)
+    // 3. Products (All words must match somewhere in name/code/brand)
     queryWithTimeout(`
       SELECT DISTINCT ON (s.style_code)
         s.style_code, 
@@ -317,9 +318,9 @@ async function getSearchSuggestions(query) {
       JOIN products p ON s.style_code = p.style_code
       LEFT JOIN brands b ON s.brand_id = b.id
       WHERE p.sku_status = 'Live'
-        AND (s.style_name ILIKE $1 OR s.style_code ILIKE $1 OR b.name ILIKE $1)
+        AND (${wordMatch})
       LIMIT 5
-    `, [`%${searchTerm}%`])
+    `, wordParams)
   ]);
 
   return {
