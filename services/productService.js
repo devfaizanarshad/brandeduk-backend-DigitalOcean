@@ -1333,8 +1333,8 @@ async function buildProductListQuery(filters, page, limit) {
     // Check cache for total count and price range (they change less frequently)
     const countCacheKey = getCacheKey(filters, 0, 0, 'count');
     const priceRangeCacheKey = getCacheKey(filters, 0, 0, 'priceRange');
-    const cachedCount = getCached(countCacheKey);
-    const cachedPriceRange = getCached(priceRangeCacheKey);
+    const cachedCount = await getCached(countCacheKey);
+    const cachedPriceRange = await getCached(priceRangeCacheKey);
 
     // STEP 1: Get style codes only (FAST - uses materialized view with array columns)
     // If we have cached count/priceRange, we can simplify the query
@@ -1414,13 +1414,13 @@ async function buildProductListQuery(filters, page, limit) {
 
     // Cache count and price range separately (longer TTL - they change less frequently)
     if (!cachedCount) {
-      setCache(countCacheKey, total, COUNT_CACHE_TTL);
+      await setCache(countCacheKey, total, REDIS_TTL.COUNT);
     } else {
       total = cachedCount;
     }
 
     if (!cachedPriceRange) {
-      setCache(priceRangeCacheKey, priceRange, COUNT_CACHE_TTL);
+      await setCache(priceRangeCacheKey, priceRange, REDIS_TTL.COUNT);
     } else {
       priceRange = cachedPriceRange;
     }
