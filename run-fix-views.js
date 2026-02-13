@@ -23,19 +23,19 @@ const pool = new Pool({
 
 async function runFixViews() {
   const client = await pool.connect();
-  
+
   try {
     console.log('========================================');
     console.log('FIXING MATERIALIZED VIEWS');
     console.log('========================================');
     console.log('');
-    
+
     // Step 1: Drop existing views
     console.log('[1/5] Dropping existing materialized views...');
     await client.query('DROP MATERIALIZED VIEW IF EXISTS public.product_search_materialized CASCADE');
     await client.query('DROP MATERIALIZED VIEW IF EXISTS public.product_search_mv CASCADE');
     console.log('      ✓ Views dropped');
-    
+
     // Step 2: Create product_search_mv
     console.log('[2/5] Creating product_search_mv (this may take a few minutes)...');
     const createMvQuery = `
@@ -59,6 +59,8 @@ async function runFixViews() {
           ag.slug AS age_group_slug,
           sz.slug AS size_slug,
           t.slug AS tag_slug,
+          s.is_best_seller,
+          s.is_recommended,
           
           array_agg(DISTINCT cat.id) FILTER (WHERE cat.id IS NOT NULL) AS category_ids,
           array_agg(DISTINCT f.id) FILTER (WHERE f.id IS NOT NULL) AS fabric_ids,
@@ -119,12 +121,12 @@ async function runFixViews() {
       LEFT JOIN product_weight_ranges pwr ON p.id = pwr.product_id
       LEFT JOIN weight_ranges wr ON pwr.weight_range_id = wr.id
       WHERE p.sku_status = 'Live'
-      GROUP BY p.id, s.style_code, s.style_name, b.name, g.slug, ag.slug, sz.slug, t.slug
+      GROUP BY p.id, s.style_code, s.style_name, b.name, g.slug, ag.slug, sz.slug, t.slug, s.is_best_seller, s.is_recommended
       WITH DATA
     `;
     await client.query(createMvQuery);
     console.log('      ✓ product_search_mv created');
-    
+
     // Step 3: Create product_search_materialized
     console.log('[3/5] Creating product_search_materialized...');
     const createPsmQuery = `
@@ -137,14 +139,14 @@ async function runFixViews() {
     `;
     await client.query(createPsmQuery);
     console.log('      ✓ product_search_materialized created');
-    
+
     // Step 4: Create indexes
     console.log('[4/5] Creating indexes (this may take a few minutes)...');
-    
+
     const indexes = [
       // Unique indexes
       'CREATE UNIQUE INDEX idx_psm_unique ON public.product_search_materialized USING btree (id)',
-      
+
       // Basic indexes
       'CREATE INDEX idx_psm_style_code ON public.product_search_materialized USING btree (style_code)',
       'CREATE INDEX idx_psm_sku_status ON public.product_search_materialized USING btree (sku_status)',
@@ -153,7 +155,9 @@ async function runFixViews() {
       'CREATE INDEX idx_psm_gender ON public.product_search_materialized USING btree (gender_slug) WHERE sku_status = \'Live\'',
       'CREATE INDEX idx_psm_brand ON public.product_search_materialized USING btree (brand) WHERE sku_status = \'Live\'',
       'CREATE INDEX idx_psm_primary_colour ON public.product_search_materialized USING btree (primary_colour) WHERE sku_status = \'Live\'',
-      
+      'CREATE INDEX idx_psm_is_best ON public.product_search_materialized USING btree (is_best_seller) WHERE sku_status = \'Live\' AND is_best_seller = true',
+      'CREATE INDEX idx_psm_is_recommended ON public.product_search_materialized USING btree (is_recommended) WHERE sku_status = \'Live\' AND is_recommended = true',
+
       // GIN indexes for array columns
       'CREATE INDEX idx_psm_search_gin ON public.product_search_materialized USING gin (search_vector) WHERE sku_status = \'Live\'',
       'CREATE INDEX idx_psm_colour_slugs_gin ON public.product_search_materialized USING gin (colour_slugs) WHERE sku_status = \'Live\'',
@@ -171,14 +175,14 @@ async function runFixViews() {
       'CREATE INDEX idx_psm_weight_slugs_gin ON public.product_search_materialized USING gin (weight_slugs) WHERE sku_status = \'Live\'',
       'CREATE INDEX idx_psm_category_ids_gin ON public.product_search_materialized USING gin (category_ids) WHERE sku_status = \'Live\'',
       'CREATE INDEX idx_psm_flag_ids_gin ON public.product_search_materialized USING gin (flag_ids) WHERE sku_status = \'Live\'',
-      
+
       // Composite indexes
       'CREATE INDEX idx_psm_gender_created ON public.product_search_materialized USING btree (gender_slug, created_at DESC) WHERE sku_status = \'Live\'',
       'CREATE INDEX idx_psm_sort_newest ON public.product_search_materialized USING btree (created_at DESC, style_code) WHERE sku_status = \'Live\'',
       'CREATE INDEX idx_psm_sort_price_low ON public.product_search_materialized USING btree (sell_price ASC, style_code) WHERE sku_status = \'Live\' AND sell_price IS NOT NULL',
       'CREATE INDEX idx_psm_sort_price_high ON public.product_search_materialized USING btree (sell_price DESC, style_code) WHERE sku_status = \'Live\' AND sell_price IS NOT NULL',
     ];
-    
+
     for (let i = 0; i < indexes.length; i++) {
       try {
         await client.query(indexes[i]);
@@ -188,10 +192,10 @@ async function runFixViews() {
       }
     }
     console.log(`      ✓ ${indexes.length} indexes created                    `);
-    
+
     // Step 5: Verify data
     console.log('[5/5] Verifying data...');
-    
+
     const verifyQuery = `
       SELECT 
         COUNT(*) as total,
@@ -207,7 +211,7 @@ async function runFixViews() {
     `;
     const verifyResult = await client.query(verifyQuery);
     const stats = verifyResult.rows[0];
-    
+
     console.log('');
     console.log('========================================');
     console.log('VERIFICATION RESULTS');
@@ -221,7 +225,7 @@ async function runFixViews() {
     console.log(`With sector:    ${stats.with_sector}`);
     console.log(`With effect:    ${stats.with_effect}`);
     console.log('========================================');
-    
+
     // Show sample sleeve slugs
     const sleeveQuery = `
       SELECT DISTINCT unnest(sleeve_slugs) as slug
@@ -235,12 +239,12 @@ async function runFixViews() {
       console.log('Available sleeve slugs:');
       sleeveResult.rows.forEach(row => console.log(`  - ${row.slug}`));
     }
-    
+
     console.log('');
     console.log('✓ DONE! Views recreated successfully.');
     console.log('');
     console.log('Restart your server to see the changes.');
-    
+
   } catch (error) {
     console.error('');
     console.error('ERROR:', error.message);

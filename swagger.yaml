@@ -221,6 +221,16 @@ paths:
           in: query
           schema:
             type: string
+        - name: isBestSeller
+          in: query
+          description: Filter by best selling products
+          schema:
+            type: boolean
+        - name: isRecommended
+          in: query
+          description: Filter by recommended products
+          schema:
+            type: boolean
         - name: sort
           in: query
           description: |
@@ -263,6 +273,68 @@ paths:
                         type: number
                       max:
                         type: number
+
+  /api/products/discontinued:
+    get:
+      tags:
+        - Products
+      summary: Get discontinued products
+      description: Returns a paginated list of discontinued products. Note that `price` field in response reflects the calculated `sell_price`.
+      operationId: getDiscontinuedProducts
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 24
+        - name: q
+          in: query
+          description: Search query
+          schema:
+            type: string
+        - name: productType
+          in: query
+          description: Product type slug(s)
+          schema:
+            type: string
+        - name: productTypes
+          in: query
+          description: Alias for productType (accepts multiple values)
+          schema:
+            type: string
+        - name: category
+          in: query
+          description: Alias for productType (used by mobile)
+          schema:
+            type: string
+        - name: categories
+          in: query
+          description: Alias for productType (used by mobile)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+                  total:
+                    type: integer
+                  message:
+                    type: string
 
   /api/products/filters:
     get:
@@ -380,6 +452,48 @@ paths:
       responses:
         '200':
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                  name:
+                    type: string
+                  price:
+                    type: number
+                  sell_price:
+                    type: number
+                  carton_price:
+                    type: number
+                    nullable: true
+                  markup_tier:
+                    type: number
+                    nullable: true
+                  markup_source:
+                    type: string
+                    nullable: true
+                  brand:
+                    type: string
+                  images:
+                    type: array
+                    items:
+                      type: object
+                  colors:
+                    type: array
+                    items:
+                      type: object
+                  sizes:
+                    type: array
+                    items:
+                      type: string
+                  description:
+                    type: string
+                  priceBreaks:
+                    type: array
+                    items:
+                      type: object
         '404':
           description: Product not found
 
@@ -1093,6 +1207,162 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/admin/pricing/sync:
+    post:
+      tags:
+        - Admin
+      summary: Manually trigger pricing sync
+      description: |
+        Refreshes the public shop page's materialized views. Use this after making pricing changes (markup, carton prices, etc.) to publish them to the public site. This process runs in the background and takes approximately 5-10 minutes.
+      operationId: triggerSync
+      responses:
+        '200':
+          description: Sync process started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '500':
+          description: Internal server error
+
+  /api/admin/products/bulk-markup-override:
+    put:
+      tags:
+        - Admin
+      summary: Bulk update markup overrides for multiple styles
+      description: |
+        Sets custom markup percentages for multiple style codes and recalculates their `sell_price`.
+      operationId: bulkMarkupOverride
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - overrides
+              properties:
+                overrides:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - style_code
+                      - markup_percent
+                    properties:
+                      style_code:
+                        type: string
+                        example: "GD067"
+                      markup_percent:
+                        type: number
+                        example: 75.00
+      responses:
+        '200':
+          description: Bulk markup overrides applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        style_code:
+                          type: string
+                        markup_percent:
+                          type: number
+                        updated_count:
+                          type: integer
+        '500':
+          description: Internal server error
+
+  /api/admin/products/{code}/markup-override:
+    get:
+      tags:
+        - Admin
+      summary: Get markup override for a style code
+      description: Returns the effective markup (custom or global) for a specific style.
+      operationId: getMarkupOverride
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  style_code:
+                    type: string
+                  markup_percent:
+                    type: number
+                    nullable: true
+                  global_markup:
+                    type: number
+                    nullable: true
+                  has_override:
+                    type: boolean
+        '404':
+          description: Style not found
+    put:
+      tags:
+        - Admin
+      summary: Set/update markup override for a style code
+      description: Sets a custom markup percentage and recalculates `sell_price` for all products of this style.
+      operationId: setMarkupOverride
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - markup_percent
+              properties:
+                markup_percent:
+                  type: number
+                  example: 75.00
+      responses:
+        '200':
+          description: Markup override applied
+        '500':
+          description: Internal server error
+    delete:
+      tags:
+        - Admin
+      summary: Remove markup override for a style code
+      description: Deletes the custom markup and reverts products to global tiered pricing.
+      operationId: deleteMarkupOverride
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Markup override removed
+        '404':
+          description: Override not found
+
   /api/admin/products/{code}/carton-price:
     put:
       tags:
@@ -1163,6 +1433,193 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/admin/products/search:
+    get:
+      tags:
+        - Admin
+      summary: Advanced product search for admin panel
+      description: Returns a detailed list of products with all fields, supporting various filters.
+      operationId: adminProductSearch
+      parameters:
+        - name: q
+          in: query
+          description: General search query (name, code, sku)
+          schema:
+            type: string
+        - name: style_code
+          in: query
+          schema:
+            type: string
+        - name: brand_id
+          in: query
+          schema:
+            type: integer
+        - name: product_type_id
+          in: query
+          schema:
+            type: integer
+        - name: sku_status
+          in: query
+          schema:
+            type: string
+        - name: price_min
+          in: query
+          schema:
+            type: number
+        - name: price_max
+          in: query
+          schema:
+            type: number
+        - name: is_best_seller
+          in: query
+          schema:
+            type: boolean
+        - name: is_recommended
+          in: query
+          schema:
+            type: boolean
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                  total:
+                    type: integer
+
+  /api/admin/products/featured:
+    get:
+      tags:
+        - Admin
+      summary: List styles that are Best Seller or Recommended
+      description: Returns styles that have featured flags enabled.
+      operationId: listFeaturedProducts
+      parameters:
+        - name: type
+          in: query
+          description: Filter by feature type (best or recommended)
+          schema:
+            type: string
+            enum: [best, recommended]
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                  total:
+                    type: integer
+
+  /api/admin/products/bulk-featured:
+    put:
+      tags:
+        - Admin
+      summary: Bulk update featured flags for multiple styles
+      description: Mark multiple styles as best seller or recommended in a single request.
+      operationId: bulkUpdateFeatured
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - style_codes
+              properties:
+                style_codes:
+                  type: array
+                  items:
+                    type: string
+                is_best_seller:
+                  type: boolean
+                is_recommended:
+                  type: boolean
+      responses:
+        '200':
+          description: Featured flags updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  updated_styles:
+                    type: array
+                    items:
+                      type: string
+
+  /api/admin/products/{code}:
+    put:
+      tags:
+        - Admin
+      summary: Update product style details (Best Seller, Recommended, etc.)
+      description: |
+        Update style-level information including name, specification, description,
+        and featured flags (Best Seller / Recommended). Also supports updating primary
+        and color-specific images.
+      operationId: updateAdminProduct
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Style code (e.g. "GD001")
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                style_name:
+                  type: string
+                specification:
+                  type: string
+                fabric_description:
+                  type: string
+                is_best_seller:
+                  type: boolean
+                is_recommended:
+                  type: boolean
+                primary_image_url:
+                  type: string
+                colorImages:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      colour_name:
+                        type: string
+                      url:
+                        type: string
+      responses:
+        '200':
+          description: Product updated successfully
+        '404':
+          description: Product not found
+        '500':
+          description: Internal server error
+
   /api/admin/products/{code}/price-preview:
     get:
       tags:
@@ -1227,10 +1684,555 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/admin/products/{code}/price-overrides:
+    get:
+      tags:
+        - Admin
+      summary: Get price overrides for a product
+      description: Returns global price breaks merged with product-specific overrides.
+      operationId: getPriceOverrides
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Product style code
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  style_code:
+                    type: string
+                  tiers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        tier_id:
+                          type: integer
+                        min_qty:
+                          type: integer
+                        max_qty:
+                          type: integer
+                        tier_name:
+                          type: string
+                        global_discount:
+                          type: number
+                        effective_discount:
+                          type: number
+                        has_override:
+                          type: boolean
+                        override_id:
+                          type: integer
+                          nullable: true
+        '404':
+          description: Style not found
+        '500':
+          description: Internal server error
+    put:
+      tags:
+        - Admin
+      summary: Set price overrides for a product
+      description: Creates or updates price overrides for specific quantity ranges.
+      operationId: setPriceOverrides
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Product style code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - overrides
+              properties:
+                overrides:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - min_qty
+                      - max_qty
+                      - discount_percent
+                    properties:
+                      min_qty:
+                        type: integer
+                      max_qty:
+                        type: integer
+                      discount_percent:
+                        type: number
+                        description: Discount percentage to apply
+      responses:
+        '200':
+          description: Price overrides applied
+        '400':
+          description: Validation error
+        '500':
+          description: Internal server error
+    delete:
+      tags:
+        - Admin
+      summary: Remove all price overrides for a product
+      description: Deletes all custom price overrides for the specified product.
+      operationId: deletePriceOverrides
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Product style code
+      responses:
+        '200':
+          description: Price overrides removed
+        '500':
+          description: Internal server error
+
+  /api/admin/products/markup-overrides:
+    get:
+      tags:
+        - Admin
+      summary: List all markup overrides
+      description: Returns a list of all active product markup overrides in the system.
+      operationId: listMarkupOverrides
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        style_code:
+                          type: string
+                        style_name:
+                          type: string
+                        markup_percent:
+                          type: number
+                        updated_at:
+                          type: string
+                          format: date-time
+                  count:
+                    type: integer
+        '500':
+          description: Internal server error
+
+  /api/admin/products/price-overrides:
+    get:
+      tags:
+        - Admin
+      summary: List all price break overrides
+      description: Returns a list of all products that have custom price break overrides.
+      operationId: listPriceOverrides
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        style_code:
+                          type: string
+                        style_name:
+                          type: string
+                        tier_count:
+                          type: integer
+                        updated_at:
+                          type: string
+                          format: date-time
+                  count:
+                    type: integer
+        '500':
+          description: Internal server error
+
+  /api/admin/quotes:
+    get:
+      tags:
+        - Admin
+      summary: List all customer quote requests
+      description: Returns a paginated list of quote requests with filtering by status and search query.
+      operationId: listQuotes
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+          description: Filter by status (e.g. Pending, Contacted, Closed)
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Search by customer name, email or quote ID
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Filter by creation date (from)
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Filter by creation date (to)
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                  total:
+                    type: integer
+        '500':
+          description: Internal server error
+
+  /api/admin/quotes/{id}:
+    get:
+      tags:
+        - Admin
+      summary: Get quote request detail
+      description: Returns the full details of a specific quote request including the original JSON data.
+      operationId: getQuoteDetail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Quote ID (e.g. quote_123...) or integer internal ID
+      responses:
+        '200':
+          description: Successful response
+        '404':
+          description: Quote not found
+        '500':
+          description: Internal server error
+    delete:
+      tags:
+        - Admin
+      summary: Delete a quote request
+      operationId: deleteQuote
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Quote deleted successfully
+        '404':
+          description: Quote not found
+        '500':
+          description: Internal server error
+
+  /api/admin/quotes/{id}/status:
+    put:
+      tags:
+        - Admin
+      summary: Update quote request status
+      description: Update the processing status of a quote request.
+      operationId: updateQuoteStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [Pending, Contacted, Closed]
+      responses:
+        '200':
+          description: Status updated successfully
+        '400':
+          description: Validation error
+        '404':
+          description: Quote not found
+        '500':
+          description: Internal server error
+
   # ============================================================================
   # PRODUCT TYPE ENDPOINTS
   # ============================================================================
   
+  /api/admin/products/bulk-activate:
+    put:
+      tags:
+        - Admin
+      summary: Bulk activate products
+      description: Sets sku_status to 'Live' for all products of the specified style codes.
+      operationId: bulkActivateProducts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkStatusRequest'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkStatusResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/admin/products/bulk-discontinue:
+    put:
+      tags:
+        - Admin
+      summary: Bulk discontinue products
+      description: Sets sku_status to 'Discontinued' for all products of the specified style codes.
+      operationId: bulkDiscontinueProducts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkStatusRequest'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkStatusResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/admin/price-breaks:
+    get:
+      tags:
+        - Admin
+      summary: List global price breaks
+      operationId: getPriceBreaks
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceBreakList'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/admin/price-breaks/{id}:
+    put:
+      tags:
+        - Admin
+      summary: Update global price break tier
+      operationId: updatePriceBreak
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PriceBreakUpdate'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  tier:
+                    $ref: '#/components/schemas/PriceBreak'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/admin/products/{code}/price-overrides:
+    get:
+      tags:
+        - Admin
+      summary: Get product price overrides
+      operationId: getProductPriceOverrides
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductPriceOverridesResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      tags:
+        - Admin
+      summary: Set product price overrides
+      operationId: setProductPriceOverrides
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductPriceOverrideSetRequest'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  style_code:
+                    type: string
+                  overrides:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProductPriceOverride'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags:
+        - Admin
+      summary: Remove all price overrides for a product
+      operationId: deleteProductPriceOverrides
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  style_code:
+                    type: string
+                  deletedCount:
+                    type: integer
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/filters/product-types:
     get:
       tags:
@@ -3407,10 +4409,21 @@ components:
                 type: string
               price:
                 type: number
+              carton_price:
+                type: number
+                nullable: true
+                description: Original unit price before markup
               image:
                 type: string
               brand:
                 type: string
+              markup_tier:
+                type: number
+                nullable: true
+                description: Effective markup percentage used (from override or global rules)
+              markup_source:
+                type: string
+                description: Source of the markup (global or override)
         page:
           type: integer
         limit:
@@ -3850,3 +4863,113 @@ components:
           type: integer
         product_count:
           type: integer
+
+    BulkStatusRequest:
+      type: object
+      required:
+        - style_codes
+      properties:
+        style_codes:
+          type: array
+          items:
+            type: string
+          example: ["GD067", "AD082"]
+
+    BulkStatusResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        updatedCount:
+          type: integer
+        stylesUpdated:
+          type: integer
+        summary:
+          type: object
+
+    PriceBreak:
+      type: object
+      properties:
+        id:
+          type: integer
+        min_qty:
+          type: integer
+        max_qty:
+          type: integer
+        discount_percent:
+          type: number
+        tier_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    PriceBreakList:
+      type: object
+      properties:
+        tiers:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriceBreak'
+        count:
+          type: integer
+
+    PriceBreakUpdate:
+      type: object
+      required:
+        - discount_percent
+      properties:
+        discount_percent:
+          type: number
+          example: 18.00
+
+    ProductPriceOverride:
+      type: object
+      properties:
+        min_qty:
+          type: integer
+        max_qty:
+          type: integer
+        discount_percent:
+          type: number
+
+    ProductPriceOverrideSetRequest:
+      type: object
+      required:
+        - overrides
+      properties:
+        overrides:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductPriceOverride'
+
+    ProductPriceOverridesResponse:
+      type: object
+      properties:
+        style_code:
+          type: string
+        tiers:
+          type: array
+          items:
+            type: object
+            properties:
+              tier_id:
+                type: integer
+              min_qty:
+                type: integer
+              max_qty:
+                type: integer
+              tier_name:
+                type: string
+              global_discount:
+                type: number
+              effective_discount:
+                type: number
+              has_override:
+                type: boolean
+              override_id:
+                type: integer
+                nullable: true

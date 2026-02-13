@@ -18,12 +18,15 @@ async function refreshMaterializedViews() {
             await queryWithTimeout(`REFRESH MATERIALIZED VIEW CONCURRENTLY ${view}`, [], 600000); // 10 mins max
             console.log(`[REFRESH] CONCURRENT refresh successful for ${view}`);
         } catch (err) {
-            console.warn(`[REFRESH] CONCURRENT refresh failed for ${view}: ${err.message}. Retrying with standard refresh...`);
+            console.warn(`[REFRESH] CONCURRENT refresh failed for ${view}: ${err.message}`);
+
+            // If concurrent fails, try standard refresh
             try {
+                console.log(`[REFRESH] Retrying with standard refresh for ${view}...`);
                 await queryWithTimeout(`REFRESH MATERIALIZED VIEW ${view}`, [], 600000);
                 console.log(`[REFRESH] Standard refresh successful for ${view}`);
             } catch (err2) {
-                console.error(`[REFRESH] Standard refresh failed for ${view}: ${err2.message}`);
+                console.error(`[REFRESH] Standard refresh ALSO failed for ${view}: ${err2.message}`);
                 errors.push(`${view}: ${err2.message}`);
                 success = false;
             }

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { pool, queryWithTimeout } = require('../config/database');
-const { clearCache } = require('../services/productService');
+const { broadcastCacheInvalidation } = require('../services/cacheSync');
 
 /**
  * GET /api/display-order
@@ -104,9 +104,9 @@ router.get('/products', async (req, res) => {
     } = req.query;
 
     if (!brand_id && !product_type_id) {
-      return res.status(400).json({ 
-        error: 'Bad request', 
-        message: 'At least one of brand_id or product_type_id is required' 
+      return res.status(400).json({
+        error: 'Bad request',
+        message: 'At least one of brand_id or product_type_id is required'
       });
     }
 
@@ -133,8 +133,8 @@ router.get('/products', async (req, res) => {
     let pdoConditions = [];
     if (brand_id) pdoConditions.push(`pdo.brand_id = ${parseInt(brand_id)}`);
     if (product_type_id) pdoConditions.push(`pdo.product_type_id = ${parseInt(product_type_id)}`);
-    const pdoJoinCondition = pdoConditions.length > 0 
-      ? `AND ${pdoConditions.join(' AND ')}` 
+    const pdoJoinCondition = pdoConditions.length > 0
+      ? `AND ${pdoConditions.join(' AND ')}`
       : '';
 
     const query = `
@@ -299,7 +299,7 @@ router.post('/', async (req, res) => {
     );
 
     // Clear product list cache so new display order is applied immediately
-    clearCache();
+    await broadcastCacheInvalidation({ reason: 'display_order_update' });
 
     res.status(201).json({
       message: 'Display order saved successfully',
@@ -314,7 +314,7 @@ router.post('/', async (req, res) => {
 /**
  * POST /api/display-order/bulk
  * Bulk update display orders
- * Body: { brand_id?, product_type_id?, orders: [{ style_code, display_order }] }
+ * Body: { brand_id?, product_type_id?, orders: [{ style_code, display_order|null }] }
  */
 router.post('/bulk', async (req, res) => {
   const client = await pool.connect();
@@ -329,51 +329,66 @@ router.post('/bulk', async (req, res) => {
       });
     }
 
-    // 1️⃣ Normalize + validate
+    // 1️⃣ Normalize + validate orders
     const normalizedOrders = orders
-      .filter(o => o.style_code && Number.isInteger(+o.display_order))
+      .filter(o => o.style_code && ('display_order' in o))
       .map(o => ({
         style_code: o.style_code.toUpperCase(),
-        display_order: Math.max(1, parseInt(o.display_order))
-      }))
-      .sort((a, b) => a.display_order - b.display_order);
-
-    // 2️⃣ Reassign sequential order (no gaps / duplicates)
-    normalizedOrders.forEach((o, index) => {
-      o.display_order = index + 1;
-    });
+        display_order: o.display_order !== null ? Math.max(1, parseInt(o.display_order)) : null
+      }));
 
     await client.query('BEGIN');
 
     const results = [];
 
     for (const order of normalizedOrders) {
+      const { style_code, display_order } = order;
+
+      if (display_order === null) {
+        // Unpin product → remove from table
+        await client.query(
+          `DELETE FROM product_display_order
+           WHERE style_code = $1
+           AND COALESCE(brand_id, 0) = COALESCE($2, 0)
+           AND COALESCE(product_type_id, 0) = COALESCE($3, 0)`,
+          [style_code, brand_id, product_type_id]
+        );
+        continue;
+      }
+
+      // 2️⃣ Clear any product currently occupying this position
+      await client.query(
+        `UPDATE product_display_order
+         SET display_order = NULL
+         WHERE display_order = $1
+         AND COALESCE(brand_id, 0) = COALESCE($2, 0)
+         AND COALESCE(product_type_id, 0) = COALESCE($3, 0)
+         AND style_code <> $4`,
+        [display_order, brand_id, product_type_id, style_code]
+      );
+
+      // 3️⃣ Clear previous position of this product (if it exists)
+      await client.query(
+        `UPDATE product_display_order
+         SET display_order = NULL
+         WHERE style_code = $1
+         AND COALESCE(brand_id, 0) = COALESCE($2, 0)
+         AND COALESCE(product_type_id, 0) = COALESCE($3, 0)
+         AND display_order IS DISTINCT FROM $4`,
+        [style_code, brand_id, product_type_id, display_order]
+      );
+
+      // 4️⃣ Upsert product display order
       const result = await client.query(
-        `
-        INSERT INTO product_display_order (
-          style_code,
-          brand_id,
-          product_type_id,
-          display_order,
-          updated_at
-        )
-        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-        ON CONFLICT (
-          style_code,
-          COALESCE(brand_id, 0),
-          COALESCE(product_type_id, 0)
-        )
-        DO UPDATE SET
-          display_order = EXCLUDED.display_order,
-          updated_at = CURRENT_TIMESTAMP
-        RETURNING *
-        `,
-        [
-          order.style_code,
-          brand_id,
-          product_type_id,
-          order.display_order
-        ]
+        `INSERT INTO product_display_order
+          (style_code, brand_id, product_type_id, display_order, updated_at)
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+         ON CONFLICT (style_code, COALESCE(brand_id, 0), COALESCE(product_type_id, 0))
+         DO UPDATE SET
+           display_order = EXCLUDED.display_order,
+           updated_at = CURRENT_TIMESTAMP
+         RETURNING *`,
+        [style_code, brand_id, product_type_id, display_order]
       );
 
       results.push(result.rows[0]);
@@ -381,7 +396,8 @@ router.post('/bulk', async (req, res) => {
 
     await client.query('COMMIT');
 
-    clearCache();
+    // Clear cache so frontend sees changes immediately
+    await broadcastCacheInvalidation({ reason: 'display_order_update' });
 
     res.json({
       message: `Successfully updated ${results.length} display orders`,
@@ -392,7 +408,6 @@ router.post('/bulk', async (req, res) => {
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('[ERROR] Bulk display order failed:', error.message);
-
     res.status(500).json({
       error: 'Internal server error',
       message: error.message
@@ -430,7 +445,7 @@ router.put('/:id', async (req, res) => {
     }
 
     // Clear product list cache so updated display order is applied immediately
-    clearCache();
+    await broadcastCacheInvalidation({ reason: 'display_order_update' });
 
     res.json({
       message: 'Display order updated successfully',
@@ -458,7 +473,7 @@ router.delete('/:id', async (req, res) => {
     }
 
     // Clear product list cache so removal is applied immediately
-    clearCache();
+    await broadcastCacheInvalidation({ reason: 'display_order_update' });
 
     res.json({
       message: 'Display order deleted successfully',
@@ -507,7 +522,7 @@ router.delete('/by-context', async (req, res) => {
     }
 
     // Clear product list cache so context deletion is applied immediately
-    clearCache();
+    await broadcastCacheInvalidation({ reason: 'display_order_update' });
 
     res.json({
       message: 'Display order deleted successfully',

@@ -1,15 +1,26 @@
 const { pool, queryWithTimeout } = require('../config/database');
 const { getCategoryIdsFromSlugs } = require('./categoryService');
+const cache = require('./cacheService');
 // No longer need price markup utilities - using sell_price directly from DB
 
+// Legacy in-memory caches (kept for backward compatibility, but Redis is preferred)
 const queryCache = new Map();
-const aggregationCache = new Map(); // Separate cache for aggregations
+const aggregationCache = new Map();
 
-// AGGRESSIVE CACHING for instant loading
-const CACHE_TTL = 30 * 60 * 1000; // 30 minutes (was 5)
-const COUNT_CACHE_TTL = 2 * 60 * 60 * 1000; // 2 hours (was 1 hour)
-const SEARCH_CACHE_TTL = 60 * 60 * 1000; // 1 hour for searches (was 10 minutes)
-const AGGREGATION_CACHE_TTL = 30 * 60 * 1000; // 30 minutes for aggregations
+// CACHE TTL values - Now using shorter TTLs since Redis provides instant invalidation
+// These are in MILLISECONDS for legacy in-memory cache
+const CACHE_TTL = 60 * 1000; // 1 minute (reduced from 30 min for faster freshness)
+const COUNT_CACHE_TTL = 2 * 60 * 1000; // 2 minutes (reduced from 2 hours)
+const SEARCH_CACHE_TTL = 60 * 1000; // 1 minute (reduced from 1 hour)
+const AGGREGATION_CACHE_TTL = 60 * 1000; // 1 minute (reduced from 30 minutes)
+
+// TTL values in SECONDS for Redis cache service
+const REDIS_TTL = {
+  PRODUCTS: cache.TTL.PRODUCTS,
+  AGGREGATIONS: cache.TTL.AGGREGATIONS,
+  COUNT: cache.TTL.COUNT,
+  PRICE_BREAKS: cache.TTL.PRICE_BREAKS
+};
 
 // PAGINATION CONFIGURATION - Enterprise-level settings
 const PAGINATION_CONFIG = {
@@ -99,9 +110,29 @@ function setCache(key, data, ttl = CACHE_TTL) {
   });
 }
 
-function clearCache() {
+/**
+ * Clear all caches (both Redis and in-memory)
+ * This is called after admin changes to ensure data freshness
+ * 
+ * IMPORTANT: This clears local instance cache only. For multi-instance
+ * deployments, use broadcastCacheInvalidation() from cacheSync.js instead.
+ */
+async function clearCache() {
+  // Clear legacy in-memory caches
   queryCache.clear();
-  console.log('[CACHE] Query cache cleared');
+  aggregationCache.clear();
+
+  // Clear global price breaks cache
+  globalPriceBreaksCache = null;
+  globalPriceBreaksCacheTimestamp = 0;
+
+  // Clear Redis cache (async, non-blocking)
+  try {
+    await cache.invalidateProductCache();
+    console.log('[CACHE] All caches cleared (Redis + in-memory)');
+  } catch (err) {
+    console.log('[CACHE] In-memory caches cleared (Redis unavailable)');
+  }
 }
 
 function hasItems(arr) {
@@ -1096,6 +1127,8 @@ async function buildProductListQuery(filters, page, limit) {
     paramIndex++;
   }
 
+  // Best Seller / Recommended: Handled in sorting below to show all products but prioritize featured ones
+
   // Category filter - REMOVED: Use /api/categories endpoint instead
 
   // Product type filter - matches product type names (e.g., "tshirts" in DB)
@@ -1171,25 +1204,32 @@ async function buildProductListQuery(filters, page, limit) {
   const hasTypeFilter = hasItems(filters.productType);
 
   // Build JOIN condition to pick the most specific display order rule
-  let pdoJoinCondition = 'FALSE'; // Default: don't join anything useful
+  // Priority: brand+type > type only > brand only > any matching entry
+  // The LEFT JOIN is already on style_code, so we just need additional context conditions
+  let pdoJoinCondition = 'TRUE'; // Default: match any display order for this style_code
   if (hasBrandFilter && hasTypeFilter) {
     // Prioritize rules that match BOTH context if available
     pdoJoinCondition = 'pdo.brand_id = s.brand_id AND pdo.product_type_id = s.product_type_id';
   } else if (hasBrandFilter) {
-    // Match brand rules
-    pdoJoinCondition = 'pdo.brand_id = s.brand_id AND pdo.product_type_id IS NULL';
+    // Match brand rules (with or without product type context)
+    pdoJoinCondition = '(pdo.brand_id = s.brand_id) OR (pdo.brand_id IS NULL AND pdo.product_type_id = s.product_type_id)';
   } else if (hasTypeFilter) {
-    // Match product type rules
-    pdoJoinCondition = 'pdo.brand_id IS NULL AND pdo.product_type_id = s.product_type_id';
+    // Match product type rules (with or without brand context)
+    pdoJoinCondition = '(pdo.product_type_id = s.product_type_id) OR (pdo.product_type_id IS NULL AND pdo.brand_id = s.brand_id)';
   }
+  // When no filters: pdoJoinCondition stays 'TRUE', matching any display order entry
+  // The MIN(COALESCE(pdo.display_order, 999999)) will pick the best available order
 
   // Determine if we should prioritize custom order
   // Only prioritize if sort is 'newest' (default)
   const prioritizeCustomOrder = sort === 'newest';
 
-  // PERFORMANCE FIX: Only join product_flags when needed for 'best' or 'recommended' sorting
-  // The product_flags table has 220K+ rows and causes ~20s+ query times when joined unnecessarily
-  const needsFlagJoin = sort === 'best' || sort === 'recommended';
+  // Featured prioritization: prioritize if sort is 'best'/'recommended' OR if featured filters are on
+  const prioritizeBest = sort === 'best' || filters.isBestSeller === 'true' || filters.isBestSeller === true;
+  const prioritizeRecommended = sort === 'recommended' || filters.isRecommended === 'true' || filters.isRecommended === true;
+
+  // PERFORMANCE FIX: The product_flags table is no longer needed since flags are in the view
+  const needsFlagJoin = false;
 
   // Construct ORDER BY clause
   // If prioritizeCustomOrder is true, put custom_display_order FIRST
@@ -1198,14 +1238,14 @@ async function buildProductListQuery(filters, page, limit) {
   if (prioritizeCustomOrder) {
     // Default (newest/best-sellers proxy) – honour custom display order first
     orderByClause = `custom_display_order ASC, product_type_priority ASC, created_at ${order}`;
-  } else if (sort === 'best') {
-    // "Best" sort: prioritise products flagged as "best" (special_flags.slug = 'best')
+  } else if (prioritizeBest) {
+    // "Best" sort: prioritise products flagged as best seller
     orderByClause = `is_best DESC, is_recommended DESC, custom_display_order ASC, product_type_priority ASC, created_at ${order}`;
-  } else if (sort === 'recommended') {
-    // "Recommended" sort: prioritise products flagged as "recommended"
+  } else if (prioritizeRecommended) {
+    // "Recommended" sort: prioritise products flagged as recommended
     orderByClause = `is_recommended DESC, is_best DESC, custom_display_order ASC, product_type_priority ASC, created_at ${order}`;
   } else {
-    // Normal sorting, but keep custom_display_order available if needed
+    // Normal sorting
     if (sort === 'price') {
       orderByClause = `sell_price ${order}, product_type_priority ASC`;
     } else if (sort === 'name') {
@@ -1221,15 +1261,11 @@ async function buildProductListQuery(filters, page, limit) {
 
   // ULTRA-OPTIMIZATION: Restructure query for search - use indexed operations first
   // For search, prioritize full-text search index by structuring query properly
-  // PERFORMANCE FIX: Conditionally include product_flags JOIN only when sorting by 'best' or 'recommended'
-  const flagJoinClause = needsFlagJoin
-    ? `LEFT JOIN product_flags pf ON p.id = pf.product_id
-        LEFT JOIN special_flags sf ON pf.flag_id = sf.id`
-    : '';
-  const flagSelectClause = needsFlagJoin
-    ? `COALESCE(MAX(CASE WHEN sf.slug = 'best' THEN 1 ELSE 0 END), 0) as is_best,
-        COALESCE(MAX(CASE WHEN sf.slug = 'recommended' THEN 1 ELSE 0 END), 0) as is_recommended`
-    : `0 as is_best, 0 as is_recommended`;
+  const flagJoinClause = '';
+  const flagSelectClause = `
+    MAX(${viewAlias}.is_best_seller::int) as is_best,
+    MAX(${viewAlias}.is_recommended::int) as is_recommended
+  `;
 
   const optimizedQuery = `
     WITH style_codes_filtered AS (
@@ -1267,7 +1303,7 @@ async function buildProductListQuery(filters, page, limit) {
         ${filters.priceMax !== null && filters.priceMax !== undefined ? `AND MIN(p.sell_price) <= $${priceFilterParamIndex + (filters.priceMin !== null && filters.priceMin !== undefined ? 1 : 0)}` : ''}
       ),
     paginated_style_codes AS (
-        SELECT style_code, sell_price
+        SELECT style_code, sell_price, custom_display_order
       FROM style_codes_with_meta
         ORDER BY 
           ${hasSearch && searchRelevanceOrder ? `${searchRelevanceOrder}, ` : ''}
@@ -1289,6 +1325,7 @@ async function buildProductListQuery(filters, page, limit) {
       SELECT 
       psc.style_code,
       psc.sell_price as sorted_sell_price,
+      psc.custom_display_order,
         tc.total,
         pr.min_price,
         pr.max_price
@@ -1348,16 +1385,17 @@ async function buildProductListQuery(filters, page, limit) {
             ${filters.priceMax !== null && filters.priceMax !== undefined ? `AND MIN(p.sell_price) <= $${priceFilterParamIndex + (filters.priceMin !== null && filters.priceMin !== undefined ? 1 : 0)}` : ''}
         ),
         paginated_style_codes AS (
-      SELECT style_code, sell_price
+          SELECT style_code, sell_price, custom_display_order
           FROM style_codes_with_meta
-      ORDER BY 
-        ${hasSearch && searchRelevanceOrder ? `${searchRelevanceOrder}, ` : ''}
-        ${orderByClause}
-      LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
-    )
-    SELECT 
+          ORDER BY 
+            ${hasSearch && searchRelevanceOrder ? `${searchRelevanceOrder}, ` : ''}
+            ${orderByClause}
+          LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
+        )
+        SELECT 
           psc.style_code,
           psc.sell_price as sorted_sell_price,
+          psc.custom_display_order,
           $${params.length + 1}::bigint as total,
           $${params.length + 2}::numeric as min_price,
           $${params.length + 3}::numeric as max_price
@@ -1399,9 +1437,15 @@ async function buildProductListQuery(filters, page, limit) {
     const styleCodes = queryResult.rows.map(row => row.style_code);
     // Store the sorted sell_price from SQL query for each style code
     const sortedPricesMap = new Map();
+    // Store display_order for response
+    const displayOrderMap = new Map();
+
     queryResult.rows.forEach(row => {
       if (row.sorted_sell_price !== null && row.sorted_sell_price !== undefined) {
         sortedPricesMap.set(row.style_code, parseFloat(row.sorted_sell_price));
+      }
+      if (row.custom_display_order !== null && row.custom_display_order !== undefined && row.custom_display_order !== 999999) {
+        displayOrderMap.set(row.style_code, parseInt(row.custom_display_order));
       }
     });
 
@@ -1473,6 +1517,7 @@ async function buildProductListQuery(filters, page, limit) {
         p.pack_price,
         p.carton_price,
         p.sell_price,
+        pmo.markup_percent as override_markup,
         t.name as tag,
         t.slug as tag_slug,
         p.created_at
@@ -1481,6 +1526,7 @@ async function buildProductListQuery(filters, page, limit) {
       LEFT JOIN brands b ON s.brand_id = b.id
       LEFT JOIN sizes sz ON p.size_id = sz.id
       LEFT JOIN tags t ON p.tag_id = t.id
+      LEFT JOIN product_markup_overrides pmo ON p.style_code = pmo.style_code
       WHERE p.style_code = ANY($1::text[]) AND p.sku_status = 'Live'
       ${batchColorWhereClause}
       ORDER BY p.style_code, p.colour_name, COALESCE(sz.size_order, 999)
@@ -1564,7 +1610,8 @@ async function buildProductListQuery(filters, page, limit) {
           customization: new Set(),
           primaryImageUrl: row.primary_image_url,
           // ENTERPRISE-LEVEL: Track the first filtered color's image for priority display
-          filteredColorImage: null
+          filteredColorImage: null,
+          markupPercent: row.override_markup ? parseFloat(row.override_markup) : null
         });
       }
 
@@ -1621,12 +1668,45 @@ async function buildProductListQuery(filters, page, limit) {
     const missingProducts = [];
     const invalidPriceProducts = [];
 
+    // Pre-fetch global price break tiers for efficiency (one DB call for all products)
+    const globalTiers = await getGlobalPriceBreaks();
+
     // Build response items with MARKUP applied
     const items = styleCodes.map(styleCode => {
       const product = productsMap.get(styleCode);
       if (!product) {
         missingProducts.push(styleCode);
         return null;
+      }
+
+      // ENTERPRISE-LEVEL: Calculate markup tier for this product
+      // Priority: 1. Override (if exists), 2. Global Rule (based on carton/single price)
+      let markupPercent = null;
+      let markupSource = 'global';
+
+      // Check for override from first row of this product (batch result)
+      // Since override is per style_code, any row for this style_code will have it
+      if (product.markupPercent) {
+        markupPercent = product.markupPercent;
+        markupSource = 'override';
+      } else {
+        // Find matching global tier
+        const basePriceForMarkup = product.cartonPrice || product.singlePrice || 0;
+        if (basePriceForMarkup > 0) {
+          const tier = globalTiers.find(t => basePriceForMarkup >= t.min_qty && basePriceForMarkup <= (t.max_qty || 999999));
+          // Note: globalTiers from getGlobalPriceBreaks returns min_qty/max_qty, but Pricing Rules are by price range (from_price/to_price)
+          // We need pricing rules here, not price breaks.
+          // Wait, globalTiers in this function comes from getGlobalPriceBreaks() which returns QUANTITY price breaks.
+          // That is for BULK DISCOUNTS, not MARKUP. MARKUP rules are in pricing_rules table.
+          // We need pricing rules to determine the markup tier.
+          // Since we don't fetch pricing rules in list query, we can't accurately determine global markup tier here without fetching it.
+          // However, we can reverse-calculate it from sell_price and carton_price?
+          // markup = (sell_price / carton_price) - 1
+
+          if (product.sellPrice && basePriceForMarkup > 0) {
+            markupPercent = Math.round(((product.sellPrice / basePriceForMarkup) - 1) * 100);
+          }
+        }
       }
 
       // ENTERPRISE-LEVEL: When color filter is active, product must have at least one matching color
@@ -1644,7 +1724,7 @@ async function buildProductListQuery(filters, page, limit) {
         return null;
       }
 
-      const priceBreaks = buildPriceBreaks(basePrice);
+      const priceBreaks = buildPriceBreaks(basePrice, globalTiers);
 
       // Always hardcode customization options
       const customization = ['embroidery', 'print'];
@@ -1659,15 +1739,12 @@ async function buildProductListQuery(filters, page, limit) {
         return a.localeCompare(b);
       });
 
-      // ENTERPRISE-LEVEL: When color filter is active, use the filtered color's image
-      // This ensures the product thumbnail shows the color the user filtered for
-      // Falls back to primaryImageUrl or first available color image
+      // Use primary_image_url (model image) as the main display image
+      // Only fall back to color image if primary_image_url is not available
       let displayImage = product.primaryImageUrl || '';
-      if (colorFilterActive && product.filteredColorImage) {
-        displayImage = product.filteredColorImage;
-        console.log(`[FILTER DEBUG] Using filtered color image for ${styleCode}: ${displayImage.substring(0, 50)}...`);
-      } else if (product.colorsMap.size > 0) {
-        // Fallback to first color's image if no filtered image
+
+      // If no primary image, try to use first color's image as fallback
+      if (!displayImage && product.colorsMap.size > 0) {
         const firstColor = product.colorsMap.values().next().value;
         if (firstColor && firstColor.main) {
           displayImage = firstColor.main;
@@ -1680,12 +1757,19 @@ async function buildProductListQuery(filters, page, limit) {
         code: product.code,
         name: product.name,
         price: basePrice,
+        carton_price: product.cartonPrice,
         image: displayImage,
         colors: Array.from(product.colorsMap.values()),
         sizes,
         customization,
         brand: product.brand || '',
-        priceBreaks
+        brand: product.brand || '',
+        priceBreaks,
+        brand: product.brand || '',
+        priceBreaks,
+        markup_tier: markupPercent, // Send the effective markup percentage
+        markup_source: markupSource,
+        display_order: displayOrderMap.has(styleCode) ? displayOrderMap.get(styleCode) : null
       };
     }).filter(item => item !== null);
 
@@ -1787,54 +1871,128 @@ async function buildProductListQuery(filters, page, limit) {
   }
 }
 
-function buildPriceBreaks(basePrice) {
+// Cache for global price breaks from database
+let globalPriceBreaksCache = null;
+let globalPriceBreaksCacheTimestamp = 0;
+const PRICE_BREAKS_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+// Fallback discount tiers (used if database is unavailable)
+const FALLBACK_DISCOUNT_TIERS = [
+  { min_qty: 1, max_qty: 9, discount_percent: 0 },
+  { min_qty: 10, max_qty: 24, discount_percent: 8 },
+  { min_qty: 25, max_qty: 49, discount_percent: 10 },
+  { min_qty: 50, max_qty: 99, discount_percent: 15 },
+  { min_qty: 100, max_qty: 249, discount_percent: 25 },
+  { min_qty: 250, max_qty: 99999, discount_percent: 30 }
+];
+
+/**
+ * Get global price break tiers from database with caching
+ * Falls back to hardcoded values if database is unavailable
+ */
+async function getGlobalPriceBreaks() {
+  const now = Date.now();
+
+  // Return cached if still valid
+  if (globalPriceBreaksCache && (now - globalPriceBreaksCacheTimestamp) < PRICE_BREAKS_CACHE_TTL) {
+    return globalPriceBreaksCache;
+  }
+
+  try {
+    const result = await queryWithTimeout(
+      'SELECT min_qty, max_qty, discount_percent FROM price_breaks ORDER BY min_qty',
+      [],
+      5000
+    );
+
+    if (result.rows.length > 0) {
+      globalPriceBreaksCache = result.rows.map(row => ({
+        min_qty: parseInt(row.min_qty),
+        max_qty: parseInt(row.max_qty),
+        discount_percent: parseFloat(row.discount_percent)
+      }));
+      globalPriceBreaksCacheTimestamp = now;
+      return globalPriceBreaksCache;
+    }
+  } catch (error) {
+    console.error('[PRICE_BREAKS] Failed to fetch from database, using fallback:', error.message);
+  }
+
+  // Fallback to hardcoded tiers
+  return FALLBACK_DISCOUNT_TIERS;
+}
+
+/**
+ * Get product-specific price overrides
+ */
+async function getProductPriceOverrides(styleCode) {
+  try {
+    const result = await queryWithTimeout(
+      'SELECT min_qty, max_qty, discount_percent FROM product_price_overrides WHERE style_code = $1',
+      [styleCode.toUpperCase()],
+      5000
+    );
+
+    return result.rows.map(row => ({
+      min_qty: parseInt(row.min_qty),
+      max_qty: parseInt(row.max_qty),
+      discount_percent: parseFloat(row.discount_percent)
+    }));
+  } catch (error) {
+    console.error(`[PRICE_BREAKS] Failed to fetch overrides for ${styleCode}:`, error.message);
+    return [];
+  }
+}
+
+/**
+ * Build price breaks for a product (synchronous version using cached global tiers)
+ * For product list - uses cached global tiers only (no per-product overrides for performance)
+ */
+function buildPriceBreaks(basePrice, globalTiers = null) {
   if (!basePrice || basePrice <= 0) return [];
 
-  const breaks = [];
+  // Use provided global tiers or fallback
+  const tiers = globalTiers || FALLBACK_DISCOUNT_TIERS;
 
-  // Discount tiers based on base price (1-9 tier)
-  const DISCOUNT_TIERS = {
-    '1-9': 0,        // 0% - Base price
-    '10-24': 0.08,   // 8% discount
-    '25-49': 0.10,   // 10% discount
-    '50-99': 0.15,   // 15% discount
-    '100-249': 0.25, // 25% discount
-    '250+': 0.30     // 30% discount
-  };
+  return tiers.map(tier => ({
+    min: tier.min_qty,
+    max: tier.max_qty,
+    price: Math.round(basePrice * (1 - tier.discount_percent / 100) * 100) / 100,
+    percentage: tier.discount_percent // Explicitly return discount percentage
+  }));
+}
 
-  // Calculate all 6 price break tiers based on base price and discount percentages
-  breaks.push({
-    min: 1,
-    max: 9,
-    price: Math.round(basePrice * 100) / 100
-  });
-  breaks.push({
-    min: 10,
-    max: 24,
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['10-24']) * 100) / 100
-  });
-  breaks.push({
-    min: 25,
-    max: 49,
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['25-49']) * 100) / 100
-  });
-  breaks.push({
-    min: 50,
-    max: 99,
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['50-99']) * 100) / 100
-  });
-  breaks.push({
-    min: 100,
-    max: 249,
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['100-249']) * 100) / 100
-  });
-  breaks.push({
-    min: 250,
-    max: 99999,
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['250+']) * 100) / 100
+/**
+ * Build price breaks for a product with product-specific overrides (async version)
+ * For product detail view - checks for product-specific overrides
+ */
+async function buildPriceBreaksWithOverrides(basePrice, styleCode) {
+  if (!basePrice || basePrice <= 0) return [];
+
+  // Get global tiers and product overrides
+  const [globalTiers, overrides] = await Promise.all([
+    getGlobalPriceBreaks(),
+    getProductPriceOverrides(styleCode)
+  ]);
+
+  // Create a map of overrides by quantity range
+  const overrideMap = new Map();
+  overrides.forEach(o => {
+    overrideMap.set(`${o.min_qty}-${o.max_qty}`, o.discount_percent);
   });
 
-  return breaks;
+  // Apply overrides to global tiers
+  return globalTiers.map(tier => {
+    const key = `${tier.min_qty}-${tier.max_qty}`;
+    const discountPercent = overrideMap.has(key) ? overrideMap.get(key) : tier.discount_percent;
+
+    return {
+      min: tier.min_qty,
+      max: tier.max_qty,
+      price: Math.round(basePrice * (1 - discountPercent / 100) * 100) / 100,
+      percentage: discountPercent // Explicitly return discount percentage
+    };
+  });
 }
 
 async function buildProductDetailQuery(styleCode) {
@@ -1867,13 +2025,16 @@ async function buildProductDetailQuery(styleCode) {
       p.carton_price,
       p.sell_price,
       t.name as tag,
-      pr.markup_percent
+      p.sell_price,
+      t.name as tag,
+      COALESCE(pmo.markup_percent, pr.markup_percent) as markup_percent
     FROM styles s
     LEFT JOIN brands b ON s.brand_id = b.id
     LEFT JOIN product_types pt ON s.product_type_id = pt.id
     LEFT JOIN products p ON p.style_code = s.style_code AND p.sku_status = 'Live'
     LEFT JOIN sizes sz ON p.size_id = sz.id
     LEFT JOIN tags t ON p.tag_id = t.id
+    LEFT JOIN product_markup_overrides pmo ON pmo.style_code = s.style_code
     LEFT JOIN pricing_rules pr ON pr.active = true
       AND COALESCE(NULLIF(p.carton_price, 0), NULLIF(p.single_price, 0)) BETWEEN pr.from_price AND pr.to_price
     WHERE s.style_code = $1
@@ -1940,7 +2101,7 @@ async function buildProductDetailQuery(styleCode) {
   // Use minimum sell_price directly (already marked-up in DB)
   // This matches the product list API which uses MIN(sell_price) per style_code
   const basePrice = maxSellPrice || 0;
-  const priceBreaks = buildPriceBreaks(basePrice);
+  const priceBreaks = await buildPriceBreaksWithOverrides(basePrice, styleCode);
 
   const sizes = Array.from(sizesSet).sort((a, b) => {
     const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
@@ -1993,8 +2154,8 @@ async function buildProductDetailQuery(styleCode) {
     price: basePrice,  // Same as basePrice - single unit price after markup
     basePrice: basePrice,  // Single price after markup (matches 1-9 tier)
     sell_price: basePrice,  // Explicit sell price (same as price)
-    cartonPrice: cartonPrice != null ? cartonPrice : (basePriceForMarkup || null),
-    markupPercent: markupPercent != null ? markupPercent : null,
+    carton_price: cartonPrice != null ? cartonPrice : (basePriceForMarkup || null),
+    markup_tier: markupPercent != null ? markupPercent : null,
     priceBreaks: priceBreaks || [],
     colors: colors,
     sizes: sizes.length > 0 ? sizes : [],

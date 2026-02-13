@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { queryWithTimeout } = require('../config/database');
-const { clearCache } = require('../services/productService');
+const { broadcastCacheInvalidation } = require('../services/cacheSync');
 
 /**
  * GET /api/pricing/rules
@@ -224,21 +224,29 @@ router.post('/reprice', async (req, res) => {
         sell_price = ROUND(
           COALESCE(NULLIF(p.carton_price, 0), NULLIF(p.single_price, 0))
           * (1 + (
-              SELECT markup_percent / 100
-              FROM pricing_rules r
-              WHERE r.active = true
-                AND COALESCE(NULLIF(p.carton_price, 0), NULLIF(p.single_price, 0))
-                    BETWEEN r.from_price AND r.to_price
-              ORDER BY r.from_price
-              LIMIT 1
+              COALESCE(
+                (SELECT markup_percent / 100 FROM product_markup_overrides pmo WHERE pmo.style_code = p.style_code),
+                (
+                  SELECT markup_percent / 100
+                  FROM pricing_rules r
+                  WHERE r.active = true
+                    AND COALESCE(NULLIF(p.carton_price, 0), NULLIF(p.single_price, 0))
+                        BETWEEN r.from_price AND r.to_price
+                  ORDER BY r.from_price
+                  LIMIT 1
+                )
+              )
           )), 2
         ),
-        pricing_version = (
-          SELECT version 
-          FROM pricing_rules r 
-          WHERE r.active = true 
-          ORDER BY version DESC, from_price ASC
-          LIMIT 1
+        pricing_version = COALESCE(
+          (SELECT 'OVERRIDE' FROM product_markup_overrides pmo WHERE pmo.style_code = p.style_code),
+          (
+            SELECT version 
+            FROM pricing_rules r 
+            WHERE r.active = true 
+            ORDER BY version DESC, from_price ASC
+            LIMIT 1
+          )
         ),
         last_priced_at = NOW()
       WHERE COALESCE(NULLIF(p.carton_price, 0), NULLIF(p.single_price, 0)) IS NOT NULL
@@ -267,7 +275,7 @@ router.post('/reprice', async (req, res) => {
     }
 
     // Clear product list cache so new prices are visible immediately
-    clearCache();
+    await broadcastCacheInvalidation({ refreshViews: false, reason: 'reprice' });
 
     res.json({
       message: 'Repricing job completed',

@@ -152,6 +152,33 @@ app.get('/health/ready', async (req, res) => {
   }
 });
 
+// Cache health endpoint - monitor Redis/memory cache performance
+app.get('/health/cache', async (req, res) => {
+  try {
+    const cacheService = require('./services/cacheService');
+    const { getStats } = require('./config/database');
+
+    const cacheHealth = await cacheService.getHealth();
+    const dbStats = getStats();
+
+    res.json({
+      cache: cacheHealth,
+      database: {
+        poolTotal: dbStats.poolTotal,
+        poolIdle: dbStats.poolIdle,
+        activeQueries: dbStats.activeQueryCount,
+        completedQueries: dbStats.completedQueries
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.json({
+      cache: { healthy: false, error: err.message },
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found', path: req.path });
 });

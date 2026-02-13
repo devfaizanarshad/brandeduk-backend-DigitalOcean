@@ -4,6 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { sendQuoteEmail, sendQuoteEmailWithAttachments } = require('../utils/emailService');
+const { queryWithTimeout } = require('../config/database');
 
 // ===== MULTER CONFIGURATION =====
 // Configure storage for uploaded logo files
@@ -33,14 +34,14 @@ const fileFilter = (req, file, cb) => {
   if (!file || !file.originalname || file.size === 0) {
     return cb(null, false); // Skip empty files
   }
-  
+
   const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
   const allowedExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
-  
+
   const ext = path.extname(file.originalname).toLowerCase();
   const mimeOk = allowedMimes.includes(file.mimetype);
   const extOk = allowedExts.includes(ext);
-  
+
   if (mimeOk && extOk) {
     cb(null, true);
   } else {
@@ -76,10 +77,10 @@ const cleanupFiles = (files) => {
 const cleanupOldFiles = () => {
   try {
     if (!fs.existsSync(uploadsDir)) return;
-    
+
     const now = Date.now();
     const maxAge = 24 * 60 * 60 * 1000; // 24 hours
-    
+
     const files = fs.readdirSync(uploadsDir);
     files.forEach(file => {
       const filePath = path.join(uploadsDir, file);
@@ -109,10 +110,10 @@ cleanupOldFiles();
  */
 router.post('/', upload.any(), async (req, res) => {
   const uploadedFiles = req.files || [];
-  
+
   try {
     let quoteData;
-    
+
     // Debug logging
     console.log('[QUOTES] Content-Type:', req.headers['content-type']);
     console.log('[QUOTES] Body keys:', Object.keys(req.body || {}));
@@ -122,18 +123,18 @@ router.post('/', upload.any(), async (req, res) => {
       console.log('[QUOTES] quoteData length:', req.body.quoteData.length);
       console.log('[QUOTES] quoteData preview:', req.body.quoteData.substring(0, 200));
     }
-    
+
     // Determine if this is a multipart request or JSON request
     if (req.body.quoteData) {
       // Multipart/form-data: parse quoteData JSON string
       try {
         let quoteDataString = req.body.quoteData;
-        
+
         // Handle both string and already-parsed JSON
         if (typeof quoteDataString === 'string') {
           // Trim whitespace
           quoteDataString = quoteDataString.trim();
-          
+
           // Try URL decoding in case it's encoded (some clients encode form data)
           try {
             const decoded = decodeURIComponent(quoteDataString);
@@ -144,7 +145,7 @@ router.post('/', upload.any(), async (req, res) => {
           } catch (e) {
             // Not URL-encoded, continue with original
           }
-          
+
           // If it looks like it might be double-encoded JSON string, try to decode
           if (quoteDataString.startsWith('"') && quoteDataString.endsWith('"')) {
             try {
@@ -154,7 +155,7 @@ router.post('/', upload.any(), async (req, res) => {
               // Not double-encoded, continue with original
             }
           }
-          
+
           // Parse the JSON
           if (typeof quoteDataString === 'string') {
             quoteData = JSON.parse(quoteDataString);
@@ -256,7 +257,7 @@ router.post('/', upload.any(), async (req, res) => {
     // ===== PROCESS UPLOADED LOGO FILES =====
     const logoFiles = {};
     const logoAttachments = [];
-    
+
     uploadedFiles.forEach(file => {
       if (file.fieldname.startsWith('logo_')) {
         const positionSlug = file.fieldname.replace('logo_', '');
@@ -267,7 +268,7 @@ router.post('/', upload.any(), async (req, res) => {
           size: file.size,
           mimetype: file.mimetype
         };
-        
+
         // Prepare attachment for email
         try {
           const fileContent = fs.readFileSync(file.path);
@@ -310,15 +311,15 @@ router.post('/', upload.any(), async (req, res) => {
 
       customizations: Array.isArray(customizations)
         ? customizations.map(c => ({
-            position: c.position,
-            method: c.method,
-            type: c.type,
-            hasLogo: c.hasLogo || logoFiles[c.position?.toLowerCase().replace(/\s+/g, '-')] !== undefined,
-            text: c.text ?? null,
-            unitPrice: c.unitPrice,
-            lineTotal: c.lineTotal,
-            quantity: c.quantity,
-          }))
+          position: c.position,
+          method: c.method,
+          type: c.type,
+          hasLogo: c.hasLogo || logoFiles[c.position?.toLowerCase().replace(/\s+/g, '-')] !== undefined,
+          text: c.text ?? null,
+          unitPrice: c.unitPrice,
+          lineTotal: c.lineTotal,
+          quantity: c.quantity,
+        }))
         : [],
 
       timestamp: timestamp || new Date().toISOString(),
@@ -326,7 +327,7 @@ router.post('/', upload.any(), async (req, res) => {
 
     // ===== SEND EMAIL =====
     let emailResult;
-    
+
     if (logoAttachments.length > 0) {
       // Send email with attachments
       console.log(`[QUOTES] Sending quote email with ${logoAttachments.length} logo attachment(s)`);
@@ -338,6 +339,38 @@ router.post('/', upload.any(), async (req, res) => {
 
     // Cleanup uploaded files after sending email (we don't need to store them)
     cleanupFiles(uploadedFiles);
+
+    // ===== SAVE TO DATABASE =====
+    try {
+      const {
+        customer: { fullName, company, phone, email, address },
+        summary: { total }
+      } = emailData;
+
+      const insertSql = `
+        INSERT INTO quote_requests (
+          quote_id, customer_name, customer_email, customer_phone, 
+          customer_company, customer_address, total_amount, quote_data
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `;
+
+      const insertParams = [
+        quoteId,
+        fullName,
+        email,
+        phone || null,
+        company || null,
+        address || null,
+        total || null,
+        JSON.stringify(emailData)
+      ];
+
+      await queryWithTimeout(insertSql, insertParams, 10000);
+      console.log(`[QUOTES] Saved quote ${quoteId} to database`);
+    } catch (dbError) {
+      console.error(`[QUOTES DATABASE ERROR] Failed to save quote ${quoteId}:`, dbError.message);
+      // We don't return error here because the email might have been sent successfully
+    }
 
     if (emailResult?.success) {
       console.log(`[QUOTES] Successfully processed quote from ${customer.email} (ID: ${quoteId})`);
@@ -365,9 +398,9 @@ router.post('/', upload.any(), async (req, res) => {
   } catch (error) {
     // Cleanup files on error
     cleanupFiles(uploadedFiles);
-    
+
     console.error('[QUOTES ERROR]', error);
-    
+
     // Handle multer errors
     if (error instanceof multer.MulterError) {
       if (error.code === 'LIMIT_FILE_SIZE') {
@@ -383,7 +416,7 @@ router.post('/', upload.any(), async (req, res) => {
         });
       }
     }
-    
+
     return res.status(500).json({
       success: false,
       message: 'Server error while submitting quote',
@@ -405,14 +438,14 @@ router.use((error, req, res, next) => {
       message: `Upload error: ${error.message}`
     });
   }
-  
+
   if (error.message && error.message.includes('Only image files')) {
     return res.status(400).json({
       success: false,
       message: error.message
     });
   }
-  
+
   next(error);
 });
 

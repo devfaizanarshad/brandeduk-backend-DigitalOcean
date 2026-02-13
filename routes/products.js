@@ -52,7 +52,7 @@ router.get('/', async (req, res) => {
     // Map to internal sort values
     let normalizedSort = sort;
     let normalizedOrder = order;
-    
+
     if (sort === 'best') {
       // Keep 'best' as-is so productService can prioritise special flags
       normalizedSort = 'best';
@@ -146,14 +146,14 @@ router.get('/', async (req, res) => {
     // ENTERPRISE-LEVEL: Input validation and sanitization with logging
     const rawPage = parseInt(page);
     const rawLimit = parseInt(limit);
-    
+
     // Validate and sanitize pagination parameters
     const pageNum = Math.max(1, isNaN(rawPage) ? 1 : rawPage);
     const limitNum = Math.min(200, Math.max(1, isNaN(rawLimit) ? 24 : rawLimit));
-    
+
     // Log pagination request for monitoring
     console.log(`[PAGINATION REQUEST] page=${pageNum}, limit=${limitNum}, rawLimit=${limit}, filters=${Object.keys(filters).filter(k => filters[k] && (Array.isArray(filters[k]) ? filters[k].length > 0 : true)).join(',')}`);
-    
+
     if (filters.priceMin !== null && (isNaN(filters.priceMin) || filters.priceMin < 0)) {
       return res.status(400).json({ error: 'Invalid priceMin value' });
     }
@@ -168,7 +168,7 @@ router.get('/', async (req, res) => {
 
     // ENTERPRISE-LEVEL: Log response metrics
     console.log(`[PAGINATION RESPONSE] requested=${limitNum}, returned=${items.length}, total=${total}, page=${pageNum}`);
-    
+
     // Warn if fewer items returned than requested (and not on last page)
     const expectedOnPage = Math.min(limitNum, total - (pageNum - 1) * limitNum);
     if (items.length < expectedOnPage && items.length > 0) {
@@ -188,24 +188,24 @@ router.get('/', async (req, res) => {
       stack: error.stack,
       timestamp: new Date().toISOString(),
     });
-    
+
     if (error.message && error.message.includes('timeout')) {
-      return res.status(504).json({ 
-        error: 'Request timeout', 
-        message: 'The database query took too long. Please try again with more specific filters.' 
+      return res.status(504).json({
+        error: 'Request timeout',
+        message: 'The database query took too long. Please try again with more specific filters.'
       });
     }
-    
+
     if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
-      return res.status(503).json({ 
-        error: 'Service unavailable', 
-        message: 'Database connection failed. Please try again later.' 
+      return res.status(503).json({
+        error: 'Service unavailable',
+        message: 'Database connection failed. Please try again later.'
       });
     }
-    
-    res.status(500).json({ 
-      error: 'Internal server error', 
-      message: process.env.NODE_ENV === 'production' ? 'An error occurred' : error.message 
+
+    res.status(500).json({
+      error: 'Internal server error',
+      message: process.env.NODE_ENV === 'production' ? 'An error occurred' : error.message
     });
   }
 });
@@ -263,10 +263,131 @@ router.get('/filters', async (req, res) => {
     res.json({ filters: aggregations });
   } catch (error) {
     console.error('[ERROR] Failed to fetch filter aggregations:', error.message);
-    res.status(500).json({ 
-      error: 'Internal server error', 
-      message: error.message 
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
     });
+  }
+});
+
+/**
+ * GET /api/products/discontinued
+ * Get discontinued products (same structure as main product API)
+ * Useful for admin to see and potentially reactivate products
+ */
+router.get('/discontinued', async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 24,
+      q,
+      productType,
+      productTypes,
+      category,
+      categories
+    } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(200, Math.max(1, parseInt(limit) || 24));
+    const offset = (pageNum - 1) * limitNum;
+
+    // Build conditions
+    const conditions = ["p.sku_status = 'Discontinued'"];
+    const queryParams = [];
+    let paramIndex = 1;
+
+    // Search condition
+    if (q) {
+      conditions.push(`(s.style_name ILIKE $${paramIndex} OR p.style_code ILIKE $${paramIndex})`);
+      queryParams.push(`%${q}%`);
+      paramIndex++;
+    }
+
+    // Product type filter
+    const parseArray = (val) => {
+      if (!val) return [];
+      if (Array.isArray(val)) return val;
+      if (typeof val === 'object') return Object.values(val);
+      return [val];
+    };
+
+    const typeArray = parseArray(productType || productTypes || category || categories);
+    if (typeArray.length > 0) {
+      const normalizeProductType = (pt) => {
+        const normalized = pt.trim().toLowerCase().replace(/[- ]/g, '');
+        if (normalized.includes('tshirt')) {
+          return normalized.includes('shirts') ? 'tshirts' : 'tshirt';
+        }
+        return normalized;
+      };
+
+      const normalizedTypes = [...new Set(typeArray.map(normalizeProductType))];
+      conditions.push(`LOWER(REPLACE(REPLACE(pt.name, '-', ''), ' ', '')) = ANY($${paramIndex}::text[])`);
+      queryParams.push(normalizedTypes);
+      paramIndex++;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // Get style codes of discontinued products
+    const styleCodesQuery = `
+      SELECT DISTINCT 
+        p.style_code,
+        MIN(s.style_name) as style_name,
+        MIN(b.name) as brand,
+        MIN(p.primary_image_url) as primary_image_url,
+        MIN(p.colour_image_url) as colour_image_url,
+        MIN(p.sell_price) as sell_price,
+        MIN(p.carton_price) as carton_price
+      FROM products p
+      INNER JOIN styles s ON p.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
+      LEFT JOIN product_types pt ON s.product_type_id = pt.id
+      ${whereClause}
+      GROUP BY p.style_code
+      ORDER BY p.style_code
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+
+    const countQuery = `
+      SELECT COUNT(DISTINCT p.style_code) as total
+      FROM products p
+      INNER JOIN styles s ON p.style_code = s.style_code
+      LEFT JOIN product_types pt ON s.product_type_id = pt.id
+      ${whereClause}
+    `;
+
+    const finalQueryParams = [...queryParams, limitNum, offset];
+
+    const [result, countResult] = await Promise.all([
+      queryWithTimeout(styleCodesQuery, finalQueryParams, 15000),
+      queryWithTimeout(countQuery, queryParams, 10000)
+    ]);
+
+    const total = parseInt(countResult.rows[0]?.total || 0);
+
+    // Build items with same structure as main API
+    const items = result.rows.map(row => ({
+      code: row.style_code,
+      name: row.style_name || '',
+      price: parseFloat(row.sell_price) || 0,
+      image: (row.primary_image_url && row.primary_image_url !== 'Not available')
+        ? row.primary_image_url
+        : (row.colour_image_url || ''),
+      brand: row.brand || '',
+      status: 'Discontinued'
+    }));
+
+    res.json({
+      items,
+      page: pageNum,
+      limit: limitNum,
+      total,
+      message: 'These products are discontinued and not visible in the main product listing'
+    });
+  } catch (error) {
+    console.error('[ERROR] Failed to fetch discontinued products:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
   }
 });
 
@@ -277,7 +398,7 @@ router.get('/filters', async (req, res) => {
  */
 router.get('/types', async (req, res) => {
   try {
-    
+
     const query = `
       SELECT 
         pt.id,
@@ -302,15 +423,15 @@ router.get('/types', async (req, res) => {
       queryWithTimeout(query, [], 10000),
       queryWithTimeout(countQuery, [], 10000)
     ]);
-    
+
     const totalProducts = parseInt(countResult.rows[0]?.total || 0);
-    
+
     const productTypes = result.rows.map(row => {
       const count = parseInt(row.product_count || 0);
-      const percentage = totalProducts > 0 
-        ? ((count / totalProducts) * 100).toFixed(2) 
+      const percentage = totalProducts > 0
+        ? ((count / totalProducts) * 100).toFixed(2)
         : '0.00';
-      
+
       return {
         id: row.id,
         name: row.name,
@@ -329,9 +450,9 @@ router.get('/types', async (req, res) => {
       message: error.message,
       stack: error.stack,
     });
-    res.status(500).json({ 
-      error: 'Internal server error', 
-      message: error.message 
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
     });
   }
 });
@@ -388,8 +509,8 @@ router.get('/:code/related', async (req, res) => {
     `;
 
     const relatedResult = await queryWithTimeout(
-      relatedQuery, 
-      [brand_id, product_type_id, code.toUpperCase(), parseInt(limit)], 
+      relatedQuery,
+      [brand_id, product_type_id, code.toUpperCase(), parseInt(limit)],
       15000
     );
 
@@ -398,7 +519,7 @@ router.get('/:code/related', async (req, res) => {
     if (relatedResult.rows.length < parseInt(limit)) {
       const remainingLimit = parseInt(limit) - relatedResult.rows.length;
       const existingCodes = [code.toUpperCase(), ...relatedResult.rows.map(r => r.code)];
-      
+
       const additionalQuery = `
         SELECT DISTINCT
           psm.style_code as code,
@@ -496,9 +617,9 @@ router.get('/:code/pricing', async (req, res) => {
     const result = await queryWithTimeout(query, [code], 10000);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         error: 'Product not found or has no pricing information',
-        style_code: code 
+        style_code: code
       });
     }
 
