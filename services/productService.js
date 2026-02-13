@@ -1065,7 +1065,7 @@ async function buildProductListQuery(filters, page, limit) {
       ),
       total_count AS (
       SELECT COUNT(*) as total
-      FROM style_codes_filtered
+      FROM style_codes_with_meta
       ),
       price_range AS (
         SELECT 
