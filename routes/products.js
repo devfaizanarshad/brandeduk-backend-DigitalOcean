@@ -3,6 +3,40 @@ const router = express.Router();
 const { pool, queryWithTimeout } = require('../config/database');
 const { buildProductListQuery, buildProductDetailQuery } = require('../services/productService');
 const { applyMarkup } = require('../utils/priceMarkup');
+const cache = require('../services/cacheService');
+
+/**
+ * Helper: wrap a route handler's response in Redis cache.
+ * Uses the full URL as cache key. TTL defaults to PRODUCTS (3 days).
+ */
+async function routeCache(req, ttl) {
+  const rawKey = `products:route:${req.originalUrl}`;
+  let hash = 0;
+  for (let i = 0; i < rawKey.length; i++) {
+    const char = rawKey.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  const cacheKey = `products:route:${Math.abs(hash)}`;
+  let cached = null;
+  try {
+    cached = await cache.get(cacheKey);
+  } catch (err) {
+    console.warn(`[CACHE] Products route get error:`, err.message);
+  }
+  return {
+    cacheKey,
+    cached,
+    ttl: ttl || cache.TTL.PRODUCTS,
+    async store(data) {
+      try {
+        await cache.set(cacheKey, data, this.ttl);
+      } catch (err) {
+        console.warn(`[CACHE] Products route set error:`, err.message);
+      }
+    }
+  };
+}
 
 /**
  * GET /api/products
@@ -277,6 +311,8 @@ router.get('/filters', async (req, res) => {
  */
 router.get('/discontinued', async (req, res) => {
   try {
+    const rc = await routeCache(req);
+    if (rc.cached) return res.json(rc.cached);
     const {
       page = 1,
       limit = 24,
@@ -378,13 +414,15 @@ router.get('/discontinued', async (req, res) => {
       status: 'Discontinued'
     }));
 
-    res.json({
+    const response = {
       items,
       page: pageNum,
       limit: limitNum,
       total,
       message: 'These products are discontinued and not visible in the main product listing'
-    });
+    };
+    await rc.store(response);
+    res.json(response);
   } catch (error) {
     console.error('[ERROR] Failed to fetch discontinued products:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -398,6 +436,8 @@ router.get('/discontinued', async (req, res) => {
  */
 router.get('/types', async (req, res) => {
   try {
+    const rc = await routeCache(req);
+    if (rc.cached) return res.json(rc.cached);
 
     const query = `
       SELECT 
@@ -441,10 +481,12 @@ router.get('/types', async (req, res) => {
       };
     });
 
-    res.json({
+    const response = {
       productTypes,
       total: totalProducts
-    });
+    };
+    await rc.store(response);
+    res.json(response);
   } catch (error) {
     console.error('[ERROR] Failed to fetch product types:', {
       message: error.message,
@@ -463,6 +505,9 @@ router.get('/types', async (req, res) => {
  */
 router.get('/:code/related', async (req, res) => {
   try {
+    const rc = await routeCache(req);
+    if (rc.cached) return res.json(rc.cached);
+
     const { code } = req.params;
     const { limit = 12 } = req.query;
 
@@ -559,7 +604,7 @@ router.get('/:code/related', async (req, res) => {
     const markedUpAdditional = applyMarkupToProducts(additionalProducts);
     const allRelated = [...markedUpRelated, ...markedUpAdditional];
 
-    res.json({
+    const response = {
       currentProduct: {
         code: code.toUpperCase(),
         brand: brand_name,
@@ -569,7 +614,9 @@ router.get('/:code/related', async (req, res) => {
       total: allRelated.length,
       sameBrandAndType: markedUpRelated.length,
       sameTypeOnly: markedUpAdditional.length
-    });
+    };
+    await rc.store(response);
+    res.json(response);
   } catch (error) {
     console.error('[ERROR] Failed to fetch related products:', {
       message: error.message,
@@ -586,6 +633,9 @@ router.get('/:code/related', async (req, res) => {
  */
 router.get('/:code/pricing', async (req, res) => {
   try {
+    const rc = await routeCache(req);
+    if (rc.cached) return res.json(rc.cached);
+
     const { code } = req.params;
 
     // Query to get pricing information with the applied markup rule
@@ -625,7 +675,7 @@ router.get('/:code/pricing', async (req, res) => {
 
     const row = result.rows[0];
 
-    res.json({
+    const response = {
       style_code: row.style_code,
       carton_price: parseFloat(row.carton_price) || 0,
       single_price: parseFloat(row.single_price) || 0,
@@ -637,7 +687,9 @@ router.get('/:code/pricing', async (req, res) => {
         markup_percent: parseFloat(row.markup_percent),
         description: row.rule_description || null
       } : null
-    });
+    };
+    await rc.store(response);
+    res.json(response);
   } catch (error) {
     console.error('[ERROR] Failed to fetch pricing information:', {
       message: error.message,

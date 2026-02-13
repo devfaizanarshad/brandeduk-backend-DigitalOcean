@@ -1,7 +1,90 @@
 const express = require('express');
 const router = express.Router();
 const { queryWithTimeout } = require('../config/database');
+const cache = require('../services/cacheService');
 // No longer need applyMarkup - using sell_price directly from DB
+
+/**
+ * Generic cache wrapper for filter endpoints.
+ * Generates a deterministic cache key from prefix + args, checks Redis first,
+ * and only executes the DB query function on cache miss.
+ */
+async function cacheWrap(prefix, args, fetchFn, ttl) {
+  const ttlSeconds = ttl || cache.TTL.FILTER;
+  // Build a deterministic cache key from the arguments
+  const keyParts = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a)));
+  const keyString = `${prefix}:${keyParts.join('|')}`;
+  let hash = 0;
+  for (let i = 0; i < keyString.length; i++) {
+    const char = keyString.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  const cacheKey = `filter:${prefix}:${Math.abs(hash)}`;
+
+  try {
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+  } catch (err) {
+    console.warn(`[CACHE] Filter get error for ${cacheKey}:`, err.message);
+  }
+
+  const result = await fetchFn();
+
+  try {
+    await cache.set(cacheKey, result, ttlSeconds);
+  } catch (err) {
+    console.warn(`[CACHE] Filter set error for ${cacheKey}:`, err.message);
+  }
+
+  return result;
+}
+
+/**
+ * Route-level caching middleware for all filter GET requests.
+ * Caches the JSON response using the full URL (path + query string) as the key.
+ * This automatically covers all filter list and filter product endpoints.
+ */
+router.use(async (req, res, next) => {
+  // Only cache GET requests
+  if (req.method !== 'GET') return next();
+
+  // Build a cache key from the full URL
+  const rawKey = `filter:route:${req.originalUrl}`;
+  let hash = 0;
+  for (let i = 0; i < rawKey.length; i++) {
+    const char = rawKey.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  const cacheKey = `filter:route:${Math.abs(hash)}`;
+
+  try {
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+  } catch (err) {
+    console.warn(`[CACHE] Filter middleware get error:`, err.message);
+  }
+
+  // Intercept res.json to cache the response before sending
+  const originalJson = res.json.bind(res);
+  res.json = (data) => {
+    // Only cache successful responses (status < 400)
+    if (res.statusCode < 400) {
+      cache.set(cacheKey, data, cache.TTL.FILTER).catch(err => {
+        console.warn(`[CACHE] Filter middleware set error:`, err.message);
+      });
+    }
+    return originalJson(data);
+  };
+
+  next();
+});
+
 
 // Helper function to build price breaks from base price
 function buildPriceBreaks(basePrice) {
@@ -20,35 +103,35 @@ function buildPriceBreaks(basePrice) {
   };
 
   // Calculate all 6 price break tiers based on base price and discount percentages
-  breaks.push({ 
-    min: 1, 
-    max: 9, 
-    price: Math.round(basePrice * 100) / 100 
+  breaks.push({
+    min: 1,
+    max: 9,
+    price: Math.round(basePrice * 100) / 100
   });
-  breaks.push({ 
-    min: 10, 
-    max: 24, 
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['10-24']) * 100) / 100 
+  breaks.push({
+    min: 10,
+    max: 24,
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['10-24']) * 100) / 100
   });
-  breaks.push({ 
-    min: 25, 
-    max: 49, 
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['25-49']) * 100) / 100 
+  breaks.push({
+    min: 25,
+    max: 49,
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['25-49']) * 100) / 100
   });
-  breaks.push({ 
-    min: 50, 
-    max: 99, 
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['50-99']) * 100) / 100 
+  breaks.push({
+    min: 50,
+    max: 99,
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['50-99']) * 100) / 100
   });
-  breaks.push({ 
-    min: 100, 
-    max: 249, 
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['100-249']) * 100) / 100 
+  breaks.push({
+    min: 100,
+    max: 249,
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['100-249']) * 100) / 100
   });
-  breaks.push({ 
-    min: 250, 
-    max: 99999, 
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['250+']) * 100) / 100 
+  breaks.push({
+    min: 250,
+    max: 99999,
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['250+']) * 100) / 100
   });
 
   return breaks;
@@ -82,13 +165,13 @@ async function getFullProductDetails(styleCodes) {
   `;
 
   const result = await queryWithTimeout(query, [styleCodes], 20000);
-  
+
   // Group by style_code
   const productsMap = new Map();
-  
+
   result.rows.forEach(row => {
     const styleCode = row.style_code;
-    
+
     if (!productsMap.has(styleCode)) {
       productsMap.set(styleCode, {
         code: styleCode,
@@ -104,14 +187,14 @@ async function getFullProductDetails(styleCodes) {
         sellPrice: null
       });
     }
-    
+
     const product = productsMap.get(styleCode);
-    
+
     // Collect sizes
     if (row.size) {
       product.sizesSet.add(row.size);
     }
-    
+
     // Collect colors
     const colorKey = row.colour_name || row.primary_colour || 'Unknown';
     if (!product.colorsMap.has(colorKey)) {
@@ -122,7 +205,7 @@ async function getFullProductDetails(styleCodes) {
         thumb: colorImage
       });
     }
-    
+
     // Collect prices
     if (row.single_price) {
       const single = parseFloat(row.single_price);
@@ -179,101 +262,104 @@ async function getFullProductDetails(styleCodes) {
 
 // Helper to get products by filter with full details
 async function getFilteredProductsWithDetails(filterColumn, filterValue, page, limit) {
-  const offset = (parseInt(page) - 1) * parseInt(limit);
-  
-  // Get style codes matching the filter
-  const styleCodesQuery = `
+  return cacheWrap('filteredProducts', [filterColumn, filterValue, page, limit], async () => {
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    // Get style codes matching the filter
+    const styleCodesQuery = `
     SELECT DISTINCT style_code
     FROM product_search_materialized
     WHERE ${filterColumn} = $1 AND sku_status = 'Live'
     ORDER BY style_code
     LIMIT $2 OFFSET $3
   `;
-  
-  const countQuery = `
+
+    const countQuery = `
     SELECT COUNT(DISTINCT style_code) as total
     FROM product_search_materialized
     WHERE ${filterColumn} = $1 AND sku_status = 'Live'
   `;
 
-  const [styleCodesResult, countResult] = await Promise.all([
-    queryWithTimeout(styleCodesQuery, [filterValue, parseInt(limit), offset], 15000),
-    queryWithTimeout(countQuery, [filterValue], 10000)
-  ]);
+    const [styleCodesResult, countResult] = await Promise.all([
+      queryWithTimeout(styleCodesQuery, [filterValue, parseInt(limit), offset], 15000),
+      queryWithTimeout(countQuery, [filterValue], 10000)
+    ]);
 
-  const styleCodes = styleCodesResult.rows.map(r => r.style_code);
-  const items = await getFullProductDetails(styleCodes);
-  const total = parseInt(countResult.rows[0]?.total || 0);
+    const styleCodes = styleCodesResult.rows.map(r => r.style_code);
+    const items = await getFullProductDetails(styleCodes);
+    const total = parseInt(countResult.rows[0]?.total || 0);
 
-  // Calculate price range
-  let minPrice = Infinity, maxPrice = 0;
-  items.forEach(item => {
-    if (item.price > 0) {
-      minPrice = Math.min(minPrice, item.price);
-      maxPrice = Math.max(maxPrice, item.price);
-    }
+    // Calculate price range
+    let minPrice = Infinity, maxPrice = 0;
+    items.forEach(item => {
+      if (item.price > 0) {
+        minPrice = Math.min(minPrice, item.price);
+        maxPrice = Math.max(maxPrice, item.price);
+      }
+    });
+
+    return {
+      items,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total,
+      priceRange: {
+        min: minPrice === Infinity ? 0 : Math.round(minPrice * 100) / 100,
+        max: Math.round(maxPrice * 100) / 100
+      }
+    };
   });
-
-  return {
-    items,
-    page: parseInt(page),
-    limit: parseInt(limit),
-    total,
-    priceRange: {
-      min: minPrice === Infinity ? 0 : Math.round(minPrice * 100) / 100,
-      max: Math.round(maxPrice * 100) / 100
-    }
-  };
 }
 
 // Helper to get products by ARRAY filter (for slugs stored in arrays)
 async function getArrayFilteredProductsWithDetails(arrayColumn, filterValue, page, limit, sort = 'newest', order = 'DESC') {
-  const offset = (parseInt(page) - 1) * parseInt(limit);
-  
-  // Normalize sort parameter
-  let normalizedSort = sort;
-  let normalizedOrder = order;
-  
-  if (sort === 'best') {
-    normalizedSort = 'newest';
-    normalizedOrder = 'DESC';
-  } else if (sort === 'brand-az') {
-    normalizedSort = 'brand';
-    normalizedOrder = 'ASC';
-  } else if (sort === 'brand-za') {
-    normalizedSort = 'brand';
-    normalizedOrder = 'DESC';
-  } else if (sort === 'code-az') {
-    normalizedSort = 'code';
-    normalizedOrder = 'ASC';
-  } else if (sort === 'code-za') {
-    normalizedSort = 'code';
-    normalizedOrder = 'DESC';
-  } else if (sort === 'price-lh') {
-    normalizedSort = 'price';
-    normalizedOrder = 'ASC';
-  } else if (sort === 'price-hl') {
-    normalizedSort = 'price';
-    normalizedOrder = 'DESC';
-  }
-  
-  // Determine sort field - use fields from product_search_materialized or join tables
-  let orderBy = 'psm.style_code';
-  if (normalizedSort === 'price') {
-    orderBy = `psm.sell_price ${normalizedOrder}, psm.style_code`;
-  } else if (normalizedSort === 'name') {
-    orderBy = `psm.style_name ${normalizedOrder}, psm.style_code`;
-  } else if (normalizedSort === 'brand') {
-    // Need to join brands table for brand sorting
-    orderBy = `b.name ${normalizedOrder}, psm.style_code`;
-  } else if (normalizedSort === 'code') {
-    orderBy = `psm.style_code ${normalizedOrder}`;
-  } else {
-    // Default: newest (created_at)
-    orderBy = `psm.created_at ${normalizedOrder}, psm.style_code`;
-  }
-  
-  const styleCodesQuery = `
+  return cacheWrap('arrayFilteredProducts', [arrayColumn, filterValue, page, limit, sort, order], async () => {
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    // Normalize sort parameter
+    let normalizedSort = sort;
+    let normalizedOrder = order;
+
+    if (sort === 'best') {
+      normalizedSort = 'newest';
+      normalizedOrder = 'DESC';
+    } else if (sort === 'brand-az') {
+      normalizedSort = 'brand';
+      normalizedOrder = 'ASC';
+    } else if (sort === 'brand-za') {
+      normalizedSort = 'brand';
+      normalizedOrder = 'DESC';
+    } else if (sort === 'code-az') {
+      normalizedSort = 'code';
+      normalizedOrder = 'ASC';
+    } else if (sort === 'code-za') {
+      normalizedSort = 'code';
+      normalizedOrder = 'DESC';
+    } else if (sort === 'price-lh') {
+      normalizedSort = 'price';
+      normalizedOrder = 'ASC';
+    } else if (sort === 'price-hl') {
+      normalizedSort = 'price';
+      normalizedOrder = 'DESC';
+    }
+
+    // Determine sort field - use fields from product_search_materialized or join tables
+    let orderBy = 'psm.style_code';
+    if (normalizedSort === 'price') {
+      orderBy = `psm.sell_price ${normalizedOrder}, psm.style_code`;
+    } else if (normalizedSort === 'name') {
+      orderBy = `psm.style_name ${normalizedOrder}, psm.style_code`;
+    } else if (normalizedSort === 'brand') {
+      // Need to join brands table for brand sorting
+      orderBy = `b.name ${normalizedOrder}, psm.style_code`;
+    } else if (normalizedSort === 'code') {
+      orderBy = `psm.style_code ${normalizedOrder}`;
+    } else {
+      // Default: newest (created_at)
+      orderBy = `psm.created_at ${normalizedOrder}, psm.style_code`;
+    }
+
+    const styleCodesQuery = `
     SELECT DISTINCT psm.style_code
     FROM product_search_materialized psm
     LEFT JOIN styles s ON psm.style_code = s.style_code
@@ -282,94 +368,98 @@ async function getArrayFilteredProductsWithDetails(arrayColumn, filterValue, pag
     ORDER BY ${orderBy}
     LIMIT $2 OFFSET $3
   `;
-  
-  const countQuery = `
+
+    const countQuery = `
     SELECT COUNT(DISTINCT style_code) as total
     FROM product_search_materialized
     WHERE ${arrayColumn} && ARRAY[$1]::text[] AND sku_status = 'Live'
   `;
 
-  const [styleCodesResult, countResult] = await Promise.all([
-    queryWithTimeout(styleCodesQuery, [filterValue, parseInt(limit), offset], 15000),
-    queryWithTimeout(countQuery, [filterValue], 10000)
-  ]);
+    const [styleCodesResult, countResult] = await Promise.all([
+      queryWithTimeout(styleCodesQuery, [filterValue, parseInt(limit), offset], 15000),
+      queryWithTimeout(countQuery, [filterValue], 10000)
+    ]);
 
-  const styleCodes = styleCodesResult.rows.map(r => r.style_code);
-  const items = await getFullProductDetails(styleCodes);
-  const total = parseInt(countResult.rows[0]?.total || 0);
+    const styleCodes = styleCodesResult.rows.map(r => r.style_code);
+    const items = await getFullProductDetails(styleCodes);
+    const total = parseInt(countResult.rows[0]?.total || 0);
 
-  let minPrice = Infinity, maxPrice = 0;
-  items.forEach(item => {
-    if (item.price > 0) {
-      minPrice = Math.min(minPrice, item.price);
-      maxPrice = Math.max(maxPrice, item.price);
-    }
+    let minPrice = Infinity, maxPrice = 0;
+    items.forEach(item => {
+      if (item.price > 0) {
+        minPrice = Math.min(minPrice, item.price);
+        maxPrice = Math.max(maxPrice, item.price);
+      }
+    });
+
+    return {
+      items,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total,
+      priceRange: {
+        min: minPrice === Infinity ? 0 : Math.round(minPrice * 100) / 100,
+        max: Math.round(maxPrice * 100) / 100
+      }
+    };
   });
-
-  return {
-    items,
-    page: parseInt(page),
-    limit: parseInt(limit),
-    total,
-    priceRange: {
-      min: minPrice === Infinity ? 0 : Math.round(minPrice * 100) / 100,
-      max: Math.round(maxPrice * 100) / 100
-    }
-  };
 }
 
 // Helper to get products by LOWER() filter (for case-insensitive text columns)
 async function getLowerFilteredProductsWithDetails(column, filterValue, page, limit) {
-  const offset = (parseInt(page) - 1) * parseInt(limit);
-  
-  const styleCodesQuery = `
+  return cacheWrap('lowerFilteredProducts', [column, filterValue, page, limit], async () => {
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const styleCodesQuery = `
     SELECT DISTINCT style_code
     FROM product_search_materialized
     WHERE LOWER(${column}) = $1 AND sku_status = 'Live'
     ORDER BY style_code
     LIMIT $2 OFFSET $3
   `;
-  
-  const countQuery = `
+
+    const countQuery = `
     SELECT COUNT(DISTINCT style_code) as total
     FROM product_search_materialized
     WHERE LOWER(${column}) = $1 AND sku_status = 'Live'
   `;
 
-  const [styleCodesResult, countResult] = await Promise.all([
-    queryWithTimeout(styleCodesQuery, [filterValue, parseInt(limit), offset], 15000),
-    queryWithTimeout(countQuery, [filterValue], 10000)
-  ]);
+    const [styleCodesResult, countResult] = await Promise.all([
+      queryWithTimeout(styleCodesQuery, [filterValue, parseInt(limit), offset], 15000),
+      queryWithTimeout(countQuery, [filterValue], 10000)
+    ]);
 
-  const styleCodes = styleCodesResult.rows.map(r => r.style_code);
-  const items = await getFullProductDetails(styleCodes);
-  const total = parseInt(countResult.rows[0]?.total || 0);
+    const styleCodes = styleCodesResult.rows.map(r => r.style_code);
+    const items = await getFullProductDetails(styleCodes);
+    const total = parseInt(countResult.rows[0]?.total || 0);
 
-  let minPrice = Infinity, maxPrice = 0;
-  items.forEach(item => {
-    if (item.price > 0) {
-      minPrice = Math.min(minPrice, item.price);
-      maxPrice = Math.max(maxPrice, item.price);
-    }
+    let minPrice = Infinity, maxPrice = 0;
+    items.forEach(item => {
+      if (item.price > 0) {
+        minPrice = Math.min(minPrice, item.price);
+        maxPrice = Math.max(maxPrice, item.price);
+      }
+    });
+
+    return {
+      items,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total,
+      priceRange: {
+        min: minPrice === Infinity ? 0 : Math.round(minPrice * 100) / 100,
+        max: Math.round(maxPrice * 100) / 100
+      }
+    };
   });
-
-  return {
-    items,
-    page: parseInt(page),
-    limit: parseInt(limit),
-    total,
-    priceRange: {
-      min: minPrice === Infinity ? 0 : Math.round(minPrice * 100) / 100,
-      max: Math.round(maxPrice * 100) / 100
-    }
-  };
 }
 
 // Helper for brand filtering (uses JOINs)
 async function getBrandFilteredProductsWithDetails(brandSlug, page, limit) {
-  const offset = (parseInt(page) - 1) * parseInt(limit);
-  
-  const styleCodesQuery = `
+  return cacheWrap('brandFilteredProducts', [brandSlug, page, limit], async () => {
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const styleCodesQuery = `
     SELECT DISTINCT psm.style_code
     FROM product_search_materialized psm
     LEFT JOIN styles s ON psm.style_code = s.style_code
@@ -378,8 +468,8 @@ async function getBrandFilteredProductsWithDetails(brandSlug, page, limit) {
     ORDER BY psm.style_code
     LIMIT $2 OFFSET $3
   `;
-  
-  const countQuery = `
+
+    const countQuery = `
     SELECT COUNT(DISTINCT psm.style_code) as total
     FROM product_search_materialized psm
     LEFT JOIN styles s ON psm.style_code = s.style_code
@@ -387,96 +477,98 @@ async function getBrandFilteredProductsWithDetails(brandSlug, page, limit) {
     WHERE (LOWER(REPLACE(b.name, ' ', '-')) = $1 OR LOWER(b.name) = $1) AND psm.sku_status = 'Live'
   `;
 
-  const [styleCodesResult, countResult] = await Promise.all([
-    queryWithTimeout(styleCodesQuery, [brandSlug, parseInt(limit), offset], 15000),
-    queryWithTimeout(countQuery, [brandSlug], 10000)
-  ]);
+    const [styleCodesResult, countResult] = await Promise.all([
+      queryWithTimeout(styleCodesQuery, [brandSlug, parseInt(limit), offset], 15000),
+      queryWithTimeout(countQuery, [brandSlug], 10000)
+    ]);
 
-  const styleCodes = styleCodesResult.rows.map(r => r.style_code);
-  const items = await getFullProductDetails(styleCodes);
-  const total = parseInt(countResult.rows[0]?.total || 0);
+    const styleCodes = styleCodesResult.rows.map(r => r.style_code);
+    const items = await getFullProductDetails(styleCodes);
+    const total = parseInt(countResult.rows[0]?.total || 0);
 
-  let minPrice = Infinity, maxPrice = 0;
-  items.forEach(item => {
-    if (item.price > 0) {
-      minPrice = Math.min(minPrice, item.price);
-      maxPrice = Math.max(maxPrice, item.price);
-    }
+    let minPrice = Infinity, maxPrice = 0;
+    items.forEach(item => {
+      if (item.price > 0) {
+        minPrice = Math.min(minPrice, item.price);
+        maxPrice = Math.max(maxPrice, item.price);
+      }
+    });
+
+    return {
+      items,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total,
+      priceRange: {
+        min: minPrice === Infinity ? 0 : Math.round(minPrice * 100) / 100,
+        max: Math.round(maxPrice * 100) / 100
+      }
+    };
   });
-
-  return {
-    items,
-    page: parseInt(page),
-    limit: parseInt(limit),
-    total,
-    priceRange: {
-      min: minPrice === Infinity ? 0 : Math.round(minPrice * 100) / 100,
-      max: Math.round(maxPrice * 100) / 100
-    }
-  };
 }
 
 // Helper for product type filtering (uses JOINs)
 async function getProductTypeFilteredProductsWithDetails(productTypeSlug, page, limit, sort = 'newest', order = 'DESC') {
-  const offset = (parseInt(page) - 1) * parseInt(limit);
-  // Normalize product type: remove hyphens and spaces, convert to DB format (e.g., "tshirts")
-  // Handles: tshirts, tshirt, t shirt, t-shirt, t-shirts -> all match "tshirts" in DB
-  const normalizeProductType = (slug) => {
-    const normalized = slug.trim().toLowerCase();
-    // Remove all hyphens and spaces
-    let cleaned = normalized.replace(/[- ]/g, '');
-    // Handle t-shirt variations specifically - always use plural "tshirts" to match DB
-    if (cleaned.includes('tshirt')) {
-      cleaned = 'tshirts'; // Always use plural form as stored in DB
+  return cacheWrap('productTypeFilteredProducts', [productTypeSlug, page, limit, sort, order], async () => {
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    // Normalize product type: remove hyphens and spaces, convert to DB format (e.g., "tshirts")
+    // Handles: tshirts, tshirt, t shirt, t-shirt, t-shirts -> all match "tshirts" in DB
+    const normalizeProductType = (slug) => {
+      const normalized = slug.trim().toLowerCase();
+      // Remove all hyphens and spaces
+      let cleaned = normalized.replace(/[- ]/g, '');
+      // Handle t-shirt variations specifically - always use plural "tshirts" to match DB
+      if (cleaned.includes('tshirt')) {
+        cleaned = 'tshirts'; // Always use plural form as stored in DB
+      }
+      return cleaned;
+    };
+
+    const searchTerm = normalizeProductType(productTypeSlug);
+
+    // Normalize sort parameter
+    let normalizedSort = sort;
+    let normalizedOrder = order;
+
+    if (sort === 'best') {
+      normalizedSort = 'newest';
+      normalizedOrder = 'DESC';
+    } else if (sort === 'brand-az') {
+      normalizedSort = 'brand';
+      normalizedOrder = 'ASC';
+    } else if (sort === 'brand-za') {
+      normalizedSort = 'brand';
+      normalizedOrder = 'DESC';
+    } else if (sort === 'code-az') {
+      normalizedSort = 'code';
+      normalizedOrder = 'ASC';
+    } else if (sort === 'code-za') {
+      normalizedSort = 'code';
+      normalizedOrder = 'DESC';
+    } else if (sort === 'price-lh') {
+      normalizedSort = 'price';
+      normalizedOrder = 'ASC';
+    } else if (sort === 'price-hl') {
+      normalizedSort = 'price';
+      normalizedOrder = 'DESC';
     }
-    return cleaned;
-  };
-  
-  const searchTerm = normalizeProductType(productTypeSlug);
-  
-  // Normalize sort parameter
-  let normalizedSort = sort;
-  let normalizedOrder = order;
-  
-  if (sort === 'best') {
-    normalizedSort = 'newest';
-    normalizedOrder = 'DESC';
-  } else if (sort === 'brand-az') {
-    normalizedSort = 'brand';
-    normalizedOrder = 'ASC';
-  } else if (sort === 'brand-za') {
-    normalizedSort = 'brand';
-    normalizedOrder = 'DESC';
-  } else if (sort === 'code-az') {
-    normalizedSort = 'code';
-    normalizedOrder = 'ASC';
-  } else if (sort === 'code-za') {
-    normalizedSort = 'code';
-    normalizedOrder = 'DESC';
-  } else if (sort === 'price-lh') {
-    normalizedSort = 'price';
-    normalizedOrder = 'ASC';
-  } else if (sort === 'price-hl') {
-    normalizedSort = 'price';
-    normalizedOrder = 'DESC';
-  }
-  
-  // Determine sort field
-  let orderBy = 'psm.style_code';
-  if (normalizedSort === 'price') {
-    orderBy = `psm.sell_price ${normalizedOrder}, psm.style_code`;
-  } else if (normalizedSort === 'name') {
-    orderBy = `psm.style_name ${normalizedOrder}, psm.style_code`;
-  } else if (normalizedSort === 'brand') {
-    orderBy = `b.name ${normalizedOrder}, psm.style_code`;
-  } else if (normalizedSort === 'code') {
-    orderBy = `psm.style_code ${normalizedOrder}`;
-  } else {
-    // Default: newest (created_at)
-    orderBy = `psm.created_at ${normalizedOrder}, psm.style_code`;
-  }
-  
-  const styleCodesQuery = `
+
+    // Determine sort field
+    let orderBy = 'psm.style_code';
+    if (normalizedSort === 'price') {
+      orderBy = `psm.sell_price ${normalizedOrder}, psm.style_code`;
+    } else if (normalizedSort === 'name') {
+      orderBy = `psm.style_name ${normalizedOrder}, psm.style_code`;
+    } else if (normalizedSort === 'brand') {
+      orderBy = `b.name ${normalizedOrder}, psm.style_code`;
+    } else if (normalizedSort === 'code') {
+      orderBy = `psm.style_code ${normalizedOrder}`;
+    } else {
+      // Default: newest (created_at)
+      orderBy = `psm.created_at ${normalizedOrder}, psm.style_code`;
+    }
+
+    const styleCodesQuery = `
     SELECT DISTINCT psm.style_code
     FROM product_search_materialized psm
     INNER JOIN styles s ON psm.style_code = s.style_code
@@ -486,8 +578,8 @@ async function getProductTypeFilteredProductsWithDetails(productTypeSlug, page, 
     ORDER BY ${orderBy}
     LIMIT $2 OFFSET $3
   `;
-  
-  const countQuery = `
+
+    const countQuery = `
     SELECT COUNT(DISTINCT psm.style_code) as total
     FROM product_search_materialized psm
     INNER JOIN styles s ON psm.style_code = s.style_code
@@ -495,33 +587,34 @@ async function getProductTypeFilteredProductsWithDetails(productTypeSlug, page, 
     WHERE LOWER(REPLACE(REPLACE(pt.name, '-', ''), ' ', '')) = $1 AND psm.sku_status = 'Live'
   `;
 
-  const [styleCodesResult, countResult] = await Promise.all([
-    queryWithTimeout(styleCodesQuery, [searchTerm, parseInt(limit), offset], 15000),
-    queryWithTimeout(countQuery, [searchTerm], 10000)
-  ]);
+    const [styleCodesResult, countResult] = await Promise.all([
+      queryWithTimeout(styleCodesQuery, [searchTerm, parseInt(limit), offset], 15000),
+      queryWithTimeout(countQuery, [searchTerm], 10000)
+    ]);
 
-  const styleCodes = styleCodesResult.rows.map(r => r.style_code);
-  const items = await getFullProductDetails(styleCodes);
-  const total = parseInt(countResult.rows[0]?.total || 0);
+    const styleCodes = styleCodesResult.rows.map(r => r.style_code);
+    const items = await getFullProductDetails(styleCodes);
+    const total = parseInt(countResult.rows[0]?.total || 0);
 
-  let minPrice = Infinity, maxPrice = 0;
-  items.forEach(item => {
-    if (item.price > 0) {
-      minPrice = Math.min(minPrice, item.price);
-      maxPrice = Math.max(maxPrice, item.price);
-    }
+    let minPrice = Infinity, maxPrice = 0;
+    items.forEach(item => {
+      if (item.price > 0) {
+        minPrice = Math.min(minPrice, item.price);
+        maxPrice = Math.max(maxPrice, item.price);
+      }
+    });
+
+    return {
+      items,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total,
+      priceRange: {
+        min: minPrice === Infinity ? 0 : Math.round(minPrice * 100) / 100,
+        max: Math.round(maxPrice * 100) / 100
+      }
+    };
   });
-
-  return {
-    items,
-    page: parseInt(page),
-    limit: parseInt(limit),
-    total,
-    priceRange: {
-      min: minPrice === Infinity ? 0 : Math.round(minPrice * 100) / 100,
-      max: Math.round(maxPrice * 100) / 100
-    }
-  };
 }
 
 // ============================================================================
@@ -534,7 +627,8 @@ async function getProductTypeFilteredProductsWithDetails(productTypeSlug, page, 
  */
 router.get('/genders', async (req, res) => {
   try {
-    const query = `
+    const data = await cacheWrap('gendersList', [], async () => {
+      const query = `
       SELECT DISTINCT
         g.id,
         g.name,
@@ -545,8 +639,10 @@ router.get('/genders', async (req, res) => {
       GROUP BY g.id, g.name, g.slug
       ORDER BY g.name ASC
     `;
-    const result = await queryWithTimeout(query, [], 10000);
-    res.json({ genders: result.rows, total: result.rows.length });
+      const result = await queryWithTimeout(query, [], 10000);
+      return { genders: result.rows, total: result.rows.length };
+    });
+    res.json(data);
   } catch (error) {
     console.error('[ERROR] Failed to fetch genders:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -579,7 +675,8 @@ router.get('/genders/:slug/products', async (req, res) => {
  */
 router.get('/age-groups', async (req, res) => {
   try {
-    const query = `
+    const data = await cacheWrap('ageGroupsList', [], async () => {
+      const query = `
       SELECT DISTINCT
         ag.id,
         ag.name,
@@ -590,8 +687,10 @@ router.get('/age-groups', async (req, res) => {
       GROUP BY ag.id, ag.name, ag.slug
       ORDER BY ag.name ASC
     `;
-    const result = await queryWithTimeout(query, [], 10000);
-    res.json({ ageGroups: result.rows, total: result.rows.length });
+      const result = await queryWithTimeout(query, [], 10000);
+      return { ageGroups: result.rows, total: result.rows.length };
+    });
+    res.json(data);
   } catch (error) {
     console.error('[ERROR] Failed to fetch age groups:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -636,7 +735,7 @@ router.get('/sleeves', async (req, res) => {
       GROUP BY sk.id, sk.name, sk.slug
       ORDER BY sk.name ASC
     `;
-    
+
     // Fallback query if above fails
     const fallbackQuery = `
       SELECT DISTINCT
@@ -799,7 +898,7 @@ router.get('/fabrics', async (req, res) => {
       GROUP BY f.id, f.name, f.slug
       ORDER BY f.name ASC
     `;
-    
+
     const fallbackQuery = `
       SELECT DISTINCT
         unnest(fabric_slugs) as slug,
@@ -1461,7 +1560,7 @@ router.get('/brands/:slug/filters', async (req, res) => {
   try {
     const { slug } = req.params;
     const brandSlug = slug.toLowerCase().trim();
-    
+
     // Combined query using CTEs - same approach as buildFilterAggregations in productService
     const combinedQuery = `
       WITH base_products AS (
@@ -1797,9 +1896,9 @@ router.get('/brands/:slug/filters', async (req, res) => {
       UNION ALL SELECT 'priceRange' as filter_type, 'max' as slug, max_price::text as name, 0 as count, NULL FROM price_range
       UNION ALL SELECT 'total' as filter_type, 'total' as slug, total::text as name, total as count, NULL FROM total_count
     `;
-    
+
     const result = await queryWithTimeout(combinedQuery, [brandSlug], 30000);
-    
+
     // Initialize all filter types
     const filters = {
       gender: [],
@@ -1821,10 +1920,10 @@ router.get('/brands/:slug/filters', async (req, res) => {
       effect: [],
       productType: []
     };
-    
+
     let priceRange = { min: 0, max: 0 };
     let totalProducts = 0;
-    
+
     // Process results into structured response
     result.rows.forEach(row => {
       if (row.filter_type === 'priceRange') {
@@ -1844,7 +1943,7 @@ router.get('/brands/:slug/filters', async (req, res) => {
         filters[row.filter_type].push(item);
       }
     });
-    
+
     res.json({
       brand: brandSlug,
       totalProducts,

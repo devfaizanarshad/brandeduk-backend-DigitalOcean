@@ -1,6 +1,45 @@
 const express = require('express');
 const router = express.Router();
 const { getAllCategories, getCategoryBySlug, getCategoriesFlat, getCategoryStats, getDropdownCategories } = require('../services/categoryService');
+const cache = require('../services/cacheService');
+
+/**
+ * Route-level caching middleware for all category GET requests.
+ * Categories rarely change, so caching them for 7 days + admin flush is excellent.
+ */
+router.use(async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+
+  const rawKey = `categories:route:${req.originalUrl}`;
+  let hash = 0;
+  for (let i = 0; i < rawKey.length; i++) {
+    const char = rawKey.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  const cacheKey = `categories:route:${Math.abs(hash)}`;
+
+  try {
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+  } catch (err) {
+    console.warn(`[CACHE] Categories middleware get error:`, err.message);
+  }
+
+  const originalJson = res.json.bind(res);
+  res.json = (data) => {
+    if (res.statusCode < 400) {
+      cache.set(cacheKey, data, cache.TTL.CATEGORIES).catch(err => {
+        console.warn(`[CACHE] Categories middleware set error:`, err.message);
+      });
+    }
+    return originalJson(data);
+  };
+
+  next();
+});
 
 /**
  * GET /api/categories
@@ -46,9 +85,9 @@ router.get('/', async (req, res) => {
     res.json(categories);
   } catch (error) {
     console.error('Error fetching categories:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch categories', 
-      message: error.message 
+    res.status(500).json({
+      error: 'Failed to fetch categories',
+      message: error.message
     });
   }
 });
@@ -64,9 +103,9 @@ router.get('/stats', async (req, res) => {
     res.json(stats);
   } catch (error) {
     console.error('Error fetching category stats:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch category stats', 
-      message: error.message 
+    res.status(500).json({
+      error: 'Failed to fetch category stats',
+      message: error.message
     });
   }
 });
@@ -103,9 +142,9 @@ router.get('/dropdown', async (req, res) => {
     res.json(categories);
   } catch (error) {
     console.error('Error fetching dropdown categories:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch dropdown categories', 
-      message: error.message 
+    res.status(500).json({
+      error: 'Failed to fetch dropdown categories',
+      message: error.message
     });
   }
 });
@@ -127,18 +166,18 @@ router.get('/dropdown', async (req, res) => {
 router.get('/:slug', async (req, res) => {
   try {
     const { slug } = req.params;
-    
+
     // Special routes
     if (slug === 'stats') {
       return res.redirect('/api/categories/stats');
     }
-    
+
     if (slug === 'dropdown') {
       // This should be handled by the route above, but handle it here as fallback
       const categories = await getDropdownCategories();
       return res.json(categories);
     }
-    
+
     const category = await getCategoryBySlug(slug);
 
     if (!category) {
@@ -148,9 +187,9 @@ router.get('/:slug', async (req, res) => {
     res.json(category);
   } catch (error) {
     console.error('Error fetching category:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch category', 
-      message: error.message 
+    res.status(500).json({
+      error: 'Failed to fetch category',
+      message: error.message
     });
   }
 });

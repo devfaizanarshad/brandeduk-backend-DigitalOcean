@@ -24,13 +24,16 @@ const memoryCache = new Map();
 // Cache configuration
 const CACHE_CONFIG = {
     // Default TTL in seconds
-    // Admin pricing sync and cache invalidation endpoints handle clearing stale data
-    DEFAULT_TTL: 300,          // 5 minutes
-    PRODUCTS_TTL: 300,         // 5 minutes for product lists
-    PRODUCT_DETAIL_TTL: 600,   // 10 minutes for product details (change less often)
-    AGGREGATIONS_TTL: 300,     // 5 minutes for filter aggregations
-    COUNT_TTL: 600,            // 10 minutes for counts (expensive to compute)
-    PRICE_BREAKS_TTL: 600,     // 10 minutes for price breaks (less volatile)
+    // Product data rarely changes. Admin pricing sync (POST /api/admin/pricing/sync)
+    // flushes the entire cache when prices or products are updated.
+    DEFAULT_TTL: 3 * 24 * 3600,          // 3 days
+    PRODUCTS_TTL: 3 * 24 * 3600,         // 3 days for product lists
+    PRODUCT_DETAIL_TTL: 7 * 24 * 3600,   // 7 days for product details
+    AGGREGATIONS_TTL: 7 * 24 * 3600,     // 7 days for filter aggregations
+    COUNT_TTL: 7 * 24 * 3600,            // 7 days for counts
+    PRICE_BREAKS_TTL: 7 * 24 * 3600,     // 7 days for price breaks
+    FILTER_TTL: 7 * 24 * 3600,           // 7 days for filter lists & filter product queries
+    CATEGORIES_TTL: 7 * 24 * 3600,       // 7 days for category tree / dropdown
 
     // Memory cache limits
     MAX_MEMORY_ENTRIES: 1000,
@@ -183,7 +186,7 @@ async function invalidateProductCache() {
     try {
         if (isRedisAvailable()) {
             // Use Redis pipeline for efficiency
-            const patterns = ['products:*', 'product:*', 'aggregations:*', 'count:*', 'pricebreaks:*'];
+            const patterns = ['products:*', 'product:*', 'aggregations:*', 'count:*', 'pricebreaks:*', 'filter:*', 'categories:*', 'related:*', 'priceRange:*'];
 
             for (const pattern of patterns) {
                 await delPattern(pattern);
@@ -285,6 +288,8 @@ module.exports = {
         PRODUCT_DETAIL: CACHE_CONFIG.PRODUCT_DETAIL_TTL,
         AGGREGATIONS: CACHE_CONFIG.AGGREGATIONS_TTL,
         COUNT: CACHE_CONFIG.COUNT_TTL,
-        PRICE_BREAKS: CACHE_CONFIG.PRICE_BREAKS_TTL
+        PRICE_BREAKS: CACHE_CONFIG.PRICE_BREAKS_TTL,
+        FILTER: CACHE_CONFIG.FILTER_TTL,
+        CATEGORIES: CACHE_CONFIG.CATEGORIES_TTL
     }
 };
