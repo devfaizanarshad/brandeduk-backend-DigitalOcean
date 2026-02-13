@@ -1,26 +1,17 @@
 const { pool, queryWithTimeout } = require('../config/database');
 const { getCategoryIdsFromSlugs } = require('./categoryService');
 const cache = require('./cacheService');
-// No longer need price markup utilities - using sell_price directly from DB
 
-// Legacy in-memory caches (kept for backward compatibility, but Redis is preferred)
-const queryCache = new Map();
-const aggregationCache = new Map();
-
-// CACHE TTL values - Now using shorter TTLs since Redis provides instant invalidation
-// These are in MILLISECONDS for legacy in-memory cache
-const CACHE_TTL = 60 * 1000; // 1 minute (reduced from 30 min for faster freshness)
-const COUNT_CACHE_TTL = 2 * 60 * 1000; // 2 minutes (reduced from 2 hours)
-const SEARCH_CACHE_TTL = 60 * 1000; // 1 minute (reduced from 1 hour)
-const AGGREGATION_CACHE_TTL = 60 * 1000; // 1 minute (reduced from 30 minutes)
-
-// TTL values in SECONDS for Redis cache service
+// Unified cache configuration using cacheService
+const CACHE_TTL = 60 * 1000; // 1 minute base TTL (ms)
 const REDIS_TTL = {
   PRODUCTS: cache.TTL.PRODUCTS,
   AGGREGATIONS: cache.TTL.AGGREGATIONS,
   COUNT: cache.TTL.COUNT,
+  PRODUCT_DETAIL: cache.TTL.PRODUCT_DETAIL,
   PRICE_BREAKS: cache.TTL.PRICE_BREAKS
 };
+
 
 // PAGINATION CONFIGURATION - Enterprise-level settings
 const PAGINATION_CONFIG = {
@@ -36,7 +27,11 @@ const PAGINATION_CONFIG = {
   DEFAULT_PAGE_SIZE: 24
 };
 
-function getCacheKey(filters, page, limit, type = 'results') {
+/**
+ * Generates a consistent cache key based on filters and pagination
+ * Uses a prefix that matches the cache invalidation patterns
+ */
+function getCacheKey(filters, page, limit, type = 'products') {
   const normalizedFilters = {};
   Object.keys(filters).sort().forEach(key => {
     const value = filters[key];
@@ -56,59 +51,56 @@ function getCacheKey(filters, page, limit, type = 'results') {
     .map(key => `${key}:${Array.isArray(normalizedFilters[key]) ? normalizedFilters[key].join(',') : normalizedFilters[key]}`)
     .join('|');
 
-  const key = `${filterString}|page:${page}|limit:${limit}|type:${type}`;
+  const keyString = `${filterString}|page:${page}|limit:${limit}|type:${type}`;
 
+  // Simple hashing algorithm
   let hash = 0;
-  for (let i = 0; i < key.length; i++) {
-    const char = key.charCodeAt(i);
+  for (let i = 0; i < keyString.length; i++) {
+    const char = keyString.charCodeAt(i);
     hash = ((hash << 5) - hash) + char;
     hash = hash & hash;
   }
-  const cacheKey = `query_${Math.abs(hash)}_${type}`;
-  return cacheKey;
+
+  // Use prefix:hash format for Redis pattern matching
+  return `${type}:${Math.abs(hash)}`;
 }
 
-function getCached(key, cacheMap = queryCache) {
-  const cached = cacheMap.get(key);
-  if (!cached) return null;
-
-  if (Date.now() - cached.timestamp > cached.ttl) {
-    cacheMap.delete(key);
+/**
+ * Gets data from unified cache (Redis with in-memory fallback)
+ */
+async function getCached(key) {
+  try {
+    return await cache.get(key);
+  } catch (err) {
+    console.warn(`[CACHE] Failed to get key ${key}:`, err.message);
     return null;
   }
-
-  return cached.data;
 }
 
-function setAggregationCache(key, data, ttl = AGGREGATION_CACHE_TTL) {
-  if (aggregationCache.size >= 500) {
-    const firstKey = aggregationCache.keys().next().value;
-    aggregationCache.delete(firstKey);
+/**
+ * Sets data in unified cache (Redis with in-memory fallback)
+ */
+async function setCache(key, data, ttlSeconds) {
+  try {
+    // Default to CACHE_TTL converted to seconds if not provided
+    const ttl = ttlSeconds || (CACHE_TTL / 1000);
+    await cache.set(key, data, ttl);
+  } catch (err) {
+    console.warn(`[CACHE] Failed to set key ${key}:`, err.message);
   }
-
-  aggregationCache.set(key, {
-    data,
-    timestamp: Date.now(),
-    ttl
-  });
 }
 
-function getAggregationCache(key) {
-  return getCached(key, aggregationCache);
+/**
+ * Legacy aliases for specific cache types
+ */
+async function getAggregationCache(key) {
+  return await getCached(key);
 }
 
-function setCache(key, data, ttl = CACHE_TTL) {
-  if (queryCache.size >= 1000) {
-    const firstKey = queryCache.keys().next().value;
-    queryCache.delete(firstKey);
-  }
-
-  queryCache.set(key, {
-    data,
-    timestamp: Date.now(),
-    ttl
-  });
+async function setAggregationCache(key, data, ttlSeconds) {
+  await setCache(key, data, ttlSeconds || REDIS_TTL.AGGREGATIONS);
 }
+
 
 /**
  * Clear all caches (both Redis and in-memory)
@@ -118,9 +110,8 @@ function setCache(key, data, ttl = CACHE_TTL) {
  * deployments, use broadcastCacheInvalidation() from cacheSync.js instead.
  */
 async function clearCache() {
-  // Clear legacy in-memory caches
-  queryCache.clear();
-  aggregationCache.clear();
+  // Caching is now handled via the unified cache service
+
 
   // Clear global price breaks cache
   globalPriceBreaksCache = null;
@@ -165,8 +156,8 @@ async function getCategoryIdsWithChildrenCached(categoryIds) {
 // Build filter aggregations - ENHANCED: Returns full metadata (slug, name, count) for dynamic frontend
 async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredStyleCodes = null) {
   // Check cache first
-  const cacheKey = getCacheKey(filters, 1, 1, 'aggregations_v2');
-  const cachedAggregations = getAggregationCache(cacheKey);
+  const cacheKey = getCacheKey(filters, 1, 1, 'aggregations');
+  const cachedAggregations = await getAggregationCache(cacheKey);
   if (cachedAggregations) {
     console.log('[FILTER AGGREGATIONS] Cache hit');
     return cachedAggregations;
@@ -634,7 +625,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
     console.log(`[FILTER AGGREGATIONS] Completed in ${duration}ms (single query with names, ${result.rows.length} results)`);
 
     // Cache the results
-    setAggregationCache(cacheKey, aggregations);
+    await setAggregationCache(cacheKey, aggregations);
 
     return aggregations;
   } catch (error) {
@@ -645,8 +636,8 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
 }
 
 async function buildProductListQuery(filters, page, limit) {
-  const cacheKey = getCacheKey(filters, page, limit);
-  const cached = getCached(cacheKey);
+  const cacheKey = getCacheKey(filters, page, limit, 'products');
+  const cached = await getCached(cacheKey);
   if (cached) {
     console.log(`[CACHE] Hit - returning cached result`);
     return cached;
@@ -1857,9 +1848,9 @@ async function buildProductListQuery(filters, page, limit) {
     };
 
     // Cache the response
-    const cacheTTL = (filters.q || filters.text) ? SEARCH_CACHE_TTL : CACHE_TTL;
-    setCache(cacheKey, queryResponse, cacheTTL);
-    console.log(`[CACHE] Result cached (TTL: ${cacheTTL / 1000}s)`);
+    const cacheTTLSeconds = (filters.q || filters.text) ? REDIS_TTL.PRODUCTS : (CACHE_TTL / 1000);
+    await setCache(cacheKey, queryResponse, cacheTTLSeconds);
+    console.log(`[CACHE] Result cached (TTL: ${cacheTTLSeconds}s)`);
 
     return queryResponse;
   } catch (error) {
@@ -1996,8 +1987,8 @@ async function buildPriceBreaksWithOverrides(basePrice, styleCode) {
 }
 
 async function buildProductDetailQuery(styleCode) {
-  const cacheKey = `product_detail_${styleCode}`;
-  const cached = getCached(cacheKey);
+  const cacheKey = `product:${styleCode}`;
+  const cached = await getCached(cacheKey);
   if (cached) {
     console.log(`[CACHE] Hit for product detail: ${styleCode}`);
     return cached;
@@ -2170,8 +2161,8 @@ async function buildProductDetailQuery(styleCode) {
     customization: ['embroidery', 'print']
   };
 
-  // Cache product details (longer TTL - product details change less frequently)
-  setCache(cacheKey, productDetail, COUNT_CACHE_TTL);
+  // Cache product details (longer TTL)
+  await setCache(cacheKey, productDetail, REDIS_TTL.PRODUCT_DETAIL);
 
   return productDetail;
 }
