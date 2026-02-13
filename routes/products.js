@@ -256,7 +256,7 @@ router.get('/', async (req, res) => {
  */
 router.get('/filters', async (req, res) => {
   try {
-    const rc = await routeCache(req, 600); // 10 minute cache for filters
+    const rc = await routeCache(req, cache.TTL.FILTER); // 7 day cache
     if (rc.cached) return res.json(rc.cached);
 
     const {
@@ -326,8 +326,8 @@ router.get('/suggest', async (req, res) => {
       return res.json({ brands: [], types: [], products: [] });
     }
 
-    // 5-minute cache for suggestions
-    const rc = await routeCache(req, 300);
+    // Use standard PRODUCTS TTL (3 days) for suggestions
+    const rc = await routeCache(req, cache.TTL.PRODUCTS);
     if (rc.cached) return res.json(rc.cached);
 
     const { getSearchSuggestions } = require('../services/search');
