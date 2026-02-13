@@ -1059,7 +1059,7 @@ async function buildProductListQuery(filters, page, limit) {
         SELECT style_code, sell_price, custom_display_order
       FROM style_codes_with_meta
         ORDER BY 
-          ${hasSearch && searchRelevanceOrder ? `${searchRelevanceOrder}, ` : ''}
+          ${hasSearch && searchRelevanceOrder && sort === 'newest' ? `${searchRelevanceOrder}, ` : ''}
           ${orderByClause}
       LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
       ),
@@ -1141,7 +1141,7 @@ async function buildProductListQuery(filters, page, limit) {
           SELECT style_code, sell_price, custom_display_order
           FROM style_codes_with_meta
           ORDER BY 
-            ${hasSearch && searchRelevanceOrder ? `${searchRelevanceOrder}, ` : ''}
+            ${hasSearch && searchRelevanceOrder && sort === 'newest' ? `${searchRelevanceOrder}, ` : ''}
             ${orderByClause}
           LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
         )
