@@ -1847,10 +1847,9 @@ async function buildProductListQuery(filters, page, limit) {
       priceRange: markedUpPriceRange
     };
 
-    // Cache the response
-    const cacheTTLSeconds = (filters.q || filters.text) ? REDIS_TTL.PRODUCTS : (CACHE_TTL / 1000);
-    await setCache(cacheKey, queryResponse, cacheTTLSeconds);
-    console.log(`[CACHE] Result cached (TTL: ${cacheTTLSeconds}s)`);
+    // Cache the response using centralized TTL
+    await setCache(cacheKey, queryResponse, REDIS_TTL.PRODUCTS);
+    console.log(`[CACHE] Result cached with key ${cacheKey} (TTL: ${REDIS_TTL.PRODUCTS}s)`);
 
     return queryResponse;
   } catch (error) {

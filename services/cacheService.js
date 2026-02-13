@@ -24,12 +24,13 @@ const memoryCache = new Map();
 // Cache configuration
 const CACHE_CONFIG = {
     // Default TTL in seconds
-    DEFAULT_TTL: 60,           // 1 minute
-    PRODUCTS_TTL: 60,          // 1 minute for product lists
-    PRODUCT_DETAIL_TTL: 120,   // 2 minutes for product details
-    AGGREGATIONS_TTL: 60,      // 1 minute for filter aggregations
-    COUNT_TTL: 120,            // 2 minutes for counts
-    PRICE_BREAKS_TTL: 300,     // 5 minutes for price breaks (less volatile)
+    // Admin pricing sync and cache invalidation endpoints handle clearing stale data
+    DEFAULT_TTL: 300,          // 5 minutes
+    PRODUCTS_TTL: 300,         // 5 minutes for product lists
+    PRODUCT_DETAIL_TTL: 600,   // 10 minutes for product details (change less often)
+    AGGREGATIONS_TTL: 300,     // 5 minutes for filter aggregations
+    COUNT_TTL: 600,            // 10 minutes for counts (expensive to compute)
+    PRICE_BREAKS_TTL: 600,     // 10 minutes for price breaks (less volatile)
 
     // Memory cache limits
     MAX_MEMORY_ENTRIES: 1000,
