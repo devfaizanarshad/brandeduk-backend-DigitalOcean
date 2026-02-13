@@ -268,7 +268,7 @@ async function getFilteredProductsWithDetails(filterColumn, filterValue, page, l
     // Get style codes matching the filter
     const styleCodesQuery = `
     SELECT DISTINCT style_code
-    FROM product_search_materialized
+    FROM product_search_mv
     WHERE ${filterColumn} = $1 AND sku_status = 'Live'
     ORDER BY style_code
     LIMIT $2 OFFSET $3
@@ -276,7 +276,7 @@ async function getFilteredProductsWithDetails(filterColumn, filterValue, page, l
 
     const countQuery = `
     SELECT COUNT(DISTINCT style_code) as total
-    FROM product_search_materialized
+    FROM product_search_mv
     WHERE ${filterColumn} = $1 AND sku_status = 'Live'
   `;
 
@@ -343,7 +343,7 @@ async function getArrayFilteredProductsWithDetails(arrayColumn, filterValue, pag
       normalizedOrder = 'DESC';
     }
 
-    // Determine sort field - use fields from product_search_materialized or join tables
+    // Determine sort field - use fields from product_search_mv or join tables
     let orderBy = 'psm.style_code';
     if (normalizedSort === 'price') {
       orderBy = `psm.sell_price ${normalizedOrder}, psm.style_code`;
@@ -361,18 +361,18 @@ async function getArrayFilteredProductsWithDetails(arrayColumn, filterValue, pag
 
     const styleCodesQuery = `
     SELECT DISTINCT psm.style_code
-    FROM product_search_materialized psm
+    FROM product_search_mv psm
     LEFT JOIN styles s ON psm.style_code = s.style_code
     LEFT JOIN brands b ON s.brand_id = b.id
-    WHERE ${arrayColumn} && ARRAY[$1]::text[] AND psm.sku_status = 'Live'
+    WHERE ${arrayColumn} && ARRAY[$1] AND psm.sku_status = 'Live'
     ORDER BY ${orderBy}
     LIMIT $2 OFFSET $3
   `;
 
     const countQuery = `
     SELECT COUNT(DISTINCT style_code) as total
-    FROM product_search_materialized
-    WHERE ${arrayColumn} && ARRAY[$1]::text[] AND sku_status = 'Live'
+    FROM product_search_mv
+    WHERE ${arrayColumn} && ARRAY[$1] AND sku_status = 'Live'
   `;
 
     const [styleCodesResult, countResult] = await Promise.all([
@@ -412,7 +412,7 @@ async function getLowerFilteredProductsWithDetails(column, filterValue, page, li
 
     const styleCodesQuery = `
     SELECT DISTINCT style_code
-    FROM product_search_materialized
+    FROM product_search_mv
     WHERE LOWER(${column}) = $1 AND sku_status = 'Live'
     ORDER BY style_code
     LIMIT $2 OFFSET $3
@@ -420,7 +420,7 @@ async function getLowerFilteredProductsWithDetails(column, filterValue, page, li
 
     const countQuery = `
     SELECT COUNT(DISTINCT style_code) as total
-    FROM product_search_materialized
+    FROM product_search_mv
     WHERE LOWER(${column}) = $1 AND sku_status = 'Live'
   `;
 
@@ -461,7 +461,7 @@ async function getBrandFilteredProductsWithDetails(brandSlug, page, limit) {
 
     const styleCodesQuery = `
     SELECT DISTINCT psm.style_code
-    FROM product_search_materialized psm
+    FROM product_search_mv psm
     LEFT JOIN styles s ON psm.style_code = s.style_code
     LEFT JOIN brands b ON s.brand_id = b.id
     WHERE (LOWER(REPLACE(b.name, ' ', '-')) = $1 OR LOWER(b.name) = $1) AND psm.sku_status = 'Live'
@@ -471,7 +471,7 @@ async function getBrandFilteredProductsWithDetails(brandSlug, page, limit) {
 
     const countQuery = `
     SELECT COUNT(DISTINCT psm.style_code) as total
-    FROM product_search_materialized psm
+    FROM product_search_mv psm
     LEFT JOIN styles s ON psm.style_code = s.style_code
     LEFT JOIN brands b ON s.brand_id = b.id
     WHERE (LOWER(REPLACE(b.name, ' ', '-')) = $1 OR LOWER(b.name) = $1) AND psm.sku_status = 'Live'
@@ -570,7 +570,7 @@ async function getProductTypeFilteredProductsWithDetails(productTypeSlug, page, 
 
     const styleCodesQuery = `
     SELECT DISTINCT psm.style_code
-    FROM product_search_materialized psm
+    FROM product_search_mv psm
     INNER JOIN styles s ON psm.style_code = s.style_code
     INNER JOIN product_types pt ON s.product_type_id = pt.id
     LEFT JOIN brands b ON s.brand_id = b.id
@@ -581,7 +581,7 @@ async function getProductTypeFilteredProductsWithDetails(productTypeSlug, page, 
 
     const countQuery = `
     SELECT COUNT(DISTINCT psm.style_code) as total
-    FROM product_search_materialized psm
+    FROM product_search_mv psm
     INNER JOIN styles s ON psm.style_code = s.style_code
     INNER JOIN product_types pt ON s.product_type_id = pt.id
     WHERE LOWER(REPLACE(REPLACE(pt.name, '-', ''), ' ', '')) = $1 AND psm.sku_status = 'Live'
@@ -635,7 +635,7 @@ router.get('/genders', async (req, res) => {
         g.slug,
         COUNT(DISTINCT psm.style_code) as product_count
       FROM genders g
-      LEFT JOIN product_search_materialized psm ON psm.gender_slug = g.slug AND psm.sku_status = 'Live'
+      LEFT JOIN product_search_mv psm ON psm.gender_slug = g.slug AND psm.sku_status = 'Live'
       GROUP BY g.id, g.name, g.slug
       ORDER BY g.name ASC
     `;
@@ -683,7 +683,7 @@ router.get('/age-groups', async (req, res) => {
         ag.slug,
         COUNT(DISTINCT psm.style_code) as product_count
       FROM age_groups ag
-      LEFT JOIN product_search_materialized psm ON psm.age_group_slug = ag.slug AND psm.sku_status = 'Live'
+      LEFT JOIN product_search_mv psm ON psm.age_group_slug = ag.slug AND psm.sku_status = 'Live'
       GROUP BY ag.id, ag.name, ag.slug
       ORDER BY ag.name ASC
     `;
@@ -731,7 +731,7 @@ router.get('/sleeves', async (req, res) => {
         COUNT(DISTINCT psm.style_code) as product_count
       FROM style_keywords sk
       WHERE sk.type = 'sleeve'
-      LEFT JOIN product_search_materialized psm ON psm.sleeve_slugs && ARRAY[sk.slug] AND psm.sku_status = 'Live'
+      LEFT JOIN product_search_mv psm ON psm.sleeve_slugs && ARRAY[sk.slug] AND psm.sku_status = 'Live'
       GROUP BY sk.id, sk.name, sk.slug
       ORDER BY sk.name ASC
     `;
@@ -741,7 +741,7 @@ router.get('/sleeves', async (req, res) => {
       SELECT DISTINCT
         unnest(sleeve_slugs) as slug,
         COUNT(DISTINCT style_code) as product_count
-      FROM product_search_materialized
+      FROM product_search_mv
       WHERE sku_status = 'Live' AND sleeve_slugs IS NOT NULL
       GROUP BY unnest(sleeve_slugs)
       ORDER BY product_count DESC
@@ -796,7 +796,7 @@ router.get('/necklines', async (req, res) => {
       SELECT DISTINCT
         unnest(neckline_slugs) as slug,
         COUNT(DISTINCT style_code) as product_count
-      FROM product_search_materialized
+      FROM product_search_mv
       WHERE sku_status = 'Live' AND neckline_slugs IS NOT NULL
       GROUP BY unnest(neckline_slugs)
       ORDER BY product_count DESC
@@ -848,7 +848,7 @@ router.get('/features', async (req, res) => {
         sk.slug,
         COUNT(DISTINCT psm.style_code) as product_count
       FROM style_keywords sk
-      LEFT JOIN product_search_materialized psm ON psm.feature_slugs && ARRAY[sk.slug] AND psm.sku_status = 'Live'
+      LEFT JOIN product_search_mv psm ON psm.feature_slugs && ARRAY[sk.slug] AND psm.sku_status = 'Live'
       WHERE sk.keyword_type = 'feature'
       GROUP BY sk.id, sk.name, sk.slug
       ORDER BY product_count DESC, sk.name ASC
@@ -894,7 +894,7 @@ router.get('/fabrics', async (req, res) => {
         f.slug,
         COUNT(DISTINCT psm.style_code) as product_count
       FROM fabrics f
-      LEFT JOIN product_search_materialized psm ON psm.fabric_slugs && ARRAY[f.slug] AND psm.sku_status = 'Live'
+      LEFT JOIN product_search_mv psm ON psm.fabric_slugs && ARRAY[f.slug] AND psm.sku_status = 'Live'
       GROUP BY f.id, f.name, f.slug
       ORDER BY f.name ASC
     `;
@@ -903,7 +903,7 @@ router.get('/fabrics', async (req, res) => {
       SELECT DISTINCT
         unnest(fabric_slugs) as slug,
         COUNT(DISTINCT style_code) as product_count
-      FROM product_search_materialized
+      FROM product_search_mv
       WHERE sku_status = 'Live' AND fabric_slugs IS NOT NULL
       GROUP BY unnest(fabric_slugs)
       ORDER BY product_count DESC
@@ -962,7 +962,7 @@ router.get('/sizes', async (req, res) => {
         s.size_order,
         COUNT(DISTINCT psm.style_code) as product_count
       FROM sizes s
-      LEFT JOIN product_search_materialized psm ON psm.size_slugs && ARRAY[s.slug] AND psm.sku_status = 'Live'
+      LEFT JOIN product_search_mv psm ON psm.size_slugs && ARRAY[s.slug] AND psm.sku_status = 'Live'
       GROUP BY s.id, s.name, s.slug, s.size_order
       ORDER BY s.size_order ASC NULLS LAST, s.name ASC
     `;
@@ -1007,7 +1007,7 @@ router.get('/colors', async (req, res) => {
         c.slug,
         COUNT(DISTINCT psm.style_code) as product_count
       FROM colours c
-      LEFT JOIN product_search_materialized psm ON psm.colour_slugs && ARRAY[c.slug] AND psm.sku_status = 'Live'
+      LEFT JOIN product_search_mv psm ON psm.colour_slugs && ARRAY[c.slug] AND psm.sku_status = 'Live'
       GROUP BY c.id, c.name, c.slug
       ORDER BY product_count DESC, c.name ASC
     `;
@@ -1050,7 +1050,7 @@ router.get('/primary-colors', async (req, res) => {
         LOWER(primary_colour) as slug,
         primary_colour as name,
         COUNT(DISTINCT style_code) as product_count
-      FROM product_search_materialized
+      FROM product_search_mv
       WHERE sku_status = 'Live' AND primary_colour IS NOT NULL
       GROUP BY primary_colour
       ORDER BY product_count DESC
@@ -1099,7 +1099,7 @@ router.get('/styles', async (req, res) => {
       SELECT DISTINCT
         unnest(style_keyword_slugs) as slug,
         COUNT(DISTINCT style_code) as product_count
-      FROM product_search_materialized
+      FROM product_search_mv
       WHERE sku_status = 'Live' AND style_keyword_slugs IS NOT NULL
       GROUP BY unnest(style_keyword_slugs)
       ORDER BY product_count DESC
@@ -1151,7 +1151,7 @@ router.get('/tags', async (req, res) => {
         t.slug,
         COUNT(DISTINCT psm.style_code) as product_count
       FROM tags t
-      LEFT JOIN product_search_materialized psm ON LOWER(psm.tag_slug) = LOWER(t.slug) AND psm.sku_status = 'Live'
+      LEFT JOIN product_search_mv psm ON LOWER(psm.tag_slug) = LOWER(t.slug) AND psm.sku_status = 'Live'
       GROUP BY t.id, t.name, t.slug
       ORDER BY product_count DESC, t.name ASC
     `;
@@ -1196,7 +1196,7 @@ router.get('/weights', async (req, res) => {
         w.slug,
         COUNT(DISTINCT psm.style_code) as product_count
       FROM weight_ranges w
-      LEFT JOIN product_search_materialized psm ON psm.weight_slugs && ARRAY[w.slug] AND psm.sku_status = 'Live'
+      LEFT JOIN product_search_mv psm ON psm.weight_slugs && ARRAY[w.slug] AND psm.sku_status = 'Live'
       GROUP BY w.id, w.name, w.slug
       ORDER BY w.name ASC
     `;
@@ -1241,7 +1241,7 @@ router.get('/fits', async (req, res) => {
         sk.slug,
         COUNT(DISTINCT psm.style_code) as product_count
       FROM style_keywords sk
-      LEFT JOIN product_search_materialized psm ON psm.fit_slugs && ARRAY[sk.slug] AND psm.sku_status = 'Live'
+      LEFT JOIN product_search_mv psm ON psm.fit_slugs && ARRAY[sk.slug] AND psm.sku_status = 'Live'
       WHERE sk.keyword_type = 'fit'
       GROUP BY sk.id, sk.name, sk.slug
       ORDER BY product_count DESC, sk.name ASC
@@ -1287,7 +1287,7 @@ router.get('/sectors', async (req, res) => {
         s.slug,
         COUNT(DISTINCT psm.style_code) as product_count
       FROM related_sectors s
-      LEFT JOIN product_search_materialized psm ON psm.sector_slugs && ARRAY[s.slug] AND psm.sku_status = 'Live'
+      LEFT JOIN product_search_mv psm ON psm.sector_slugs && ARRAY[s.slug] AND psm.sku_status = 'Live'
       GROUP BY s.id, s.name, s.slug
       ORDER BY product_count DESC, s.name ASC
     `;
@@ -1332,7 +1332,7 @@ router.get('/sports', async (req, res) => {
         s.slug,
         COUNT(DISTINCT psm.style_code) as product_count
       FROM related_sports s
-      LEFT JOIN product_search_materialized psm ON psm.sport_slugs && ARRAY[s.slug] AND psm.sku_status = 'Live'
+      LEFT JOIN product_search_mv psm ON psm.sport_slugs && ARRAY[s.slug] AND psm.sku_status = 'Live'
       GROUP BY s.id, s.name, s.slug
       ORDER BY product_count DESC, s.name ASC
     `;
@@ -1374,7 +1374,7 @@ router.get('/effects', async (req, res) => {
       SELECT DISTINCT
         unnest(effects_arr) as slug,
         COUNT(DISTINCT style_code) as product_count
-      FROM product_search_materialized
+      FROM product_search_mv
       WHERE sku_status = 'Live' AND effects_arr IS NOT NULL
       GROUP BY unnest(effects_arr)
       ORDER BY product_count DESC
@@ -1426,7 +1426,7 @@ router.get('/accreditations', async (req, res) => {
         a.slug,
         COUNT(DISTINCT psm.style_code) as product_count
       FROM accreditations a
-      LEFT JOIN product_search_materialized psm ON psm.accreditation_slugs && ARRAY[a.slug] AND psm.sku_status = 'Live'
+      LEFT JOIN product_search_mv psm ON psm.accreditation_slugs && ARRAY[a.slug] AND psm.sku_status = 'Live'
       GROUP BY a.id, a.name, a.slug
       ORDER BY product_count DESC, a.name ASC
     `;
@@ -1469,7 +1469,7 @@ router.get('/colour-shades', async (req, res) => {
         LOWER(colour_shade) as slug,
         colour_shade as name,
         COUNT(DISTINCT style_code) as product_count
-      FROM product_search_materialized
+      FROM product_search_mv
       WHERE sku_status = 'Live' AND colour_shade IS NOT NULL
       GROUP BY colour_shade
       ORDER BY product_count DESC
@@ -1585,7 +1585,7 @@ router.get('/brands/:slug/filters', async (req, res) => {
           psm.sector_slugs,
           psm.sport_slugs,
           psm.sell_price
-        FROM product_search_materialized psm
+        FROM product_search_mv psm
         WHERE psm.sku_status = 'Live'
           AND (LOWER(REPLACE(psm.brand, ' ', '-')) = $1 
                OR LOWER(psm.brand) = $1 
@@ -1979,7 +1979,7 @@ router.get('/product-types', async (req, res) => {
         COUNT(DISTINCT psm.style_code) as product_count
       FROM product_types pt
       LEFT JOIN styles s ON pt.id = s.product_type_id
-      INNER JOIN product_search_materialized psm ON s.style_code = psm.style_code AND psm.sku_status = 'Live'
+      INNER JOIN product_search_mv psm ON s.style_code = psm.style_code AND psm.sku_status = 'Live'
       GROUP BY pt.id, pt.name, pt.slug, pt.display_order
       ORDER BY pt.display_order ASC, pt.name ASC
     `;
@@ -2021,7 +2021,7 @@ router.get('/price-range', async (req, res) => {
       SELECT 
         MIN(sell_price) as min_price,
         MAX(sell_price) as max_price
-      FROM product_search_materialized
+      FROM product_search_mv
       WHERE sku_status = 'Live' AND sell_price IS NOT NULL AND sell_price > 0
     `;
     const result = await queryWithTimeout(query, [], 10000);
@@ -2049,7 +2049,7 @@ router.get('/price-range/:min/:max/products', async (req, res) => {
 
     const styleCodesQuery = `
       SELECT DISTINCT style_code
-      FROM product_search_materialized
+      FROM product_search_mv
       WHERE sell_price >= $1 AND sell_price <= $2 AND sku_status = 'Live'
       ORDER BY sell_price ASC, style_code
       LIMIT $3 OFFSET $4
@@ -2057,7 +2057,7 @@ router.get('/price-range/:min/:max/products', async (req, res) => {
 
     const countQuery = `
       SELECT COUNT(DISTINCT style_code) as total
-      FROM product_search_materialized
+      FROM product_search_mv
       WHERE sell_price >= $1 AND sell_price <= $2 AND sku_status = 'Live'
     `;
 

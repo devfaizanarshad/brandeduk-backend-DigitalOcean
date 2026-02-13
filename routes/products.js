@@ -44,6 +44,9 @@ async function routeCache(req, ttl) {
  */
 router.get('/', async (req, res) => {
   try {
+    const rc = await routeCache(req);
+    if (rc.cached) return res.json(rc.cached);
+
     const {
       page = 1,
       limit = 24,
@@ -209,13 +212,15 @@ router.get('/', async (req, res) => {
       console.warn(`[PAGINATION WARNING] Fewer items returned than expected: got ${items.length}, expected ${expectedOnPage}`);
     }
 
-    res.json({
+    const response = {
       items,
       page: pageNum,
       limit: limitNum,
       total,
       priceRange
-    });
+    };
+    await rc.store(response);
+    res.json(response);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products:', {
       message: error.message,
@@ -251,6 +256,9 @@ router.get('/', async (req, res) => {
  */
 router.get('/filters', async (req, res) => {
   try {
+    const rc = await routeCache(req, 600); // 10 minute cache for filters
+    if (rc.cached) return res.json(rc.cached);
+
     const {
       q,
       text,
@@ -294,13 +302,43 @@ router.get('/filters', async (req, res) => {
     const { buildFilterAggregations } = require('../services/productService');
     const aggregations = await buildFilterAggregations(filters);
 
-    res.json({ filters: aggregations });
+    const response = { filters: aggregations };
+    await rc.store(response);
+    res.json(response);
   } catch (error) {
     console.error('[ERROR] Failed to fetch filter aggregations:', error.message);
     res.status(500).json({
       error: 'Internal server error',
       message: error.message
     });
+  }
+});
+
+/**
+ * GET /api/products/suggest
+ * Typeahead suggestions for search bar
+ * Returns brands, product types, and top product matches
+ */
+router.get('/suggest', async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || q.length < 2) {
+      return res.json({ brands: [], types: [], products: [] });
+    }
+
+    // 5-minute cache for suggestions
+    const rc = await routeCache(req, 300);
+    if (rc.cached) return res.json(rc.cached);
+
+    const { getSearchSuggestions } = require('../services/search');
+    const suggestions = await getSearchSuggestions(q);
+
+    await rc.store(suggestions);
+    res.json(suggestions);
+  } catch (error) {
+    console.error('[ERROR] Failed to fetch suggestions:', error.message);
+    // Return empty on error to avoid breaking frontend Typeahead
+    res.json({ brands: [], types: [], products: [] });
   }
 });
 
@@ -541,7 +579,7 @@ router.get('/:code/related', async (req, res) => {
         psm.primary_image_url as image,
         b.name as brand,
         pt.name as product_type
-      FROM product_search_materialized psm
+      FROM product_search_mv psm
       INNER JOIN styles s ON psm.style_code = s.style_code
       LEFT JOIN brands b ON s.brand_id = b.id
       LEFT JOIN product_types pt ON s.product_type_id = pt.id

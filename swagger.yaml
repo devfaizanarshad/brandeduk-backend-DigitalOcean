@@ -126,7 +126,7 @@ paths:
             default: 24
         - name: q
           in: query
-          description: Search query
+          description: Search query (supports keywords, product types, brands, and direct style code lookup e.g. "AD002")
           schema:
             type: string
         - name: priceMin
@@ -341,7 +341,7 @@ paths:
       tags:
         - Products
       summary: Get filter aggregations (counts)
-      description: Returns counts for all filter types based on current filters
+      description: Returns counts for all filter types based on current search and filters
       operationId: getProductFilters
       parameters:
         - name: q
@@ -353,31 +353,7 @@ paths:
           in: query
           schema:
             type: string
-        - name: gender
-          in: query
-          schema:
-            type: string
-        - name: ageGroup
-          in: query
-          schema:
-            type: string
-        - name: sleeve
-          in: query
-          schema:
-            type: string
-        - name: neckline
-          in: query
-          schema:
-            type: string
-        - name: fabric
-          in: query
-          schema:
-            type: string
-        - name: size
-          in: query
-          schema:
-            type: string
-        - name: tag
+        - name: brand
           in: query
           schema:
             type: string
@@ -393,29 +369,60 @@ paths:
                     type: object
                     properties:
                       gender:
-                        type: object
-                        description: Map of gender slug to count
-                      ageGroup:
-                        type: object
-                        description: Map of age group slug to count
-                      sleeve:
-                        type: object
-                        description: Map of sleeve slug to count
-                      neckline:
-                        type: object
-                        description: Map of neckline slug to count
-                      fabric:
-                        type: object
-                        description: Map of fabric slug to count
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterItem'
+                      brand:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterItem'
+                      primaryColour:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterItem'
                       size:
-                        type: object
-                        description: Map of size slug to count
-                      feature:
-                        type: object
-                        description: Map of feature slug to count
-                      tag:
-                        type: object
-                        description: Map of tag slug to count
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterItem'
+                      productType:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/FilterItem'
+
+  /api/products/suggest:
+    get:
+      tags:
+        - Products
+      summary: Search suggestions (Typeahead)
+      description: Returns suggestions for brands, product types, and individual products
+      operationId: getSearchSuggestions
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Partial search query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  brands:
+                    type: array
+                    items:
+                      type: object
+                  types:
+                    type: array
+                    items:
+                      type: object
+                  products:
+                    type: array
+                    items:
+                      type: object
 
   /api/products/types:
     get:

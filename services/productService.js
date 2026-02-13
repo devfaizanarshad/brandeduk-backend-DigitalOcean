@@ -1,6 +1,7 @@
 const { pool, queryWithTimeout } = require('../config/database');
 const { getCategoryIdsFromSlugs } = require('./categoryService');
 const cache = require('./cacheService');
+const search = require('./search');
 
 // Unified cache configuration using cacheService
 const CACHE_TTL = 60 * 1000; // 1 minute base TTL (ms)
@@ -188,19 +189,35 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
   };
 
   // Build base WHERE conditions (applied to all aggregations)
-  const buildBaseConditions = () => {
+  const buildBaseConditions = async () => {
     const conditions = [];
     const params = [];
     let paramIndex = 1;
 
-    // Pre-filtered style codes for search optimization
-    const hasSearch = !!(filters.q || filters.text);
+    // Pre-filtered style codes (Legacy optimization) or Dynamic Search (V3)
+    const searchText = filters.q || filters.text;
+    const hasSearch = !!searchText;
     const usePreFiltered = hasSearch && preFilteredStyleCodes && preFilteredStyleCodes.length > 0 && preFilteredStyleCodes.length < 5000;
 
     if (usePreFiltered) {
       conditions.push(`psm.style_code = ANY($${paramIndex}::text[])`);
       params.push(preFilteredStyleCodes);
       paramIndex++;
+    } else if (hasSearch) {
+      // PROD-LEVEL: If search is active but style codes aren't pre-filtered, 
+      // we MUST apply search conditions here to avoid "ghost counts" (incorrect facet counts)
+      const trimmedSearch = searchText.trim();
+      if (trimmedSearch) {
+        // We use the same search service to ensure consistency between list and filters
+        const searchResult = await search.buildSearchConditions(
+          trimmedSearch,
+          'psm',
+          paramIndex
+        );
+        conditions.push(...searchResult.conditions);
+        params.push(...searchResult.params);
+        paramIndex = searchResult.nextParamIndex;
+      }
     }
 
     // Always filter by Live status
@@ -290,7 +307,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
   };
 
   try {
-    const base = buildBaseConditions();
+    const base = await buildBaseConditions();
 
     // 🚀 ENHANCED: Single combined query with JOINs to lookup tables for names
     // Returns: filter_type, slug, name, count for fully dynamic frontend
@@ -316,7 +333,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
           psm.accreditation_slugs,
           psm.sector_slugs,
           psm.sport_slugs
-        FROM product_search_materialized psm
+        FROM product_search_mv psm
         ${base.productTypeJoin}
         ${base.whereClause}
       ),
@@ -670,8 +687,7 @@ async function buildProductListQuery(filters, page, limit) {
   const viewAlias = 'psm';
   const searchText = filters.q || filters.text;
 
-  // Enhanced natural language search
-  let searchCondition = '';
+  // Intelligent search (V3 — Hybrid FTS + Trigram via search service)
   let searchRelevanceSelect = '';
   let searchRelevanceOrder = '';
   let hasSearch = false;
@@ -679,272 +695,18 @@ async function buildProductListQuery(filters, page, limit) {
   if (searchText) {
     hasSearch = true;
     const trimmedSearch = searchText.trim();
-    const searchLength = trimmedSearch.length;
+    if (trimmedSearch) {
+      const searchResult = await search.buildSearchConditions(trimmedSearch, viewAlias, paramIndex);
+      conditions.push(...searchResult.conditions);
+      params.push(...searchResult.params);
+      paramIndex = searchResult.nextParamIndex;
+      searchRelevanceSelect = searchResult.relevanceSelect;
+      searchRelevanceOrder = searchResult.relevanceOrder;
 
-    if (searchLength <= 2) {
-      // Very short queries: exact/prefix matching on style_code only
-      searchCondition = `(
-        ${viewAlias}.style_code = UPPER($${paramIndex}) OR
-        ${viewAlias}.style_code ILIKE $${paramIndex + 1}
-      )`;
-      params.push(trimmedSearch);
-      params.push(`${trimmedSearch}%`);
-      paramIndex += 2;
-
-      // Relevance: exact code match = highest priority
-      searchRelevanceSelect = `
-        CASE 
-          WHEN ${viewAlias}.style_code = UPPER($${paramIndex - 2}) THEN 100
-          WHEN ${viewAlias}.style_code ILIKE $${paramIndex - 1} THEN 50
-          ELSE 0
-        END as relevance_score`;
-
-      searchRelevanceOrder = 'relevance_score DESC';
-    } else {
-      // OPTIMIZED: Natural language search - Performance focused with flexible matching
-      const searchTerms = trimmedSearch.split(/\s+/).filter(t => t.length > 0);
-
-      // Create flexible search variations (handle hyphens/spaces)
-      const createSearchVariations = (term) => {
-        const variations = new Set();
-        const lower = term.toLowerCase();
-
-        // Original term
-        variations.add(lower);
-
-        // Common hyphen variations
-        if (lower.includes('tshirt')) {
-          variations.add(lower.replace(/tshirt/g, 't-shirt'));
-          variations.add(lower.replace(/tshirt/g, 't shirt'));
-        }
-        if (lower.includes('tshirts')) {
-          variations.add(lower.replace(/tshirts/g, 't-shirts'));
-          variations.add(lower.replace(/tshirts/g, 't shirts'));
-        }
-        if (lower.includes('vneck')) {
-          variations.add(lower.replace(/vneck/g, 'v-neck'));
-        }
-        if (lower.includes('crewneck')) {
-          variations.add(lower.replace(/crewneck/g, 'crew-neck'));
-        }
-
-        // Without hyphens (tshirt from t-shirt)
-        variations.add(lower.replace(/-/g, ''));
-
-        // With spaces (t shirt from t-shirt)
-        variations.add(lower.replace(/-/g, ' '));
-
-        return Array.from(variations);
-      };
-
-      // Generate all search variations
-      const allVariations = searchTerms.flatMap(createSearchVariations);
-      // For full-text search, include variations so "tshirts" also searches for "t-shirts"
-      // Join all variations with OR for better matching
-      const searchVariationsForText = allVariations.filter((v, i, arr) => arr.indexOf(v) === i); // unique
-      const normalizedSearch = searchVariationsForText.join(' ');
-      const searchUpper = normalizedSearch.toUpperCase();
-
-      // Create hyphen-normalized version for array matching
-      const normalizeTerm = (term, type) => {
-        const lower = term.toLowerCase();
-        // Handle common hyphen variations
-        if (lower.includes('tshirt')) {
-          const base = lower.replace(/tshirt/g, 't-shirt');
-          return base.replace(/[^a-z0-9-]/g, '-');
-        }
-        switch (type) {
-          case 'neckline':
-            if (lower.includes('crew') || lower.includes('crewneck')) return 'crew-neck-2';
-            if (lower.includes('vneck') || lower.includes('v-neck')) return 'v-neck-2';
-            return lower.replace(/[^a-z0-9]/g, '-');
-          case 'sleeve':
-            if (lower.includes('long')) return 'long-sleeve-2';
-            if (lower.includes('short')) return 'short-sleeve-2';
-            return lower.replace(/[^a-z0-9]/g, '-');
-          default:
-            return lower.replace(/[^a-z0-9]/g, '-');
-        }
-      };
-
-      // Pre-compute normalized terms (try both with and without hyphens)
-      // This ensures "tshirt" matches "t-shirt" in array columns
-      const getTermVariations = (term, type) => {
-        const normalized = normalizeTerm(term, type);
-        const variations = new Set([normalized]);
-
-        // Add without hyphens
-        variations.add(normalized.replace(/-/g, ''));
-
-        // Add with hyphens for common cases
-        if (term.toLowerCase().includes('tshirt')) {
-          variations.add('t-shirt');
-          variations.add('t-shirts');
-        }
-        if (term.toLowerCase().includes('vneck')) {
-          variations.add('v-neck-2');
-        }
-        if (term.toLowerCase().includes('crewneck')) {
-          variations.add('crew-neck-2');
-        }
-
-        return Array.from(variations);
-      };
-
-      const colorTerms = searchTerms.flatMap(t => getTermVariations(t, 'color'));
-      const fabricTerms = searchTerms.flatMap(t => getTermVariations(t, 'fabric'));
-      const necklineTerms = searchTerms.flatMap(t => getTermVariations(t, 'neckline'));
-      const sleeveTerms = searchTerms.flatMap(t => getTermVariations(t, 'sleeve'));
-      const styleTerms = searchTerms.flatMap(t => getTermVariations(t, 'style'));
-
-      // OPTIMIZED: Prioritize indexed operations - full-text search first (GIN index)
-      // Use to_tsquery with OR for flexible matching
-      const fullTextParam = paramIndex;
-      params.push(normalizedSearch);
-      paramIndex++;
-
-      const codeParam = paramIndex;
-      params.push(searchUpper);
-      paramIndex++;
-
-      const codePrefixParam = paramIndex;
-      params.push(`${searchUpper}%`);
-      paramIndex++;
-
-      // Add flexible name matching (handles hyphens) - use regex pattern
-      const namePatternParam = paramIndex;
-      // Create pattern that matches both "tshirt" and "t-shirt" in style_name
-      const namePattern = searchTerms.map(t => {
-        const lower = t.toLowerCase().trim();
-        let pattern = lower;
-
-        // CRITICAL: Handle tshirt/tshirts -> t-shirt/t-shirts (user types without hyphen)
-        // When user types "tshirts", we need to match "t-shirts" in database
-        if (lower.match(/^tshirts?$/)) {
-          // Exact match for tshirt or tshirts - match all variations
-          if (lower === 'tshirts') {
-            pattern = 't[- ]?shirts?'; // Matches: t-shirts, t shirts, tshirts
-          } else {
-            pattern = 't[- ]?shirt'; // Matches: t-shirt, t shirt, tshirt
-          }
-        } else if (lower.includes('tshirts')) {
-          // Contains tshirts - replace with flexible pattern
-          pattern = pattern.replace(/tshirts/g, 't[- ]?shirts?');
-        } else if (lower.includes('tshirt')) {
-          // Contains tshirt - replace with flexible pattern
-          pattern = pattern.replace(/tshirt/g, 't[- ]?shirt');
-        } else {
-          // For other terms, handle common hyphen variations
-          // vneck -> v[- ]?neck (matches v-neck, v neck, vneck)
-          pattern = pattern.replace(/vneck/g, 'v[- ]?neck');
-          // crewneck -> crew[- ]?neck
-          pattern = pattern.replace(/crewneck/g, 'crew[- ]?neck');
-          // Make hyphens and spaces optional for other terms
-          pattern = pattern.replace(/-/g, '[- ]?');
-          pattern = pattern.replace(/\s+/g, '[- ]?');
-          // Escape special regex chars
-          pattern = pattern.replace(/([.*+?^${}()|[\]\\])/g, '\\$1');
-        }
-
-        return pattern;
-      }).join('.*');
-      params.push(namePattern);
-      paramIndex++;
-
-      // Array parameters (use GIN indexes efficiently)
-      const colorArrayParam = paramIndex;
-      params.push(colorTerms);
-      paramIndex++;
-
-      const fabricArrayParam = paramIndex;
-      params.push(fabricTerms);
-      paramIndex++;
-
-      const necklineArrayParam = paramIndex;
-      params.push(necklineTerms);
-      paramIndex++;
-
-      const sleeveArrayParam = paramIndex;
-      params.push(sleeveTerms);
-      paramIndex++;
-
-      const styleArrayParam = paramIndex;
-      params.push(styleTerms);
-      paramIndex++;
-
-      // Normalize product type search terms - convert all variations to "tshirts" format
-      // Handles: tshirts, tshirt, t shirt, t-shirt, t-shirts -> all match "tshirts" in DB
-      const normalizeProductTypeForSearch = (searchText) => {
-        const lower = searchText.toLowerCase().trim();
-        // Remove all hyphens and spaces, convert to single word format
-        let normalized = lower.replace(/[- ]/g, '');
-        // Handle t-shirt variations specifically - always use plural "tshirts" to match DB
-        if (normalized.includes('tshirt')) {
-          normalized = 'tshirts'; // Always use plural form as stored in DB
-        }
-        return normalized;
-      };
-
-      // Check if search might be looking for a product type
-      const productTypeSearchTerm = normalizeProductTypeForSearch(trimmedSearch);
-      const productTypeParam = paramIndex;
-      params.push(productTypeSearchTerm);
-      paramIndex++;
-
-      // ULTRA-OPTIMIZED: Prioritize ONLY the fastest indexed operations
-      // Add flexible name matching with pattern (handles hyphen variations)
-      // Include product type name matching - all variations match "tshirts" in DB
-      searchCondition = `(
-        ${viewAlias}.search_vector @@ plainto_tsquery('english', $${fullTextParam}) OR
-        ${viewAlias}.style_code = $${codeParam} OR
-        ${viewAlias}.style_code ILIKE $${codePrefixParam} OR
-        ${viewAlias}.style_name ~* $${namePatternParam} OR
-        ${viewAlias}.colour_slugs::text[] && $${colorArrayParam}::text[] OR
-        ${viewAlias}.fabric_slugs::text[] && $${fabricArrayParam}::text[] OR
-        ${viewAlias}.neckline_slugs::text[] && $${necklineArrayParam}::text[] OR
-        ${viewAlias}.sleeve_slugs::text[] && $${sleeveArrayParam}::text[] OR
-        ${viewAlias}.style_keyword_slugs::text[] && $${styleArrayParam}::text[] OR
-        EXISTS (
-          SELECT 1 FROM styles s_pt_search 
-          INNER JOIN product_types pt_search ON s_pt_search.product_type_id = pt_search.id
-          WHERE s_pt_search.style_code = ${viewAlias}.style_code 
-            AND LOWER(REPLACE(REPLACE(pt_search.name, '-', ''), ' ', '')) = $${productTypeParam}
-        )
-      )`;
-
-      // ULTRA-OPTIMIZED: Simplified relevance - removed expensive calculations
-      // Only calculate relevance for indexed operations (fast)
-      searchRelevanceSelect = `
-        (
-          -- Exact style code match (100 points) - FAST (indexed)
-          CASE WHEN ${viewAlias}.style_code = $${codeParam} THEN 100 ELSE 0 END +
-          -- Prefix style code match (80 points) - FAST (indexed)
-          CASE WHEN ${viewAlias}.style_code ILIKE $${codePrefixParam} THEN 80 ELSE 0 END +
-          -- Name pattern match (70 points) - Flexible hyphen matching
-          CASE WHEN ${viewAlias}.style_name ~* $${namePatternParam} THEN 70 ELSE 0 END +
-          -- Product type match (65 points) - All variations match "tshirts" in DB
-          CASE WHEN EXISTS (
-            SELECT 1 FROM styles s_pt_rel 
-            INNER JOIN product_types pt_rel ON s_pt_rel.product_type_id = pt_rel.id
-            WHERE s_pt_rel.style_code = ${viewAlias}.style_code 
-              AND LOWER(REPLACE(REPLACE(pt_rel.name, '-', ''), ' ', '')) = $${productTypeParam}
-          ) THEN 65 ELSE 0 END +
-          -- Full-text search (60 points) - FAST (GIN index)
-          CASE WHEN ${viewAlias}.search_vector @@ plainto_tsquery('english', $${fullTextParam}) THEN 60 ELSE 0 END +
-          -- Array matches (30 points each) - FAST (GIN indexes)
-          CASE WHEN ${viewAlias}.colour_slugs::text[] && $${colorArrayParam}::text[] THEN 30 ELSE 0 END +
-          CASE WHEN ${viewAlias}.fabric_slugs::text[] && $${fabricArrayParam}::text[] THEN 30 ELSE 0 END +
-          CASE WHEN ${viewAlias}.neckline_slugs::text[] && $${necklineArrayParam}::text[] THEN 20 ELSE 0 END +
-          CASE WHEN ${viewAlias}.sleeve_slugs::text[] && $${sleeveArrayParam}::text[] THEN 20 ELSE 0 END +
-          CASE WHEN ${viewAlias}.style_keyword_slugs::text[] && $${styleArrayParam}::text[] THEN 15 ELSE 0 END
-        ) as relevance_score`;
-      // REMOVED: ts_rank_cd calculation - too expensive
-
-      searchRelevanceOrder = 'relevance_score DESC';
+      console.log(`[SEARCH] Query: "${trimmedSearch}" → Parsed:`, JSON.stringify(searchResult.parsed));
     }
-
-    conditions.push(searchCondition);
   }
+
 
   // Price range filter - REMOVED from initial WHERE clause
   // Price filters will be applied in style_codes_with_meta CTE using HAVING clause
@@ -1262,7 +1024,7 @@ async function buildProductListQuery(filters, page, limit) {
     WITH style_codes_filtered AS (
       SELECT DISTINCT ${viewAlias}.style_code
       ${hasSearch && searchRelevanceSelect ? `, ${searchRelevanceSelect}` : ''}
-      FROM product_search_materialized ${viewAlias}
+      FROM product_search_mv ${viewAlias}
       ${productTypeJoin}
       ${whereClause}
     ),
@@ -1279,7 +1041,7 @@ async function buildProductListQuery(filters, page, limit) {
         ${flagSelectClause}
         ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
       FROM style_codes_filtered scf
-      INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
+      INNER JOIN product_search_mv ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
       INNER JOIN products p ON ${viewAlias}.style_code = p.style_code AND p.sku_status = 'Live'
       LEFT JOIN styles s ON ${viewAlias}.style_code = s.style_code
         LEFT JOIN product_types pt ON s.product_type_id = pt.id
@@ -1310,7 +1072,7 @@ async function buildProductListQuery(filters, page, limit) {
           MIN(${viewAlias}.sell_price) as min_price,
           MAX(${viewAlias}.sell_price) as max_price
         FROM style_codes_filtered scf
-        INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
+        INNER JOIN product_search_mv ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
         WHERE ${viewAlias}.sku_status = 'Live' AND ${viewAlias}.sell_price IS NOT NULL
       )
       SELECT 
@@ -1345,7 +1107,7 @@ async function buildProductListQuery(filters, page, limit) {
         WITH style_codes_filtered AS (
           SELECT DISTINCT ${viewAlias}.style_code
           ${hasSearch && searchRelevanceSelect ? `, ${searchRelevanceSelect}` : ''}
-          FROM product_search_materialized ${viewAlias}
+          FROM product_search_mv ${viewAlias}
           ${productTypeJoin}
           ${whereClause}
         ),
@@ -1361,7 +1123,7 @@ async function buildProductListQuery(filters, page, limit) {
             ${flagSelectClause}
             ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
           FROM style_codes_filtered scf
-          INNER JOIN product_search_materialized ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
+          INNER JOIN product_search_mv ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
           INNER JOIN products p ON ${viewAlias}.style_code = p.style_code AND p.sku_status = 'Live'
           LEFT JOIN styles s ON ${viewAlias}.style_code = s.style_code
       LEFT JOIN product_types pt ON s.product_type_id = pt.id
