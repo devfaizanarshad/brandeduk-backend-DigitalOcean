@@ -191,6 +191,116 @@ router.get('/', async (req, res) => {
 });
 
 /**
+ * GET /api/products/discontinued
+ * Discontinued product list endpoint
+ */
+router.get('/discontinued', async (req, res) => {
+  try {
+    const rc = await routeCache(req);
+    if (rc.cached) return res.json(rc.cached);
+
+    const {
+      page = 1,
+      limit = 24,
+      q,
+      productType,
+      productTypes,
+      category,
+      categories
+    } = req.query;
+
+    const parseArray = (val) => {
+      if (!val) return [];
+      if (Array.isArray(val)) return val;
+      if (typeof val === 'object') return Object.values(val);
+      return [val];
+    };
+
+    const normalizeProductType = (pt) => {
+      if (!pt) return pt;
+      const normalized = pt.trim().toLowerCase();
+      let cleaned = normalized.replace(/[- ]/g, '');
+      if (cleaned.includes('tshirt')) {
+        cleaned = 'tshirts';
+      }
+      return cleaned;
+    };
+
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 24));
+    const offset = (pageNum - 1) * limitNum;
+
+    const params = [];
+    const conditions = ["p.sku_status = 'Discontinued'"];
+    let pIdx = 1;
+
+    if (q) {
+      conditions.push(`(s.style_name ILIKE $${pIdx} OR s.style_code ILIKE $${pIdx})`);
+      params.push(`%${q}%`);
+      pIdx++;
+    }
+
+    const ptFilter = parseArray(productType || productTypes || category || categories);
+    if (ptFilter.length > 0) {
+      const normalizedPTs = ptFilter.map(normalizeProductType);
+      conditions.push(`LOWER(REPLACE(REPLACE(pt.name, '-', ''), ' ', '')) = ANY($${pIdx}::text[])`);
+      params.push(normalizedPTs);
+      pIdx++;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const sql = `
+      SELECT 
+        s.style_code as code, 
+        s.style_name as name, 
+        MIN(p.sell_price) as price,
+        MIN(p.primary_image_url) as image,
+        MIN(b.name) as brand,
+        MIN(pt.name) as product_type
+      FROM products p
+      INNER JOIN styles s ON p.style_code = s.style_code
+      LEFT JOIN brands b ON s.brand_id = b.id
+      LEFT JOIN product_types pt ON s.product_type_id = pt.id
+      ${whereClause}
+      GROUP BY s.style_code, s.style_name
+      ORDER BY s.style_name ASC
+      LIMIT $${pIdx} OFFSET $${pIdx + 1}
+    `;
+
+    const countSql = `
+      SELECT COUNT(DISTINCT s.style_code) as count
+      FROM products p
+      INNER JOIN styles s ON p.style_code = s.style_code
+      LEFT JOIN product_types pt ON s.product_type_id = pt.id
+      ${whereClause}
+    `;
+
+    const [result, countResult] = await Promise.all([
+      queryWithTimeout(sql, [...params, limitNum, offset], 15000),
+      queryWithTimeout(countSql, params, 15000)
+    ]);
+
+    const items = result.rows;
+    const total = parseInt(countResult.rows[0].count, 10) || 0;
+
+    const response = {
+      items,
+      page: pageNum,
+      limit: limitNum,
+      total,
+      message: items.length === 0 ? "No discontinued products found" : undefined
+    };
+
+    await rc.store(response);
+    res.json(response);
+  } catch (error) {
+    console.error('[ERROR] Failed to fetch discontinued products:', error.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/products/filters
  * Get filter aggregations (counts) for current filters
  */

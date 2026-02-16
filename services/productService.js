@@ -1204,6 +1204,8 @@ async function buildProductListQuery(filters, page, limit) {
     const styleCodes = queryResult.rows.map(row => row.style_code);
     // Store flags for response
     const flagsMap = new Map();
+    const sortedPricesMap = new Map();
+    const displayOrderMap = new Map();
 
     queryResult.rows.forEach(row => {
       if (row.sorted_sell_price !== null && row.sorted_sell_price !== undefined) {
@@ -1536,9 +1538,6 @@ async function buildProductListQuery(filters, page, limit) {
         sizes,
         customization,
         brand: product.brand || '',
-        brand: product.brand || '',
-        priceBreaks,
-        brand: product.brand || '',
         priceBreaks,
         markup_tier: markupPercent, // Send the effective markup percentage
         markup_source: markupSource,
@@ -1839,7 +1838,7 @@ async function buildProductDetailQuery(styleCode) {
     FROM styles s
     LEFT JOIN brands b ON s.brand_id = b.id
     LEFT JOIN product_types pt ON s.product_type_id = pt.id
-    LEFT JOIN products p ON p.style_code = s.style_code AND p.sku_status = 'Live'
+    LEFT JOIN products p ON p.style_code = s.style_code AND p.sku_status IN ('Live', 'Discontinued')
     LEFT JOIN sizes sz ON p.size_id = sz.id
     LEFT JOIN tags t ON p.tag_id = t.id
     LEFT JOIN product_markup_overrides pmo ON pmo.style_code = s.style_code
