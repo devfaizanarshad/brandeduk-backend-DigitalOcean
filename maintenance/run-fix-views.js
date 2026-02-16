@@ -145,7 +145,8 @@ async function runFixViews() {
 
     const indexes = [
       // Unique indexes
-      'CREATE UNIQUE INDEX idx_psm_unique ON public.product_search_materialized USING btree (id)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_psm_unique ON public.product_search_materialized USING btree (id)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_product_search_mv_unique_id ON public.product_search_mv (id)',
 
       // Basic indexes
       'CREATE INDEX idx_psm_style_code ON public.product_search_materialized USING btree (style_code)',

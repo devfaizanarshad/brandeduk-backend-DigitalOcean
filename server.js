@@ -39,8 +39,10 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.use((req, res, next) => {
-  req.setTimeout(30000, () => {
+  // Increase request timeout to 10 minutes (600,000ms) for long-running syncs
+  req.setTimeout(600000, () => {
     if (!res.headersSent) {
+      console.warn(`[SERVER] Request timeout reached for ${req.method} ${req.path}`);
       res.status(408).json({ error: 'Request timeout' });
     }
   });
@@ -242,6 +244,11 @@ server = app.listen(PORT, () => {
   console.log(`[SERVER] Health: http://localhost:${PORT}/health`);
   console.log(`[SERVER] Environment: ${process.env.NODE_ENV || 'development'}`);
 });
+
+// Increase server timeout to 10 minutes (600,000ms) for long-running syncs
+server.timeout = 600000;
+server.keepAliveTimeout = 601000; // and slightly higher keep-alive
+server.headersTimeout = 602000;   // and headers timeout
 
 server.on('error', (error) => {
 

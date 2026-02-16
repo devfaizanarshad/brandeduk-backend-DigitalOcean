@@ -46,6 +46,8 @@ SELECT
     ag.slug AS age_group_slug,
     sz.slug AS size_slug,
     t.slug AS tag_slug,
+    s.is_best_seller,
+    s.is_recommended,
     
     -- Array aggregations for IDs
     array_agg(DISTINCT cat.id) FILTER (WHERE cat.id IS NOT NULL) AS category_ids,
@@ -169,7 +171,8 @@ LEFT JOIN product_weight_ranges pwr ON p.id = pwr.product_id
 LEFT JOIN weight_ranges wr ON pwr.weight_range_id = wr.id
 
 WHERE p.sku_status = 'Live'
-GROUP BY p.id, s.style_code, s.style_name, b.name, g.slug, ag.slug, sz.slug, t.slug
+  AND (b.id IS NULL OR b.is_active = true)
+GROUP BY p.id, s.style_code, s.style_name, b.name, g.slug, ag.slug, sz.slug, t.slug, s.is_best_seller, s.is_recommended
 WITH DATA;
 
 ALTER TABLE IF EXISTS public.product_search_mv OWNER TO brandeduk;

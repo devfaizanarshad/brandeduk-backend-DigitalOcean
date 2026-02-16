@@ -1422,7 +1422,10 @@ async function buildProductListQuery(filters, page, limit) {
     const invalidPriceProducts = [];
 
     // Pre-fetch global price break tiers for efficiency (one DB call for all products)
-    const globalTiers = await getGlobalPriceBreaks();
+    const [globalTiers, overridesBatchMap] = await Promise.all([
+      getGlobalPriceBreaks(),
+      getProductPriceOverridesBatch(styleCodes)
+    ]);
 
     // Build response items with MARKUP applied
     const items = styleCodes.map(styleCode => {
@@ -1477,7 +1480,8 @@ async function buildProductListQuery(filters, page, limit) {
         return null;
       }
 
-      const priceBreaks = buildPriceBreaks(basePrice, globalTiers);
+      const customTiers = overridesBatchMap.get(styleCode.toUpperCase());
+      const priceBreaks = buildPriceBreaks(basePrice, customTiers && customTiers.length > 0 ? customTiers : globalTiers);
 
       // Always hardcode customization options
       const customization = ['embroidery', 'print'];
@@ -1675,6 +1679,44 @@ async function getGlobalPriceBreaks() {
 }
 
 /**
+ * Get product-specific price overrides in batch for multiple style codes
+ */
+async function getProductPriceOverridesBatch(styleCodes) {
+  if (!styleCodes || styleCodes.length === 0) return new Map();
+
+  try {
+    const result = await queryWithTimeout(
+      'SELECT style_code, min_qty, max_qty, discount_percent FROM product_price_overrides WHERE style_code = ANY($1)',
+      [styleCodes.map(s => s.toUpperCase())],
+      5000
+    );
+
+    const overridesMap = new Map();
+    result.rows.forEach(row => {
+      const code = row.style_code.toUpperCase();
+      if (!overridesMap.has(code)) {
+        overridesMap.set(code, []);
+      }
+      overridesMap.get(code).push({
+        min_qty: parseInt(row.min_qty),
+        max_qty: parseInt(row.max_qty),
+        discount_percent: parseFloat(row.discount_percent)
+      });
+    });
+
+    // Ensure tiers are sorted by min_qty
+    overridesMap.forEach((tiers) => {
+      tiers.sort((a, b) => a.min_qty - b.min_qty);
+    });
+
+    return overridesMap;
+  } catch (error) {
+    console.error(`[PRICE_BREAKS] Failed to fetch overrides batch:`, error.message);
+    return new Map();
+  }
+}
+
+/**
  * Get product-specific price overrides
  */
 async function getProductPriceOverrides(styleCode) {
@@ -1727,24 +1769,20 @@ async function buildPriceBreaksWithOverrides(basePrice, styleCode) {
     getProductPriceOverrides(styleCode)
   ]);
 
-  // Create a map of overrides by quantity range
-  const overrideMap = new Map();
-  overrides.forEach(o => {
-    overrideMap.set(`${o.min_qty}-${o.max_qty}`, o.discount_percent);
-  });
+  // If custom overrides exist for this product, they COMPLETELY REPLACE the global tiers.
+  // This allows for custom min/max counts and removing specific tiers.
+  const tiersToUse = (overrides && overrides.length > 0) ? overrides : globalTiers;
 
-  // Apply overrides to global tiers
-  return globalTiers.map(tier => {
-    const key = `${tier.min_qty}-${tier.max_qty}`;
-    const discountPercent = overrideMap.has(key) ? overrideMap.get(key) : tier.discount_percent;
+  // Ensure tiers are sorted (overrides are sorted in getProductPriceOverridesBatch, 
+  // but let's be safe here for single fetch)
+  const sortedTiers = [...tiersToUse].sort((a, b) => a.min_qty - b.min_qty);
 
-    return {
-      min: tier.min_qty,
-      max: tier.max_qty,
-      price: Math.round(basePrice * (1 - discountPercent / 100) * 100) / 100,
-      percentage: discountPercent // Explicitly return discount percentage
-    };
-  });
+  return sortedTiers.map(tier => ({
+    min: tier.min_qty,
+    max: tier.max_qty,
+    price: Math.round(basePrice * (1 - tier.discount_percent / 100) * 100) / 100,
+    percentage: tier.discount_percent // Explicitly return discount percentage
+  }));
 }
 
 async function buildProductDetailQuery(styleCode) {

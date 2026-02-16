@@ -176,17 +176,27 @@ router.get('/products/search', async (req, res) => {
  */
 router.get('/products/featured', async (req, res) => {
   try {
-    const { type, limit = 50, offset = 0 } = req.query;
+    const { type, product_type_id, limit = 50, offset = 0 } = req.query;
 
-    let whereClause = 'WHERE (s.is_best_seller = true OR s.is_recommended = true)';
+    let conditions = ['(s.is_best_seller = true OR s.is_recommended = true)'];
+    const params = [];
+    let pIdx = 1;
+
     if (type === 'best') {
-      whereClause = 'WHERE s.is_best_seller = true';
+      conditions = ['s.is_best_seller = true'];
     } else if (type === 'recommended') {
-      whereClause = 'WHERE s.is_recommended = true';
+      conditions = ['s.is_recommended = true'];
+    }
+
+    if (product_type_id) {
+      conditions.push(`s.product_type_id = $${pIdx++}`);
+      params.push(parseInt(product_type_id, 10));
     }
 
     const limitNum = Math.min(parseInt(limit, 10) || 50, 500);
     const offsetNum = Math.max(parseInt(offset, 10) || 0, 0);
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const sql = `
       SELECT 
@@ -204,19 +214,37 @@ router.get('/products/featured', async (req, res) => {
       LEFT JOIN product_types pt ON s.product_type_id = pt.id
       ${whereClause}
       ORDER BY s.updated_at DESC
-      LIMIT $1 OFFSET $2
+      LIMIT $${pIdx++} OFFSET $${pIdx++}
     `;
 
     const countSql = `SELECT COUNT(*) FROM styles s ${whereClause}`;
 
-    const [result, countResult] = await Promise.all([
-      queryWithTimeout(sql, [limitNum, offsetNum], 10000),
-      queryWithTimeout(countSql, [], 10000)
+    const summarySql = `
+      SELECT pt.id, pt.name, COUNT(DISTINCT s.style_code) as count
+      FROM styles s
+      JOIN product_types pt ON s.product_type_id = pt.id
+      WHERE s.is_best_seller = true OR s.is_recommended = true
+      GROUP BY pt.id, pt.name
+      ORDER BY pt.name ASC
+    `;
+
+    const queryParams = [...params, limitNum, offsetNum];
+    const [result, countResult, summaryResult] = await Promise.all([
+      queryWithTimeout(sql, queryParams, 10000),
+      queryWithTimeout(countSql, params, 10000),
+      // Summary SQL for categories doesn't need the product_type_id filter 
+      // as it provides counts for ALL categories (to populate tabs)
+      queryWithTimeout(summarySql, [], 10000)
     ]);
 
     res.json({
       items: result.rows,
       total: parseInt(countResult.rows[0].count),
+      by_product_type: summaryResult.rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        count: parseInt(r.count)
+      })),
       limit: limitNum,
       offset: offsetNum
     });
@@ -319,25 +347,54 @@ router.get('/products/statistics', async (req, res) => {
  */
 router.get('/products/markup-overrides', async (req, res) => {
   try {
+    const { product_type_id } = req.query;
+    let whereClause = '';
+    const params = [];
+
+    if (product_type_id) {
+      whereClause = 'WHERE s.product_type_id = $1';
+      params.push(parseInt(product_type_id, 10));
+    }
+
     const query = `
       SELECT 
         pmo.style_code, 
         s.style_name, 
         pmo.markup_percent as markup, 
-        pmo.updated_at
+        pmo.updated_at,
+        (SELECT p.primary_image_url FROM products p WHERE p.style_code = s.style_code AND p.sku_status = 'Live' LIMIT 1) as image
       FROM product_markup_overrides pmo
       LEFT JOIN styles s ON pmo.style_code = s.style_code
+      ${whereClause}
       ORDER BY pmo.updated_at DESC
     `;
 
-    const result = await queryWithTimeout(query, [], 10000);
+    const summarySql = `
+      SELECT pt.id, pt.name, COUNT(DISTINCT pmo.style_code) as count
+      FROM product_markup_overrides pmo
+      JOIN styles s ON pmo.style_code = s.style_code
+      JOIN product_types pt ON s.product_type_id = pt.id
+      GROUP BY pt.id, pt.name
+      ORDER BY pt.name ASC
+    `;
+
+    const [result, summaryResult] = await Promise.all([
+      queryWithTimeout(query, params, 10000),
+      queryWithTimeout(summarySql, [], 10000)
+    ]);
 
     res.json({
       items: result.rows.map(row => ({
         style_code: row.style_code,
         style_name: row.style_name || 'Unknown Style',
+        image: row.image || '',
         percentage: parseFloat(row.markup),
         updated_at: row.updated_at
+      })),
+      by_product_type: summaryResult.rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        count: parseInt(r.count)
       })),
       count: result.rows.length
     });
@@ -353,6 +410,15 @@ router.get('/products/markup-overrides', async (req, res) => {
  */
 router.get('/products/price-overrides', async (req, res) => {
   try {
+    const { product_type_id } = req.query;
+    let whereClause = '';
+    const params = [];
+
+    if (product_type_id) {
+      whereClause = 'WHERE s.product_type_id = $1';
+      params.push(parseInt(product_type_id, 10));
+    }
+
     const query = `
       SELECT 
         ppo.style_code,
@@ -360,27 +426,89 @@ router.get('/products/price-overrides', async (req, res) => {
         ppo.min_qty as min,
         ppo.max_qty as max,
         ppo.discount_percent as percentage,
-        ppo.updated_at
+        ppo.updated_at,
+        (SELECT p.primary_image_url FROM products p WHERE p.style_code = s.style_code AND p.sku_status = 'Live' LIMIT 1) as image
       FROM product_price_overrides ppo
       LEFT JOIN styles s ON ppo.style_code = s.style_code
+      ${whereClause}
       ORDER BY ppo.style_code ASC, ppo.min_qty ASC
     `;
 
-    const result = await queryWithTimeout(query, [], 10000);
+    const summarySql = `
+      SELECT pt.id, pt.name, COUNT(DISTINCT ppo.style_code) as count
+      FROM product_price_overrides ppo
+      JOIN styles s ON ppo.style_code = s.style_code
+      JOIN product_types pt ON s.product_type_id = pt.id
+      GROUP BY pt.id, pt.name
+      ORDER BY pt.name ASC
+    `;
+
+    const [result, summaryResult] = await Promise.all([
+      queryWithTimeout(query, params, 10000),
+      queryWithTimeout(summarySql, [], 10000)
+    ]);
 
     res.json({
       items: result.rows.map(row => ({
         style_code: row.style_code,
         style_name: row.style_name || 'Unknown Style',
+        image: row.image || '',
         min: parseInt(row.min),
         max: parseInt(row.max),
         percentage: parseFloat(row.percentage),
         updated_at: row.updated_at
       })),
+      by_product_type: summaryResult.rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        count: parseInt(r.count)
+      })),
       count: result.rows.length
     });
   } catch (error) {
     console.error('[ADMIN] Failed to list price overrides:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/products/bulk-markup-overrides/delete
+ * Delete multiple markup overrides at once
+ */
+router.post('/products/bulk-markup-overrides/delete', async (req, res) => {
+  try {
+    const { style_codes } = req.body;
+    if (!style_codes || !Array.isArray(style_codes) || style_codes.length === 0) {
+      return res.status(400).json({ error: 'Invalid style_codes' });
+    }
+
+    const query = 'DELETE FROM product_markup_overrides WHERE style_code = ANY($1)';
+    await queryWithTimeout(query, [style_codes], 10000);
+
+    res.json({ success: true, message: `${style_codes.length} markup overrides removed` });
+  } catch (error) {
+    console.error('[ADMIN] Failed to bulk delete markup overrides:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/products/bulk-price-overrides/delete
+ * Delete multiple price overrides at once
+ */
+router.post('/products/bulk-price-overrides/delete', async (req, res) => {
+  try {
+    const { style_codes } = req.body;
+    if (!style_codes || !Array.isArray(style_codes) || style_codes.length === 0) {
+      return res.status(400).json({ error: 'Invalid style_codes' });
+    }
+
+    const query = 'DELETE FROM product_price_overrides WHERE style_code = ANY($1)';
+    await queryWithTimeout(query, [style_codes], 10000);
+
+    res.json({ success: true, message: `Price overrides for ${style_codes.length} products removed` });
+  } catch (error) {
+    console.error('[ADMIN] Failed to bulk delete price overrides:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
   }
 });
@@ -697,6 +825,64 @@ router.put('/price-breaks/:id', async (req, res) => {
 });
 
 /**
+ * GET /api/admin/price-breaks
+ * Get global system-wide price breaks
+ */
+router.get('/price-breaks', async (req, res) => {
+  try {
+    const query = 'SELECT min_qty, max_qty, discount_percent FROM price_breaks ORDER BY min_qty';
+    const result = await queryWithTimeout(query, [], 10000);
+    res.json({ items: result.rows });
+  } catch (error) {
+    console.error('[ADMIN] Failed to fetch global price breaks:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * PUT /api/admin/price-breaks
+ * Update global system-wide price breaks (Full Replace)
+ */
+router.put('/price-breaks', async (req, res) => {
+  const client = await require('../config/database').pool.connect();
+  try {
+    const { tiers } = req.body;
+    if (!tiers || !Array.isArray(tiers)) {
+      return res.status(400).json({ error: 'Bad request', message: 'tiers array is required' });
+    }
+
+    await client.query('BEGIN');
+    await client.query('DELETE FROM price_breaks');
+
+    const results = [];
+    for (const tier of tiers) {
+      const { min_qty, max_qty, discount_percent } = tier;
+      const query = `
+        INSERT INTO price_breaks (min_qty, max_qty, discount_percent)
+        VALUES ($1, $2, $3)
+        RETURNING *
+      `;
+      const result = await client.query(query, [parseInt(min_qty), parseInt(max_qty), parseFloat(discount_percent)]);
+      results.push(result.rows[0]);
+    }
+
+    await client.query('COMMIT');
+    await broadcastCacheInvalidation({ refreshViews: false, reason: 'global_price_breaks_update' });
+
+    res.json({
+      message: 'Global price breaks updated successfully',
+      items: results
+    });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK');
+    console.error('[ADMIN] Failed to update global price breaks:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+/**
  * GET /api/admin/products/:code/price-overrides
  * Get price overrides for a specific product
  */
@@ -705,39 +891,49 @@ router.get('/products/:code/price-overrides', async (req, res) => {
     const { code } = req.params;
     const styleCode = code.toUpperCase();
 
-    // Get global tiers with any product-specific overrides merged
-    const query = `
-      SELECT 
-        pb.id as tier_id,
-        pb.min_qty, 
-        pb.max_qty, 
-        pb.tier_name,
-        pb.discount_percent as global_discount,
-        COALESCE(ppo.discount_percent, pb.discount_percent) as effective_discount,
-        ppo.id as override_id,
-        CASE WHEN ppo.id IS NOT NULL THEN true ELSE false END as has_override
-      FROM price_breaks pb
-      LEFT JOIN product_price_overrides ppo 
-        ON ppo.style_code = $1 
-        AND ppo.min_qty = pb.min_qty 
-        AND ppo.max_qty = pb.max_qty
-      ORDER BY pb.min_qty
-    `;
+    // 🚀 ENHANCED: Get custom tiers FIRST, and global tiers separately
+    // This allows the UI to show precisely what is custom vs global
+    const [customResult, globalResult] = await Promise.all([
+      queryWithTimeout('SELECT id, min_qty, max_qty, discount_percent FROM product_price_overrides WHERE style_code = $1 ORDER BY min_qty', [styleCode], 10000),
+      queryWithTimeout('SELECT min_qty, max_qty, discount_percent, tier_name FROM price_breaks ORDER BY min_qty', [], 10000)
+    ]);
 
-    const result = await queryWithTimeout(query, [styleCode], 10000);
+    const hasOverrides = customResult.rows.length > 0;
 
     res.json({
       style_code: styleCode,
-      tiers: result.rows.map(row => ({
-        tier_id: row.tier_id,
+      has_overrides: hasOverrides,
+      // Custom overrides (if any)
+      overrides: customResult.rows.map(row => ({
+        id: row.id,
+        min_qty: parseInt(row.min_qty),
+        max_qty: parseInt(row.max_qty),
+        discount_percent: parseFloat(row.discount_percent)
+      })),
+      // Global tiers (for reference)
+      global_tiers: globalResult.rows.map(row => ({
         min_qty: row.min_qty,
         max_qty: row.max_qty,
         tier_name: row.tier_name,
-        global_discount: parseFloat(row.global_discount),
-        effective_discount: parseFloat(row.effective_discount),
-        has_override: row.has_override,
-        override_id: row.override_id
-      }))
+        discount_percent: parseFloat(row.discount_percent)
+      })),
+      // For backward compatibility with existing UI if it expects 'tiers'
+      tiers: hasOverrides
+        ? customResult.rows.map(row => ({
+          min_qty: row.min_qty,
+          max_qty: row.max_qty,
+          effective_discount: parseFloat(row.discount_percent),
+          has_override: true,
+          override_id: row.id
+        }))
+        : globalResult.rows.map(row => ({
+          min_qty: row.min_qty,
+          max_qty: row.max_qty,
+          tier_name: row.tier_name,
+          effective_discount: parseFloat(row.discount_percent),
+          global_discount: parseFloat(row.discount_percent),
+          has_override: false
+        }))
     });
   } catch (error) {
     console.error('[ADMIN] Failed to fetch product price overrides:', error.message);
@@ -751,30 +947,38 @@ router.get('/products/:code/price-overrides', async (req, res) => {
  * Body: { overrides: [{ min_qty: 50, max_qty: 99, discount_percent: 20 }] }
  */
 router.put('/products/:code/price-overrides', async (req, res) => {
+  const client = await require('../config/database').pool.connect();
   try {
     const { code } = req.params;
-    const { overrides } = req.body;
+    const { overrides, replaceAll = true } = req.body;
     const styleCode = code.toUpperCase();
 
-    if (!overrides || !Array.isArray(overrides) || overrides.length === 0) {
+    if (!overrides || !Array.isArray(overrides)) {
       return res.status(400).json({
         error: 'Bad request',
-        message: 'overrides array is required and must not be empty'
+        message: 'overrides array is required'
       });
+    }
+
+    await client.query('BEGIN');
+
+    // 🚀 NEW: Ability to replace the entire set (allows removing tiers)
+    if (replaceAll) {
+      await client.query('DELETE FROM product_price_overrides WHERE style_code = $1', [styleCode]);
     }
 
     const results = [];
     for (const override of overrides) {
       const { min_qty, max_qty, discount_percent } = override;
 
-      if (min_qty === undefined || max_qty === undefined || discount_percent === undefined) {
-        continue;
-      }
+      // Basic validation
+      if (min_qty == null || max_qty == null || discount_percent == null) continue;
 
+      const parsedMin = parseInt(min_qty);
+      const parsedMax = parseInt(max_qty);
       const parsedDiscount = parseFloat(discount_percent);
-      if (!Number.isFinite(parsedDiscount) || parsedDiscount < 0 || parsedDiscount > 100) {
-        continue;
-      }
+
+      if (isNaN(parsedMin) || isNaN(parsedMax) || isNaN(parsedDiscount)) continue;
 
       const query = `
         INSERT INTO product_price_overrides (style_code, min_qty, max_qty, discount_percent)
@@ -784,22 +988,29 @@ router.put('/products/:code/price-overrides', async (req, res) => {
         RETURNING *
       `;
 
-      const result = await queryWithTimeout(query, [styleCode, min_qty, max_qty, parsedDiscount], 10000);
+      const result = await client.query(query, [styleCode, parsedMin, parsedMax, parsedDiscount]);
       if (result.rows.length > 0) {
         results.push(result.rows[0]);
       }
     }
 
+    await client.query('COMMIT');
+
     await broadcastCacheInvalidation({ refreshViews: false, reason: 'admin_update' });
 
     res.json({
-      message: `Set ${results.length} price override(s) for ${styleCode}`,
+      message: replaceAll
+        ? `Replaced all price overrides with ${results.length} new tier(s) for ${styleCode}`
+        : `Updated/Added ${results.length} price override(s) for ${styleCode}`,
       style_code: styleCode,
       overrides: results
     });
   } catch (error) {
+    if (client) await client.query('ROLLBACK');
     console.error('[ADMIN] Failed to set product price overrides:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -1348,17 +1559,60 @@ router.put('/products/:code', async (req, res) => {
 /**
  * POST /api/admin/pricing/sync
  * Manually trigger materialized view refresh to sync changes to public site
+ * Body: { wait: boolean } - if true, waits for refresh to complete before responding
  */
 router.post('/pricing/sync', async (req, res) => {
   try {
-    console.log('[ADMIN] Manual pricing sync requested');
-    // We don't await the full refresh here to avoid timing out the request,
-    // but we trigger it via broadcastCacheInvalidation which has a debounce and handles it in background
-    broadcastCacheInvalidation({ refreshViews: true, reason: 'manual_sync' });
+    const { wait = false } = req.body;
+    console.log(`[ADMIN] Manual pricing sync requested (mode: ${wait ? 'blocking' : 'background'})`);
 
-    res.json({
-      message: 'Sync process started in the background. Public site will update in approximately 5-10 minutes.'
-    });
+    if (wait) {
+      // Set extended timeouts for this specific request
+      req.setTimeout(600000);
+      res.setTimeout(600000);
+
+      // 🚀 BLOCKING MODE: Wait for refresh to complete
+      const startTime = Date.now();
+      console.log('[ADMIN] Starting blocking sync process...');
+
+      // 1. Trigger cache invalidation (immediate)
+      await broadcastCacheInvalidation({ refreshViews: false, reason: 'manual_sync_start' });
+
+      // 2. Perform the actual view refresh (can take time)
+      console.log('[ADMIN] Refreshing materialized views...');
+      const refreshResult = await refreshMaterializedViews();
+      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+
+      console.log(`[ADMIN] Refresh completed in ${duration}s. Success: ${refreshResult.success}`);
+
+      if (refreshResult.success) {
+        // 3. Clear caches again after successful refresh
+        await broadcastCacheInvalidation({ refreshViews: false, reason: 'manual_sync_complete' });
+
+        return res.json({
+          success: true,
+          message: `Synchronization complete! Public site is now up to date.`,
+          duration: `${duration}s`,
+          details: 'Materialized views and caches refreshed successfully.'
+        });
+      } else {
+        return res.status(500).json({
+          success: false,
+          error: 'Synchronization failed',
+          message: refreshResult.error,
+          duration: `${duration}s`
+        });
+      }
+    } else {
+      // 🚀 BACKGROUND MODE: Default behavior
+      broadcastCacheInvalidation({ refreshViews: true, reason: 'manual_sync' });
+
+      res.json({
+        success: true,
+        message: 'Sync process started in the background. Public site will update shortly.',
+        estimated_time: '2-5 minutes'
+      });
+    }
   } catch (error) {
     console.error('[ADMIN] Failed to trigger sync:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -1433,6 +1687,238 @@ router.get('/statistics/dashboard', async (req, res) => {
     });
   } catch (error) {
     console.error('[ADMIN] Failed to get dashboard statistics:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/quotes
+ * List all quote requests (paginated, with filters)
+ */
+router.get('/quotes', async (req, res) => {
+  try {
+    const {
+      status,
+      q,
+      start_date,
+      end_date,
+      limit = 50,
+      offset = 0
+    } = req.query;
+
+    const conditions = [];
+    const params = [];
+    let paramIndex = 1;
+
+    if (status) {
+      conditions.push(`status = $${paramIndex++}`);
+      params.push(status);
+    }
+
+    if (q) {
+      conditions.push(`(customer_name ILIKE $${paramIndex} OR customer_email ILIKE $${paramIndex} OR quote_id ILIKE $${paramIndex})`);
+      params.push(`%${q}%`);
+      paramIndex++;
+    }
+
+    if (start_date) {
+      conditions.push(`created_at >= $${paramIndex++}`);
+      params.push(start_date);
+    }
+
+    if (end_date) {
+      conditions.push(`created_at <= $${paramIndex++}`);
+      params.push(end_date);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limitNum = Math.min(parseInt(limit, 10) || 50, 500);
+    const offsetNum = Math.max(parseInt(offset, 10) || 0, 0);
+
+    const sql = `
+      SELECT id, quote_id, customer_name, customer_email, customer_phone, 
+             customer_company, total_amount, status, created_at, quote_data
+      FROM quote_requests
+      ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+
+    const countSql = `
+      SELECT COUNT(*) as total
+      FROM quote_requests
+      ${whereClause}
+    `;
+
+    const queryParams = [...params, limitNum, offsetNum];
+    const countParams = params;
+
+    const [result, countResult] = await Promise.all([
+      queryWithTimeout(sql, queryParams, 15000),
+      queryWithTimeout(countSql, countParams, 10000)
+    ]);
+
+    res.json({
+      items: result.rows,
+      total: parseInt(countResult.rows[0]?.total || 0),
+      limit: limitNum,
+      offset: offsetNum
+    });
+  } catch (error) {
+    console.error('[ADMIN] Failed to list quotes:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/quotes/:id
+ * Get detail of a specific quote request (by ID or quote_id)
+ */
+router.get('/quotes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if it's an integer ID or a string quote_id
+    const isNum = /^\d+$/.test(id);
+    const condition = isNum ? 'id = $1' : 'quote_id = $1';
+
+    const sql = `SELECT * FROM quote_requests WHERE ${condition}`;
+    const result = await queryWithTimeout(sql, [id], 10000);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Not found', message: 'Quote request not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('[ADMIN] Failed to get quote details:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * PUT /api/admin/quotes/:id/status
+ * Update status of a quote request
+ * Body: { status: "Contacted" | "Closed" | "Pending" }
+ */
+router.put('/quotes/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({ error: 'Bad request', message: 'status is required' });
+    }
+
+    const isNum = /^\d+$/.test(id);
+    const condition = isNum ? 'id = $1' : 'quote_id = $1';
+
+    const sql = `
+      UPDATE quote_requests 
+      SET status = $2, updated_at = NOW() 
+      WHERE ${condition} 
+      RETURNING id, quote_id, status
+    `;
+
+    const result = await queryWithTimeout(sql, [id, status], 10000);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Not found', message: 'Quote request not found' });
+    }
+
+    res.json({
+      message: 'Quote status updated successfully',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('[ADMIN] Failed to update quote status:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * DELETE /api/admin/quotes/:id
+ * Delete a quote request
+ */
+router.delete('/quotes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const isNum = /^\d+$/.test(id);
+    const condition = isNum ? 'id = $1' : 'quote_id = $1';
+
+    const sql = `DELETE FROM quote_requests WHERE ${condition} RETURNING id, quote_id`;
+    const result = await queryWithTimeout(sql, [id], 10000);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Not found', message: 'Quote request not found' });
+    }
+
+    res.json({
+      message: 'Quote request deleted successfully',
+      deleted: result.rows[0]
+    });
+  } catch (error) {
+    console.error('[ADMIN] Failed to delete quote:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/brands
+ * List all brands with their active status and product counts
+ */
+router.get('/brands', async (req, res) => {
+  try {
+    const sql = `
+      SELECT 
+        b.id, 
+        b.name, 
+        b.slug, 
+        b.is_active,
+        (SELECT COUNT(*) FROM styles s JOIN products p ON s.style_code = p.style_code WHERE s.brand_id = b.id AND p.sku_status = 'Live') as product_count
+      FROM brands b
+      ORDER BY b.name ASC
+    `;
+    const result = await queryWithTimeout(sql, [], 10000);
+    res.json({ brands: result.rows });
+  } catch (error) {
+    console.error('[ADMIN] Failed to list brands:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * PUT /api/admin/brands/:id/status
+ * Toggle brand active status. When is_active = false, all products of this brand 
+ * will be hidden from the public site searchable views.
+ * Body: { is_active: boolean }
+ */
+router.put('/brands/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { is_active } = req.body;
+
+    if (is_active === undefined) {
+      return res.status(400).json({ error: 'is_active is required' });
+    }
+
+    const sql = 'UPDATE brands SET is_active = $1, updated_at = NOW() WHERE id = $2 RETURNING id, name, is_active';
+    const result = await queryWithTimeout(sql, [is_active === true || is_active === 'true', id], 10000);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Brand not found' });
+    }
+
+    // Since this affects product visibility via views, we suggest a sync
+    await broadcastCacheInvalidation({ refreshViews: false, reason: 'brand_status_change' });
+
+    res.json({
+      message: `Brand '${result.rows[0].name}' is now ${result.rows[0].is_active ? 'active' : 'inactive'}. Manual sync required to update public site.`,
+      brand: result.rows[0]
+    });
+  } catch (error) {
+    console.error('[ADMIN] Failed to update brand status:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
   }
 });
@@ -1884,179 +2370,6 @@ router.post('/:table/search', async (req, res) => {
     });
   } catch (error) {
     console.error('[ADMIN] Failed to search table:', error.message);
-    res.status(500).json({ error: 'Internal server error', message: error.message });
-  }
-});
-
-/**
- * GET /api/admin/quotes
- * List all quote requests (paginated, with filters)
- */
-router.get('/quotes', async (req, res) => {
-  try {
-    const {
-      status,
-      q,
-      start_date,
-      end_date,
-      limit = 50,
-      offset = 0
-    } = req.query;
-
-    const conditions = [];
-    const params = [];
-    let paramIndex = 1;
-
-    if (status) {
-      conditions.push(`status = $${paramIndex++}`);
-      params.push(status);
-    }
-
-    if (q) {
-      conditions.push(`(customer_name ILIKE $${paramIndex} OR customer_email ILIKE $${paramIndex} OR quote_id ILIKE $${paramIndex})`);
-      params.push(`%${q}%`);
-      paramIndex++;
-    }
-
-    if (start_date) {
-      conditions.push(`created_at >= $${paramIndex++}`);
-      params.push(start_date);
-    }
-
-    if (end_date) {
-      conditions.push(`created_at <= $${paramIndex++}`);
-      params.push(end_date);
-    }
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const limitNum = Math.min(parseInt(limit, 10) || 50, 500);
-    const offsetNum = Math.max(parseInt(offset, 10) || 0, 0);
-
-    const sql = `
-      SELECT id, quote_id, customer_name, customer_email, customer_phone, 
-             customer_company, total_amount, status, created_at
-      FROM quote_requests
-      ${whereClause}
-      ORDER BY created_at DESC
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-    `;
-
-    const countSql = `
-      SELECT COUNT(*) as total
-      FROM quote_requests
-      ${whereClause}
-    `;
-
-    const queryParams = [...params, limitNum, offsetNum];
-    const countParams = params;
-
-    const [result, countResult] = await Promise.all([
-      queryWithTimeout(sql, queryParams, 15000),
-      queryWithTimeout(countSql, countParams, 10000)
-    ]);
-
-    res.json({
-      items: result.rows,
-      total: parseInt(countResult.rows[0]?.total || 0),
-      limit: limitNum,
-      offset: offsetNum
-    });
-  } catch (error) {
-    console.error('[ADMIN] Failed to list quotes:', error.message);
-    res.status(500).json({ error: 'Internal server error', message: error.message });
-  }
-});
-
-/**
- * GET /api/admin/quotes/:id
- * Get detail of a specific quote request (by ID or quote_id)
- */
-router.get('/quotes/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Check if it's an integer ID or a string quote_id
-    const isNum = /^\d+$/.test(id);
-    const condition = isNum ? 'id = $1' : 'quote_id = $1';
-
-    const sql = `SELECT * FROM quote_requests WHERE ${condition}`;
-    const result = await queryWithTimeout(sql, [id], 10000);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Not found', message: 'Quote request not found' });
-    }
-
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('[ADMIN] Failed to get quote details:', error.message);
-    res.status(500).json({ error: 'Internal server error', message: error.message });
-  }
-});
-
-/**
- * PUT /api/admin/quotes/:id/status
- * Update status of a quote request
- * Body: { status: "Contacted" | "Closed" | "Pending" }
- */
-router.put('/quotes/:id/status', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-
-    if (!status) {
-      return res.status(400).json({ error: 'Bad request', message: 'status is required' });
-    }
-
-    const isNum = /^\d+$/.test(id);
-    const condition = isNum ? 'id = $1' : 'quote_id = $1';
-
-    const sql = `
-      UPDATE quote_requests 
-      SET status = $2, updated_at = NOW() 
-      WHERE ${condition} 
-      RETURNING id, quote_id, status
-    `;
-
-    const result = await queryWithTimeout(sql, [id, status], 10000);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Not found', message: 'Quote request not found' });
-    }
-
-    res.json({
-      message: 'Quote status updated successfully',
-      data: result.rows[0]
-    });
-  } catch (error) {
-    console.error('[ADMIN] Failed to update quote status:', error.message);
-    res.status(500).json({ error: 'Internal server error', message: error.message });
-  }
-});
-
-/**
- * DELETE /api/admin/quotes/:id
- * Delete a quote request
- */
-router.delete('/quotes/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const isNum = /^\d+$/.test(id);
-    const condition = isNum ? 'id = $1' : 'quote_id = $1';
-
-    const sql = `DELETE FROM quote_requests WHERE ${condition} RETURNING id, quote_id`;
-    const result = await queryWithTimeout(sql, [id], 10000);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Not found', message: 'Quote request not found' });
-    }
-
-    res.json({
-      message: 'Quote request deleted successfully',
-      deleted: result.rows[0]
-    });
-  } catch (error) {
-    console.error('[ADMIN] Failed to delete quote:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
   }
 });
