@@ -992,11 +992,11 @@ async function buildProductListQuery(filters, page, limit) {
     // Default (newest/best-sellers proxy) – honour custom display order first
     orderByClause = `custom_display_order ASC, product_type_priority ASC, created_at ${order}`;
   } else if (prioritizeBest) {
-    // "Best" sort: prioritise products flagged as best seller
-    orderByClause = `is_best DESC, is_recommended DESC, custom_display_order ASC, product_type_priority ASC, created_at ${order}`;
+    // "Best" sort: prioritise products flagged as best seller with custom order
+    orderByClause = `is_best DESC, best_seller_order ASC, is_recommended DESC, recommended_order ASC, custom_display_order ASC, product_type_priority ASC, created_at ${order}`;
   } else if (prioritizeRecommended) {
-    // "Recommended" sort: prioritise products flagged as recommended
-    orderByClause = `is_recommended DESC, is_best DESC, custom_display_order ASC, product_type_priority ASC, created_at ${order}`;
+    // "Recommended" sort: prioritise products flagged as recommended with custom order
+    orderByClause = `is_recommended DESC, recommended_order ASC, is_best DESC, best_seller_order ASC, custom_display_order ASC, product_type_priority ASC, created_at ${order}`;
   } else {
     // Normal sorting
     if (sort === 'price') {
@@ -1017,7 +1017,9 @@ async function buildProductListQuery(filters, page, limit) {
   const flagJoinClause = '';
   const flagSelectClause = `
     MAX(${viewAlias}.is_best_seller::int) as is_best,
-    MAX(${viewAlias}.is_recommended::int) as is_recommended
+    MAX(${viewAlias}.is_recommended::int) as is_recommended,
+    MIN(${viewAlias}.best_seller_order) as best_seller_order,
+    MIN(${viewAlias}.recommended_order) as recommended_order
   `;
 
   const optimizedQuery = `
@@ -1056,13 +1058,13 @@ async function buildProductListQuery(filters, page, limit) {
         ${filters.priceMax !== null && filters.priceMax !== undefined ? `AND MIN(p.sell_price) <= $${priceFilterParamIndex + (filters.priceMin !== null && filters.priceMin !== undefined ? 1 : 0)}` : ''}
       ),
     paginated_style_codes AS (
-        SELECT style_code, sell_price, custom_display_order
+      SELECT style_code, sell_price, custom_display_order, is_best, is_recommended
       FROM style_codes_with_meta
-        ORDER BY 
-          ${hasSearch && searchRelevanceOrder && sort === 'newest' ? `${searchRelevanceOrder}, ` : ''}
-          ${orderByClause}
+      ORDER BY 
+        ${hasSearch && searchRelevanceOrder && sort === 'newest' ? `${searchRelevanceOrder}, ` : ''}
+        ${orderByClause}
       LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
-      ),
+    ),
       total_count AS (
       SELECT COUNT(*) as total
       FROM style_codes_with_meta
@@ -1077,12 +1079,22 @@ async function buildProductListQuery(filters, page, limit) {
       )
       SELECT 
       psc.style_code,
-      psc.sell_price as sorted_sell_price,
+      psc.sorted_sell_price,
       psc.custom_display_order,
-        tc.total,
-        pr.min_price,
-        pr.max_price
-    FROM paginated_style_codes psc
+      psc.is_best,
+      psc.is_recommended,
+      tc.total,
+      pr.min_price,
+      pr.max_price
+    FROM (
+      SELECT 
+        style_code, 
+        sell_price as sorted_sell_price, 
+        custom_display_order, 
+        is_best, 
+        is_recommended 
+      FROM paginated_style_codes
+    ) psc
       CROSS JOIN total_count tc
       CROSS JOIN price_range pr
     `;
@@ -1138,7 +1150,7 @@ async function buildProductListQuery(filters, page, limit) {
             ${filters.priceMax !== null && filters.priceMax !== undefined ? `AND MIN(p.sell_price) <= $${priceFilterParamIndex + (filters.priceMin !== null && filters.priceMin !== undefined ? 1 : 0)}` : ''}
         ),
         paginated_style_codes AS (
-          SELECT style_code, sell_price, custom_display_order
+          SELECT style_code, sell_price, custom_display_order, is_best, is_recommended
           FROM style_codes_with_meta
           ORDER BY 
             ${hasSearch && searchRelevanceOrder && sort === 'newest' ? `${searchRelevanceOrder}, ` : ''}
@@ -1149,6 +1161,8 @@ async function buildProductListQuery(filters, page, limit) {
           psc.style_code,
           psc.sell_price as sorted_sell_price,
           psc.custom_display_order,
+          psc.is_best,
+          psc.is_recommended,
           $${params.length + 1}::bigint as total,
           $${params.length + 2}::numeric as min_price,
           $${params.length + 3}::numeric as max_price
@@ -1188,10 +1202,8 @@ async function buildProductListQuery(filters, page, limit) {
     }
 
     const styleCodes = queryResult.rows.map(row => row.style_code);
-    // Store the sorted sell_price from SQL query for each style code
-    const sortedPricesMap = new Map();
-    // Store display_order for response
-    const displayOrderMap = new Map();
+    // Store flags for response
+    const flagsMap = new Map();
 
     queryResult.rows.forEach(row => {
       if (row.sorted_sell_price !== null && row.sorted_sell_price !== undefined) {
@@ -1200,6 +1212,10 @@ async function buildProductListQuery(filters, page, limit) {
       if (row.custom_display_order !== null && row.custom_display_order !== undefined && row.custom_display_order !== 999999) {
         displayOrderMap.set(row.style_code, parseInt(row.custom_display_order));
       }
+      flagsMap.set(row.style_code, {
+        isBestSeller: !!row.is_best,
+        isRecommended: !!row.is_recommended
+      });
     });
 
     if (styleCodes.length === 0) {
@@ -1526,7 +1542,9 @@ async function buildProductListQuery(filters, page, limit) {
         priceBreaks,
         markup_tier: markupPercent, // Send the effective markup percentage
         markup_source: markupSource,
-        display_order: displayOrderMap.has(styleCode) ? displayOrderMap.get(styleCode) : null
+        display_order: displayOrderMap.has(styleCode) ? displayOrderMap.get(styleCode) : null,
+        is_best_seller: flagsMap.get(styleCode)?.isBestSeller || false,
+        is_recommended: flagsMap.get(styleCode)?.isRecommended || false
       };
     }).filter(item => item !== null);
 
@@ -1815,9 +1833,9 @@ async function buildProductDetailQuery(styleCode) {
       p.carton_price,
       p.sell_price,
       t.name as tag,
-      p.sell_price,
-      t.name as tag,
-      COALESCE(pmo.markup_percent, pr.markup_percent) as markup_percent
+      COALESCE(pmo.markup_percent, pr.markup_percent) as markup_percent,
+      s.is_best_seller,
+      s.is_recommended
     FROM styles s
     LEFT JOIN brands b ON s.brand_id = b.id
     LEFT JOIN product_types pt ON s.product_type_id = pt.id
@@ -1957,7 +1975,9 @@ async function buildProductDetailQuery(styleCode) {
       weight: '',
       care: ''
     },
-    customization: ['embroidery', 'print']
+    customization: ['embroidery', 'print'],
+    is_best_seller: firstRow.is_best_seller || false,
+    is_recommended: firstRow.is_recommended || false
   };
 
   // Cache product details (longer TTL)

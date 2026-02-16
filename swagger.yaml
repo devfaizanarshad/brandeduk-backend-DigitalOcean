@@ -1532,6 +1532,31 @@ paths:
                 properties:
                   items:
                     type: array
+                    items:
+                      type: object
+                      properties:
+                        style_code:
+                          type: string
+                        style_name:
+                          type: string
+                        is_best_seller:
+                          type: boolean
+                        is_recommended:
+                          type: boolean
+                        best_seller_order:
+                          type: integer
+                        recommended_order:
+                          type: integer
+                        brand_name:
+                          type: string
+                        product_type_name:
+                          type: string
+                        price:
+                          type: number
+                        image:
+                          type: string
+                        sku_count:
+                          type: integer
                   total:
                     type: integer
 
@@ -1574,6 +1599,62 @@ paths:
                     items:
                       type: string
 
+  /api/admin/products/order-featured:
+    put:
+      tags:
+        - Admin
+      summary: Bulk update ordering for best seller and/or recommended products
+      description: |
+        Update the display order for multiple featured products. 
+        Lower numbers appear first. 
+        This only affects sorting when using sort=best or sort=recommended.
+      operationId: orderFeaturedProducts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - orders
+              properties:
+                orders:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - style_code
+                    properties:
+                      style_code:
+                        type: string
+                        example: "GD001"
+                      best_seller_order:
+                        type: integer
+                        example: 1
+                      recommended_order:
+                        type: integer
+                        example: 2
+      responses:
+        '200':
+          description: Orders updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  updated_styles:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          description: Invalid request body
+        '500':
+          description: Internal server error
+
   /api/admin/products/{code}:
     put:
       tags:
@@ -1608,6 +1689,10 @@ paths:
                   type: boolean
                 is_recommended:
                   type: boolean
+                best_seller_order:
+                  type: integer
+                recommended_order:
+                  type: integer
                 primary_image_url:
                   type: string
                 colorImages:

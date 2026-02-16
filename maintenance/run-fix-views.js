@@ -61,6 +61,8 @@ async function runFixViews() {
           t.slug AS tag_slug,
           s.is_best_seller,
           s.is_recommended,
+          s.best_seller_order,
+          s.recommended_order,
           
           array_agg(DISTINCT cat.id) FILTER (WHERE cat.id IS NOT NULL) AS category_ids,
           array_agg(DISTINCT f.id) FILTER (WHERE f.id IS NOT NULL) AS fabric_ids,
@@ -121,7 +123,7 @@ async function runFixViews() {
       LEFT JOIN product_weight_ranges pwr ON p.id = pwr.product_id
       LEFT JOIN weight_ranges wr ON pwr.weight_range_id = wr.id
       WHERE p.sku_status = 'Live'
-      GROUP BY p.id, s.style_code, s.style_name, b.name, g.slug, ag.slug, sz.slug, t.slug, s.is_best_seller, s.is_recommended
+      GROUP BY p.id, s.style_code, s.style_name, b.name, g.slug, ag.slug, sz.slug, t.slug, s.is_best_seller, s.is_recommended, s.best_seller_order, s.recommended_order
       WITH DATA
     `;
     await client.query(createMvQuery);

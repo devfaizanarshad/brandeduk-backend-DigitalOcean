@@ -204,6 +204,8 @@ router.get('/products/featured', async (req, res) => {
         s.style_name,
         s.is_best_seller,
         s.is_recommended,
+        s.best_seller_order,
+        s.recommended_order,
         b.name as brand_name,
         pt.name as product_type_name,
         (SELECT p.sell_price FROM products p WHERE p.style_code = s.style_code AND p.sku_status = 'Live' LIMIT 1) as price,
@@ -213,7 +215,8 @@ router.get('/products/featured', async (req, res) => {
       LEFT JOIN brands b ON s.brand_id = b.id
       LEFT JOIN product_types pt ON s.product_type_id = pt.id
       ${whereClause}
-      ORDER BY s.updated_at DESC
+      ORDER BY 
+        ${type === 'best' ? 's.best_seller_order ASC' : (type === 'recommended' ? 's.recommended_order ASC' : 's.updated_at DESC')}
       LIMIT $${pIdx++} OFFSET $${pIdx++}
     `;
 
@@ -1340,6 +1343,75 @@ router.put('/products/bulk-featured', async (req, res) => {
 });
 
 /**
+ * PUT /api/admin/products/order-featured
+ * Bulk update ordering for best seller and/or recommended products
+ * Body: { orders: [{ style_code: "GD001", best_seller_order?: 1, recommended_order?: 2 }, ...] }
+ */
+router.put('/products/order-featured', async (req, res) => {
+  const client = await require('../config/database').pool.connect();
+  try {
+    const { orders } = req.body;
+
+    if (!orders || !Array.isArray(orders) || orders.length === 0) {
+      return res.status(400).json({
+        error: 'Bad request',
+        message: 'orders array is required and must not be empty'
+      });
+    }
+
+    await client.query('BEGIN');
+
+    const results = [];
+    for (const item of orders) {
+      const { style_code, best_seller_order, recommended_order } = item;
+      if (!style_code) continue;
+
+      const styleCode = style_code.toUpperCase();
+      const updates = [];
+      const params = [styleCode];
+      let pIdx = 2;
+
+      if (best_seller_order !== undefined) {
+        updates.push(`best_seller_order = $${pIdx++}`);
+        params.push(parseInt(best_seller_order, 10));
+      }
+      if (recommended_order !== undefined) {
+        updates.push(`recommended_order = $${pIdx++}`);
+        params.push(parseInt(recommended_order, 10));
+      }
+
+      if (updates.length > 0) {
+        await client.query(`
+          UPDATE styles 
+          SET ${updates.join(', ')}, updated_at = NOW()
+          WHERE style_code = $1
+        `, params);
+        results.push(styleCode);
+      }
+    }
+
+    await client.query('COMMIT');
+
+    // Invalidate cache but don't refresh views immediately (too slow for UX)
+    // The new order will reflect in about 1-10 mins when manual sync is run
+    // or if we use the materialized view concurrently.
+    await broadcastCacheInvalidation({ refreshViews: false, reason: 'admin_order_featured' });
+
+    res.json({
+      success: true,
+      message: `Orders updated for ${results.length} styles`,
+      updated_styles: results
+    });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK');
+    console.error('[ADMIN] Failed to update featured products order:', error.message);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+/**
  * PUT /api/admin/products/bulk-carton-price
  * Bulk update carton_price for multiple style codes
  * Body: { updates: [{ style_code: "GD002", carton_price: 4.65 }, ...] }
@@ -1452,7 +1524,9 @@ router.put('/products/:code', async (req, res) => {
       primary_image_url,
       colorImages,
       is_best_seller,
-      is_recommended
+      is_recommended,
+      best_seller_order,
+      recommended_order
     } = req.body;
 
     // Check style exists
@@ -1476,7 +1550,9 @@ router.put('/products/:code', async (req, res) => {
       specification !== undefined ||
       fabric_description !== undefined ||
       is_best_seller !== undefined ||
-      is_recommended !== undefined
+      is_recommended !== undefined ||
+      best_seller_order !== undefined ||
+      recommended_order !== undefined
     ) {
       const styleFields = [];
       const styleParams = [];
@@ -1500,6 +1576,14 @@ router.put('/products/:code', async (req, res) => {
       if (is_recommended !== undefined) {
         styleFields.push(`is_recommended = $${idx++}`);
         styleParams.push(is_recommended === true || is_recommended === 'true');
+      }
+      if (best_seller_order !== undefined) {
+        styleFields.push(`best_seller_order = $${idx++}`);
+        styleParams.push(parseInt(best_seller_order, 10));
+      }
+      if (recommended_order !== undefined) {
+        styleFields.push(`recommended_order = $${idx++}`);
+        styleParams.push(parseInt(recommended_order, 10));
       }
       styleFields.push('updated_at = NOW()');
       styleParams.push(styleCode);
