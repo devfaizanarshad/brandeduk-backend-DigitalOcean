@@ -987,28 +987,29 @@ async function buildProductListQuery(filters, page, limit) {
   // Construct ORDER BY clause
   // If prioritizeCustomOrder is true, put custom_display_order FIRST
   let orderByClause = '';
+  const searchSort = (hasSearch && searchRelevanceOrder) ? `${searchRelevanceOrder}, ` : '';
 
   if (prioritizeCustomOrder) {
     // Default (newest/best-sellers proxy) – honour custom display order first
-    orderByClause = `custom_display_order ASC, product_type_priority ASC, created_at ${order}`;
+    orderByClause = `custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}`;
   } else if (prioritizeBest) {
     // "Best" sort: prioritise products flagged as best seller with custom order
-    orderByClause = `is_best DESC, best_seller_order ASC, is_recommended DESC, recommended_order ASC, custom_display_order ASC, product_type_priority ASC, created_at ${order}`;
+    orderByClause = `is_best DESC, best_seller_order ASC, is_recommended DESC, recommended_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}`;
   } else if (prioritizeRecommended) {
     // "Recommended" sort: prioritise products flagged as recommended with custom order
-    orderByClause = `is_recommended DESC, recommended_order ASC, is_best DESC, best_seller_order ASC, custom_display_order ASC, product_type_priority ASC, created_at ${order}`;
+    orderByClause = `is_recommended DESC, recommended_order ASC, is_best DESC, best_seller_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}`;
   } else {
     // Normal sorting
     if (sort === 'price') {
-      orderByClause = `sell_price ${order}, product_type_priority ASC`;
+      orderByClause = `sell_price ${order}, ${searchSort}product_type_priority ASC`;
     } else if (sort === 'name') {
-      orderByClause = `style_name ${order}, product_type_priority ASC`;
+      orderByClause = `style_name ${order}, ${searchSort}product_type_priority ASC`;
     } else if (sort === 'brand') {
-      orderByClause = `brand_name ${order}, product_type_priority ASC`;
+      orderByClause = `brand_name ${order}, ${searchSort}product_type_priority ASC`;
     } else if (sort === 'code') {
-      orderByClause = `style_code ${order}, product_type_priority ASC`;
+      orderByClause = `style_code ${order}, ${searchSort}product_type_priority ASC`;
     } else {
-      orderByClause = `product_type_priority ASC, created_at ${order}`;
+      orderByClause = `${searchSort}product_type_priority ASC, created_at ${order}`;
     }
   }
 
@@ -1061,7 +1062,6 @@ async function buildProductListQuery(filters, page, limit) {
       SELECT style_code, sell_price, custom_display_order, is_best, is_recommended
       FROM style_codes_with_meta
       ORDER BY 
-        ${hasSearch && searchRelevanceOrder && sort === 'newest' ? `${searchRelevanceOrder}, ` : ''}
         ${orderByClause}
       LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
     ),
@@ -1153,7 +1153,6 @@ async function buildProductListQuery(filters, page, limit) {
           SELECT style_code, sell_price, custom_display_order, is_best, is_recommended
           FROM style_codes_with_meta
           ORDER BY 
-            ${hasSearch && searchRelevanceOrder && sort === 'newest' ? `${searchRelevanceOrder}, ` : ''}
             ${orderByClause}
           LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}
         )
