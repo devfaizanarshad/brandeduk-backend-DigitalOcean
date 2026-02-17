@@ -1382,12 +1382,18 @@ router.put('/products/order-featured', async (req, res) => {
       let pIdx = 2;
 
       if (best_seller_order !== undefined) {
+        const val = parseInt(best_seller_order, 10);
         updates.push(`best_seller_order = $${pIdx++}`);
-        params.push(parseInt(best_seller_order, 10));
+        params.push(val);
+        // Automatically sync the boolean flag: if order is 999999, it's not a best seller anymore
+        updates.push(`is_best_seller = ${val < 999999}`);
       }
       if (recommended_order !== undefined) {
+        const val = parseInt(recommended_order, 10);
         updates.push(`recommended_order = $${pIdx++}`);
-        params.push(parseInt(recommended_order, 10));
+        params.push(val);
+        // Automatically sync the boolean flag: if order is 999999, it's not recommended anymore
+        updates.push(`is_recommended = ${val < 999999}`);
       }
 
       if (updates.length > 0) {
@@ -1579,6 +1585,25 @@ router.put('/products/:code', async (req, res) => {
         styleFields.push(`fabric_description = $${idx++}`);
         styleParams.push(fabric_description);
       }
+      if (best_seller_order !== undefined) {
+        const val = parseInt(best_seller_order, 10);
+        styleFields.push(`best_seller_order = $${idx++}`);
+        styleParams.push(val);
+        // Sync flag if not explicitly provided: setting an order number enables the flag, setting 999999 disables it
+        if (is_best_seller === undefined) {
+          styleFields.push(`is_best_seller = ${val < 999999}`);
+        }
+      }
+      if (recommended_order !== undefined) {
+        const val = parseInt(recommended_order, 10);
+        styleFields.push(`recommended_order = $${idx++}`);
+        styleParams.push(val);
+        // Sync flag if not explicitly provided
+        if (is_recommended === undefined) {
+          styleFields.push(`is_recommended = ${val < 999999}`);
+        }
+      }
+
       if (is_best_seller !== undefined) {
         const isBestValue = is_best_seller === true || is_best_seller === 'true';
         styleFields.push(`is_best_seller = $${idx++}`);
@@ -1596,14 +1621,6 @@ router.put('/products/:code', async (req, res) => {
         if (!isRecValue && recommended_order === undefined) {
           styleFields.push(`recommended_order = 999999`);
         }
-      }
-      if (best_seller_order !== undefined) {
-        styleFields.push(`best_seller_order = $${idx++}`);
-        styleParams.push(parseInt(best_seller_order, 10));
-      }
-      if (recommended_order !== undefined) {
-        styleFields.push(`recommended_order = $${idx++}`);
-        styleParams.push(parseInt(recommended_order, 10));
       }
       styleFields.push('updated_at = NOW()');
       styleParams.push(styleCode);
