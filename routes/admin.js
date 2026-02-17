@@ -1310,12 +1310,22 @@ router.put('/products/bulk-featured', async (req, res) => {
     let idx = 1;
 
     if (is_best_seller !== undefined) {
+      const isBestValue = is_best_seller === true || is_best_seller === 'true';
       updates.push(`is_best_seller = $${idx++}`);
-      params.push(is_best_seller === true || is_best_seller === 'true');
+      params.push(isBestValue);
+      // Reset order to default when removing from best sellers
+      if (!isBestValue) {
+        updates.push(`best_seller_order = 999999`);
+      }
     }
     if (is_recommended !== undefined) {
+      const isRecValue = is_recommended === true || is_recommended === 'true';
       updates.push(`is_recommended = $${idx++}`);
-      params.push(is_recommended === true || is_recommended === 'true');
+      params.push(isRecValue);
+      // Reset order to default when removing from recommended
+      if (!isRecValue) {
+        updates.push(`recommended_order = 999999`);
+      }
     }
 
     params.push(style_codes.map(c => c.toUpperCase()));
@@ -1570,12 +1580,22 @@ router.put('/products/:code', async (req, res) => {
         styleParams.push(fabric_description);
       }
       if (is_best_seller !== undefined) {
+        const isBestValue = is_best_seller === true || is_best_seller === 'true';
         styleFields.push(`is_best_seller = $${idx++}`);
-        styleParams.push(is_best_seller === true || is_best_seller === 'true');
+        styleParams.push(isBestValue);
+        // Reset order if unsetting best seller and no specific order provided in request
+        if (!isBestValue && best_seller_order === undefined) {
+          styleFields.push(`best_seller_order = 999999`);
+        }
       }
       if (is_recommended !== undefined) {
+        const isRecValue = is_recommended === true || is_recommended === 'true';
         styleFields.push(`is_recommended = $${idx++}`);
-        styleParams.push(is_recommended === true || is_recommended === 'true');
+        styleParams.push(isRecValue);
+        // Reset order if unsetting recommended and no specific order provided in request
+        if (!isRecValue && recommended_order === undefined) {
+          styleFields.push(`recommended_order = 999999`);
+        }
       }
       if (best_seller_order !== undefined) {
         styleFields.push(`best_seller_order = $${idx++}`);
