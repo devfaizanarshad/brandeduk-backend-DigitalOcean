@@ -255,7 +255,10 @@ router.get('/discontinued', async (req, res) => {
         s.style_code as code, 
         s.style_name as name, 
         MIN(p.sell_price) as price,
-        MIN(COALESCE(p.primary_image_url, p.colour_image_url)) as image,
+        MIN(COALESCE(
+          NULLIF(p.primary_image_url, 'Not available'), 
+          NULLIF(p.colour_image_url, 'Not available')
+        )) as image,
         MIN(b.name) as brand,
         MIN(pt.name) as product_type
       FROM products p

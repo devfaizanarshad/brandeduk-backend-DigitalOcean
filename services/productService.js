@@ -1378,7 +1378,7 @@ async function buildProductListQuery(filters, page, limit) {
           packPrice: null,
           cartonPrice: null,
           customization: new Set(),
-          primaryImageUrl: row.primary_image_url,
+          primaryImageUrl: (row.primary_image_url === 'Not available' ? null : row.primary_image_url),
           // ENTERPRISE-LEVEL: Track the first filtered color's image for priority display
           filteredColorImage: null,
           markupPercent: row.override_markup ? parseFloat(row.override_markup) : null
@@ -1392,7 +1392,9 @@ async function buildProductListQuery(filters, page, limit) {
       }
 
       const colorKey = row.colour_name || row.primary_colour || 'Unknown';
-      const colorImage = row.colour_image_url || row.primary_image_url || '';
+      const rowColorImage = row.colour_image_url === 'Not available' ? null : row.colour_image_url;
+      const rowPrimaryImage = row.primary_image_url === 'Not available' ? null : row.primary_image_url;
+      const colorImage = rowColorImage || rowPrimaryImage || '';
 
       if (!product.colorsMap.has(colorKey)) {
         product.colorsMap.set(colorKey, {
@@ -1860,7 +1862,8 @@ async function buildProductDetailQuery(styleCode) {
   const sizesSet = new Set();
   const prices = [];
   const customizationSet = new Set();
-  let mainImage = firstRow.primary_image_url || '';
+  const rawMainImage = firstRow.primary_image_url || '';
+  let mainImage = rawMainImage === 'Not available' ? '' : rawMainImage;
   let maxSellPrice = 0; // Track minimum sell_price across all rows (consistent with product list API)
   let cartonPrice = null;
   let markupPercent = null;
@@ -1872,7 +1875,9 @@ async function buildProductDetailQuery(styleCode) {
 
     const colorKey = row.colour_name || row.primary_colour || 'Unknown';
     if (!colorsMap.has(colorKey)) {
-      const colorImage = row.colour_image_url || row.primary_image_url || '';
+      const rowColorImage = row.colour_image_url === 'Not available' ? null : row.colour_image_url;
+      const rowPrimaryImage = row.primary_image_url === 'Not available' ? null : row.primary_image_url;
+      const colorImage = rowColorImage || rowPrimaryImage || '';
       colorsMap.set(colorKey, {
         name: colorKey,
         main: colorImage,
