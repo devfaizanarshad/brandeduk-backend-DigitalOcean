@@ -272,15 +272,33 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Bad request', message: 'display_order is required' });
     }
 
-    // Check if style_code exists
+    // Check if style_code exists AND validate it belongs to the specified category/brand
     const styleCheck = await queryWithTimeout(
-      'SELECT style_code FROM styles WHERE style_code = $1',
+      'SELECT style_code, product_type_id, brand_id FROM styles WHERE style_code = $1',
       [style_code.toUpperCase()],
       5000
     );
 
     if (styleCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Not found', message: `Product with style_code ${style_code} not found` });
+    }
+
+    const actualStyle = styleCheck.rows[0];
+
+    // Prevent cross-category entries: validate product_type_id matches the style's actual type
+    if (product_type_id && actualStyle.product_type_id && parseInt(product_type_id) !== actualStyle.product_type_id) {
+      return res.status(400).json({
+        error: 'Category mismatch',
+        message: `Style ${style_code} belongs to product_type_id ${actualStyle.product_type_id}, not ${product_type_id}. Cannot create cross-category display order.`
+      });
+    }
+
+    // Prevent cross-brand entries: validate brand_id matches the style's actual brand
+    if (brand_id && actualStyle.brand_id && parseInt(brand_id) !== actualStyle.brand_id) {
+      return res.status(400).json({
+        error: 'Brand mismatch',
+        message: `Style ${style_code} belongs to brand_id ${actualStyle.brand_id}, not ${brand_id}. Cannot create cross-brand display order.`
+      });
     }
 
     // Insert or update (upsert)
@@ -336,6 +354,39 @@ router.post('/bulk', async (req, res) => {
         style_code: o.style_code.toUpperCase(),
         display_order: o.display_order !== null ? Math.max(1, parseInt(o.display_order)) : null
       }));
+
+    // 🛡️ Validate all style_codes belong to the specified product_type/brand
+    if (product_type_id || brand_id) {
+      const styleCodes = normalizedOrders.map(o => o.style_code);
+      const validationResult = await client.query(
+        `SELECT style_code, product_type_id, brand_id FROM styles WHERE style_code = ANY($1)`,
+        [styleCodes]
+      );
+      const styleMap = {};
+      for (const row of validationResult.rows) {
+        styleMap[row.style_code] = row;
+      }
+
+      const invalidEntries = [];
+      for (const order of normalizedOrders) {
+        if (order.display_order === null) continue; // Skip deletions
+        const style = styleMap[order.style_code];
+        if (!style) continue; // Style doesn't exist, will fail later
+        if (product_type_id && style.product_type_id && parseInt(product_type_id) !== style.product_type_id) {
+          invalidEntries.push({ style_code: order.style_code, reason: `belongs to product_type_id ${style.product_type_id}, not ${product_type_id}` });
+        }
+        if (brand_id && style.brand_id && parseInt(brand_id) !== style.brand_id) {
+          invalidEntries.push({ style_code: order.style_code, reason: `belongs to brand_id ${style.brand_id}, not ${brand_id}` });
+        }
+      }
+
+      if (invalidEntries.length > 0) {
+        console.warn(`[DISPLAY_ORDER] Skipping ${invalidEntries.length} cross-category entries:`, invalidEntries.map(e => e.style_code).join(', '));
+        // Filter out invalid entries instead of rejecting the whole request
+        const invalidCodes = new Set(invalidEntries.map(e => e.style_code));
+        normalizedOrders.splice(0, normalizedOrders.length, ...normalizedOrders.filter(o => !invalidCodes.has(o.style_code) || o.display_order === null));
+      }
+    }
 
     await client.query('BEGIN');
 
