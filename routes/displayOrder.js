@@ -2,6 +2,23 @@ const express = require('express');
 const router = express.Router();
 const { pool, queryWithTimeout } = require('../config/database');
 const { broadcastCacheInvalidation } = require('../services/cacheSync');
+const crypto = require('crypto');
+
+/**
+ * Helper to log to audit table
+ */
+async function logAudit(client, { action, style_code, product_type_id, brand_id, old_order, new_order, context, batch_id, source = 'api' }) {
+  try {
+    await client.query(
+      `INSERT INTO product_display_order_audit 
+       (action, style_code, product_type_id, brand_id, old_display_order, new_display_order, context, batch_id, source)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [action, style_code, product_type_id, brand_id, old_order, new_order, context, batch_id, source]
+    );
+  } catch (err) {
+    console.error('[AUDIT] Failed to log:', err.message);
+  }
+}
 
 /**
  * GET /api/display-order
@@ -301,28 +318,59 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Insert or update (upsert)
-    const query = `
-      INSERT INTO product_display_order (style_code, brand_id, product_type_id, display_order, updated_at)
-      VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-      ON CONFLICT (style_code, brand_id, product_type_id) 
-      DO UPDATE SET display_order = $4, updated_at = CURRENT_TIMESTAMP
-      RETURNING *
-    `;
+    // Start a transaction for audit
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    const result = await queryWithTimeout(
-      query,
-      [style_code.toUpperCase(), brand_id || null, product_type_id || null, parseInt(display_order)],
-      10000
-    );
+      // Get old value for audit
+      const oldValResult = await client.query(
+        `SELECT display_order FROM product_display_order 
+         WHERE style_code = $1 AND COALESCE(brand_id, 0) = COALESCE($2, 0) AND COALESCE(product_type_id, 0) = COALESCE($3, 0)`,
+        [style_code.toUpperCase(), brand_id || null, product_type_id || null]
+      );
+      const oldOrder = oldValResult.rows[0]?.display_order;
 
-    // Clear product list cache so new display order is applied immediately
-    await broadcastCacheInvalidation({ reason: 'display_order_update' });
+      // Insert or update (upsert)
+      const query = `
+        INSERT INTO product_display_order (style_code, brand_id, product_type_id, display_order, updated_at)
+        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+        ON CONFLICT (style_code, COALESCE(brand_id, 0), COALESCE(product_type_id, 0)) 
+        DO UPDATE SET display_order = $4, updated_at = CURRENT_TIMESTAMP
+        RETURNING *
+      `;
 
-    res.status(201).json({
-      message: 'Display order saved successfully',
-      data: result.rows[0]
-    });
+      const result = await client.query(
+        query,
+        [style_code.toUpperCase(), brand_id || null, product_type_id || null, parseInt(display_order)]
+      );
+
+      await logAudit(client, {
+        action: oldOrder ? 'UPDATE' : 'INSERT',
+        style_code: style_code.toUpperCase(),
+        product_type_id: product_type_id || null,
+        brand_id: brand_id || null,
+        old_order: oldOrder,
+        new_order: parseInt(display_order),
+        context: 'Single item update',
+        batch_id: crypto.randomUUID()
+      });
+
+      await client.query('COMMIT');
+
+      // Clear product list cache
+      await broadcastCacheInvalidation({ reason: 'display_order_update' });
+
+      res.status(201).json({
+        message: 'Display order saved successfully',
+        data: result.rows[0]
+      });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   } catch (error) {
     console.error('[ERROR] Failed to create display order:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
@@ -389,60 +437,68 @@ router.post('/bulk', async (req, res) => {
     }
 
     await client.query('BEGIN');
+    const batchId = crypto.randomUUID();
 
+    // 1️⃣ Get current state for audit if needed
+    const oldOrdersResult = await client.query(
+      `SELECT style_code, display_order FROM product_display_order 
+       WHERE COALESCE(brand_id, 0) = COALESCE($1, 0) AND COALESCE(product_type_id, 0) = COALESCE($2, 0)`,
+      [brand_id, product_type_id]
+    );
+    const oldOrderMap = {};
+    oldOrdersResult.rows.forEach(r => oldOrderMap[r.style_code] = r.display_order);
+
+    // 2️⃣ Handle products being unpinned (display_order: null)
+    const toDelete = normalizedOrders.filter(o => o.display_order === null).map(o => o.style_code);
+    if (toDelete.length > 0) {
+      await client.query(
+        `DELETE FROM product_display_order 
+         WHERE style_code = ANY($1) 
+         AND COALESCE(brand_id, 0) = COALESCE($2, 0)
+         AND COALESCE(product_type_id, 0) = COALESCE($3, 0)`,
+        [toDelete, brand_id, product_type_id]
+      );
+
+      for (const code of toDelete) {
+        await logAudit(client, {
+          action: 'DELETE',
+          style_code: code,
+          product_type_id,
+          brand_id,
+          old_order: oldOrderMap[code],
+          new_order: null,
+          context: 'Bulk unpin',
+          batch_id: batchId
+        });
+      }
+    }
+
+    // 3️⃣ Upsert new orders
+    const toUpdate = normalizedOrders.filter(o => o.display_order !== null);
     const results = [];
 
-    for (const order of normalizedOrders) {
-      const { style_code, display_order } = order;
-
-      if (display_order === null) {
-        // Unpin product → remove from table
-        await client.query(
-          `DELETE FROM product_display_order
-           WHERE style_code = $1
-           AND COALESCE(brand_id, 0) = COALESCE($2, 0)
-           AND COALESCE(product_type_id, 0) = COALESCE($3, 0)`,
-          [style_code, brand_id, product_type_id]
-        );
-        continue;
-      }
-
-      // 2️⃣ Clear any product currently occupying this position
-      await client.query(
-        `UPDATE product_display_order
-         SET display_order = NULL
-         WHERE display_order = $1
-         AND COALESCE(brand_id, 0) = COALESCE($2, 0)
-         AND COALESCE(product_type_id, 0) = COALESCE($3, 0)
-         AND style_code <> $4`,
-        [display_order, brand_id, product_type_id, style_code]
-      );
-
-      // 3️⃣ Clear previous position of this product (if it exists)
-      await client.query(
-        `UPDATE product_display_order
-         SET display_order = NULL
-         WHERE style_code = $1
-         AND COALESCE(brand_id, 0) = COALESCE($2, 0)
-         AND COALESCE(product_type_id, 0) = COALESCE($3, 0)
-         AND display_order IS DISTINCT FROM $4`,
-        [style_code, brand_id, product_type_id, display_order]
-      );
-
-      // 4️⃣ Upsert product display order
+    for (const order of toUpdate) {
       const result = await client.query(
-        `INSERT INTO product_display_order
-          (style_code, brand_id, product_type_id, display_order, updated_at)
+        `INSERT INTO product_display_order (style_code, brand_id, product_type_id, display_order, updated_at)
          VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
          ON CONFLICT (style_code, COALESCE(brand_id, 0), COALESCE(product_type_id, 0))
-         DO UPDATE SET
-           display_order = EXCLUDED.display_order,
-           updated_at = CURRENT_TIMESTAMP
+         DO UPDATE SET display_order = EXCLUDED.display_order, updated_at = CURRENT_TIMESTAMP
          RETURNING *`,
-        [style_code, brand_id, product_type_id, display_order]
+        [order.style_code, brand_id, product_type_id, order.display_order]
       );
 
       results.push(result.rows[0]);
+
+      await logAudit(client, {
+        action: oldOrderMap[order.style_code] ? 'UPDATE' : 'INSERT',
+        style_code: order.style_code,
+        product_type_id,
+        brand_id,
+        old_order: oldOrderMap[order.style_code],
+        new_order: order.display_order,
+        context: 'Bulk update',
+        batch_id: batchId
+      });
     }
 
     await client.query('COMMIT');
