@@ -228,7 +228,8 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
     if (hasItems(filters.productType)) {
       const normalizeProductType = (pt) => {
         const normalized = pt.trim().toLowerCase().replace(/[- ]/g, '');
-        if (normalized.includes('tshirt')) {
+        // IMPORTANT: Use ^tshirt to avoid matching "sweatshirts" (which contains "tshirt" as substring)
+        if (/^tshirts?$/.test(normalized)) {
           return normalized.includes('shirts') ? 'tshirts' : 'tshirt';
         }
         return normalized;
@@ -896,7 +897,8 @@ async function buildProductListQuery(filters, page, limit) {
       // Remove all hyphens and spaces
       let cleaned = normalized.replace(/[- ]/g, '');
       // Handle t-shirt variations specifically - always use plural "tshirts" to match DB
-      if (cleaned.includes('tshirt')) {
+      // IMPORTANT: Use ^tshirt to avoid matching "sweatshirts" (which contains "tshirt" as substring)
+      if (/^tshirts?$/.test(cleaned)) {
         cleaned = 'tshirts'; // Always use plural form as stored in DB
       }
       return cleaned;
@@ -1227,12 +1229,13 @@ async function buildProductListQuery(filters, page, limit) {
     const batchStartTime = Date.now();
 
     // ENTERPRISE-LEVEL: Dynamic batch limit calculation
-    // Each product can have multiple colors, so we need enough rows to cover all products
-    // Formula: styleCodes.length * MAX_COLORS_PER_PRODUCT, capped at MAX_BATCH_ROWS
+    // Without DISTINCT ON, each row = one color+size combination.
+    // We need enough rows to cover all products:  colors × sizes per product.
+    // Formula: styleCodes.length * MAX_VARIANTS_PER_PRODUCT, capped at MAX_BATCH_ROWS
     const dynamicBatchLimit = Math.max(
       PAGINATION_CONFIG.MIN_BATCH_ROWS,
       Math.min(
-        styleCodes.length * PAGINATION_CONFIG.MAX_COLORS_PER_PRODUCT,
+        styleCodes.length * PAGINATION_CONFIG.MAX_COLORS_PER_PRODUCT * 8, // ~8 sizes per color
         PAGINATION_CONFIG.MAX_BATCH_ROWS
       )
     );
@@ -1267,11 +1270,12 @@ async function buildProductListQuery(filters, page, limit) {
       ? `AND (${batchColorConditions.join(' OR ')})`
       : '';
 
-    // OPTIMIZED: Use DISTINCT ON to reduce rows - one per style_code+colour combination
-    // Dynamic limit ensures all requested products are retrieved regardless of color count
+    // Fetch all rows (style_code + colour + size combinations) so sizes accumulate correctly.
+    // Previously DISTINCT ON (style_code, colour_name) collapsed rows, losing all but the first size.
+    // Dynamic limit ensures all requested products are retrieved regardless of color/size count.
     // CRITICAL FIX: Apply color filters to batch query to ensure only matching colors are returned
     const batchQuery = `
-      SELECT DISTINCT ON (p.style_code, p.colour_name)
+      SELECT
         p.style_code as code,
         s.style_name as name,
         b.name as brand,

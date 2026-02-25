@@ -220,7 +220,8 @@ router.get('/discontinued', async (req, res) => {
       if (!pt) return pt;
       const normalized = pt.trim().toLowerCase();
       let cleaned = normalized.replace(/[- ]/g, '');
-      if (cleaned.includes('tshirt')) {
+      // IMPORTANT: Use ^tshirt to avoid matching "sweatshirts" (which contains "tshirt" as substring)
+      if (/^tshirts?$/.test(cleaned)) {
         cleaned = 'tshirts';
       }
       return cleaned;

@@ -518,7 +518,8 @@ async function getProductTypeFilteredProductsWithDetails(productTypeSlug, page, 
       // Remove all hyphens and spaces
       let cleaned = normalized.replace(/[- ]/g, '');
       // Handle t-shirt variations specifically - always use plural "tshirts" to match DB
-      if (cleaned.includes('tshirt')) {
+      // IMPORTANT: Use ^tshirt to avoid matching "sweatshirts" (which contains "tshirt" as substring)
+      if (/^tshirts?$/.test(cleaned)) {
         cleaned = 'tshirts'; // Always use plural form as stored in DB
       }
       return cleaned;
