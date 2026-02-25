@@ -227,8 +227,8 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
     let productTypeJoin = '';
     if (hasItems(filters.productType)) {
       const normalizeProductType = (pt) => {
-        const normalized = pt.trim().toLowerCase().replace(/[- ]/g, '');
-        // IMPORTANT: Use ^tshirt to avoid matching "sweatshirts" (which contains "tshirt" as substring)
+        const normalized = pt.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        // IMPORTANT: Use ^tshirt to avoid matching "sweatshirts"
         if (/^tshirts?$/.test(normalized)) {
           return normalized.includes('shirts') ? 'tshirts' : 'tshirt';
         }
@@ -238,7 +238,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
       productTypeJoin = `
         INNER JOIN styles s_pt ON psm.style_code = s_pt.style_code
         INNER JOIN product_types pt_pt ON s_pt.product_type_id = pt_pt.id 
-          AND LOWER(REPLACE(REPLACE(pt_pt.name, '-', ''), ' ', '')) = ANY($${paramIndex}::text[])`;
+          AND LOWER(REGEXP_REPLACE(pt_pt.name, '[^a-zA-Z0-9]', '', 'g')) = ANY($${paramIndex}::text[])`;
       params.push(uniqueProductTypes);
       paramIndex++;
     }
@@ -894,27 +894,22 @@ async function buildProductListQuery(filters, page, limit) {
     // Handles: tshirts, tshirt, t shirt, t-shirt, t-shirts -> all match "tshirts" in DB
     const normalizeProductType = (pt) => {
       const normalized = pt.trim().toLowerCase();
-      // Remove all hyphens and spaces
-      let cleaned = normalized.replace(/[- ]/g, '');
+      // Remove ALL non-alphanumeric characters
+      let cleaned = normalized.replace(/[^a-z0-9]/g, '');
       // Handle t-shirt variations specifically - always use plural "tshirts" to match DB
-      // IMPORTANT: Use ^tshirt to avoid matching "sweatshirts" (which contains "tshirt" as substring)
       if (/^tshirts?$/.test(cleaned)) {
-        cleaned = 'tshirts'; // Always use plural form as stored in DB
+        cleaned = 'tshirts';
       }
       return cleaned;
     };
 
     const normalizedProductTypes = filters.productType.map(normalizeProductType);
-    // Remove duplicates
     const uniqueProductTypes = [...new Set(normalizedProductTypes)];
 
-    // Build JOIN clause for first CTE - this ensures strict filtering at source
-    // Apply filter directly in JOIN ON clause for stricter filtering
-    // Match by removing hyphens/spaces from DB name and comparing
     productTypeJoin = `
       INNER JOIN styles s_pt ON ${viewAlias}.style_code = s_pt.style_code
-      INNER JOIN product_types pt_pt ON s_pt.product_type_id = pt_pt.id 
-        AND LOWER(REPLACE(REPLACE(pt_pt.name, '-', ''), ' ', '')) = ANY($${paramIndex}::text[])`;
+      INNER JOIN product_types pt_pt ON s_pt.product_type_id = pt_pt.id
+        AND LOWER(REGEXP_REPLACE(pt_pt.name, '[^a-zA-Z0-9]', '', 'g')) = ANY($${paramIndex}::text[])`;
     params.push(uniqueProductTypes);
     paramIndex++;
   }

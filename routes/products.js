@@ -219,8 +219,9 @@ router.get('/discontinued', async (req, res) => {
     const normalizeProductType = (pt) => {
       if (!pt) return pt;
       const normalized = pt.trim().toLowerCase();
-      let cleaned = normalized.replace(/[- ]/g, '');
-      // IMPORTANT: Use ^tshirt to avoid matching "sweatshirts" (which contains "tshirt" as substring)
+      // Remove ALL non-alphanumeric characters
+      let cleaned = normalized.replace(/[^a-z0-9]/g, '');
+      // IMPORTANT: Use ^tshirt to avoid matching "sweatshirts"
       if (/^tshirts?$/.test(cleaned)) {
         cleaned = 'tshirts';
       }
@@ -244,7 +245,7 @@ router.get('/discontinued', async (req, res) => {
     const ptFilter = parseArray(productType || productTypes || category || categories);
     if (ptFilter.length > 0) {
       const normalizedPTs = ptFilter.map(normalizeProductType);
-      conditions.push(`LOWER(REPLACE(REPLACE(pt.name, '-', ''), ' ', '')) = ANY($${pIdx}::text[])`);
+      conditions.push(`LOWER(REGEXP_REPLACE(pt.name, '[^a-zA-Z0-9]', '', 'g')) = ANY($${pIdx}::text[])`);
       params.push(normalizedPTs);
       pIdx++;
     }
