@@ -1978,10 +1978,13 @@ async function buildProductDetailQuery(styleCode) {
     productMainImage = colors[0].main;
   }
 
-  // Also expose the primary model image on the first colour entry
-  // without changing existing main/thumb values.
-  if (productMainImage && colors.length > 0) {
-    colors[0] = { ...colors[0], model: productMainImage };
+  // Insert a synthetic "model" colour as the first entry when we have a main model image
+  if (productMainImage) {
+    colors.unshift({
+      name: 'model',
+      main: productMainImage,
+      thumb: productMainImage
+    });
   }
 
   if (productMainImage) {
