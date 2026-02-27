@@ -1978,6 +1978,12 @@ async function buildProductDetailQuery(styleCode) {
     productMainImage = colors[0].main;
   }
 
+  // Also expose the primary model image on the first colour entry
+  // without changing existing main/thumb values.
+  if (productMainImage && colors.length > 0) {
+    colors[0] = { ...colors[0], model: productMainImage };
+  }
+
   if (productMainImage) {
     images.push({ url: productMainImage, type: 'main' });
   }
