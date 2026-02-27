@@ -64,7 +64,7 @@ app.use((req, res, next) => {
 
 const rateLimitMap = new Map();
 const RATE_LIMIT_WINDOW = 60 * 1000;
-const RATE_LIMIT_MAX = 100;
+const RATE_LIMIT_MAX = parseInt(process.env.RATE_LIMIT_MAX || '', 10) || (process.env.NODE_ENV === 'production' ? 100 : 2000);
 
 app.use('/api/', (req, res, next) => {
   const ip = req.ip || req.connection.remoteAddress || 'unknown';

@@ -2,13 +2,57 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
+const NODE_ENV = (process.env.NODE_ENV || 'development').toLowerCase();
+
+// Defaults: safe for local testing, explicit for production
+const DEFAULTS =
+  NODE_ENV === 'production'
+    ? {
+        host: 'localhost',
+        port: 5432,
+        database: 'brandeduk_prod',
+        user: 'brandeduk',
+        password: 'omglol123',
+        ssl: true,
+      }
+    : {
+        host: 'localhost',
+        port: 5432,
+        database: 'brandeduk_ralawise_backup',
+        user: 'postgres',
+        password: '1234',
+        ssl: false,
+      };
+
+const resolved = {
+  host: process.env.DB_HOST || DEFAULTS.host,
+  port: parseInt(process.env.DB_PORT || DEFAULTS.port, 10),
+  database: process.env.DB_NAME || DEFAULTS.database,
+  user: process.env.DB_USER || DEFAULTS.user,
+  password: process.env.DB_PASSWORD || DEFAULTS.password,
+};
+
+// Safety: prevent accidental prod DB usage during testing
+if (
+  NODE_ENV !== 'production' &&
+  /prod/i.test(resolved.database) &&
+  process.env.ALLOW_PROD_DB !== 'true'
+) {
+  throw new Error(
+    `[DB] Refusing to connect to production-like database "${resolved.database}" when NODE_ENV="${NODE_ENV}". Set ALLOW_PROD_DB=true to override.`
+  );
+}
+
+// SSL: use DB_SSL if explicitly set, otherwise infer from host
+const dbSslRaw = process.env.DB_SSL;
+const sslEnabled =
+  typeof dbSslRaw === 'string'
+    ? dbSslRaw.toLowerCase() === 'true'
+    : DEFAULTS.ssl || (resolved.host !== 'localhost' && resolved.host !== '127.0.0.1');
+
 // Configuration optimized for LIMITED connections (shared hosting scenario)
 const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'brandeduk_prod',
-  user: process.env.DB_USER || 'brandeduk',
-  password: process.env.DB_PASSWORD || 'omglol123',
+  ...resolved,
 
   // 🎯 CRITICAL: Minimal connections to avoid hitting per-role limits
   max: parseInt(process.env.DB_POOL_MAX) || 3,      // MAX: 3 connections (very conservative)
@@ -24,8 +68,8 @@ const pool = new Pool({
   application_name: 'branded-uk-api',
   allowExitOnIdle: true,                            // Allow connections to close when idle
 
-  // SSL - only for remote connections
-  ssl: process.env.DB_HOST !== 'localhost' ? { rejectUnauthorized: false } : false
+  // SSL - enabled only when configured/required
+  ssl: sslEnabled ? { rejectUnauthorized: false } : false
 });
 
 // 🔒 SEMAPHORE: Limit concurrent queries to prevent connection exhaustion
@@ -226,6 +270,9 @@ function detectQueryType(query) {
   if (lowerQuery.includes('select count(*)') || lowerQuery.includes('select 1')) {
     return 'count';
   }
+  if (lowerQuery.includes('total_count') || lowerQuery.includes('count(*) as total')) {
+    return 'count';
+  }
   if (lowerQuery.includes('unnest') || lowerQuery.includes('array_agg')) {
     return 'aggregation';
   }
@@ -246,7 +293,7 @@ function adjustTimeout(baseTimeout, queryType) {
   }
 
   const adjustments = {
-    'count': 8000,           // Count queries: 8s
+    'count': 15000,          // Count queries: 15s (can be heavy with CTEs)
     'simple': 10000,         // Simple SELECTs: 10s
     'aggregation': 15000,    // Aggregation queries: 15s
     'product_search': 20000, // Product searches: 20s

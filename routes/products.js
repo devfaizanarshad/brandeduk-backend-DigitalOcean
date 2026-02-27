@@ -52,6 +52,7 @@ router.get('/', async (req, res) => {
       limit = 24,
       q,
       text, // Frontend may send 'text' instead of 'q'
+      supplier, // Supplier filter: uneek | ralawise
       priceMin,
       priceMax,
       gender,
@@ -139,6 +140,7 @@ router.get('/', async (req, res) => {
 
     const filters = {
       q: q || text || null,
+      supplier: parseArray(supplier),
       priceMin: priceMin ? parseFloat(priceMin) : null,
       priceMax: priceMax ? parseFloat(priceMax) : null,
       gender: parseArray(gender),
@@ -327,6 +329,7 @@ router.get('/filters', async (req, res) => {
 
     const filters = {
       q: q || text || null,
+      supplier: parseArray(req.query.supplier),
       priceMin: priceMin ? parseFloat(priceMin) : null,
       priceMax: priceMax ? parseFloat(priceMax) : null,
       gender: parseArray(gender),

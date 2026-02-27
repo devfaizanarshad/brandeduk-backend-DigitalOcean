@@ -7,11 +7,7 @@ if (!process.env.RESEND_API_KEY) {
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-console.log(process.env.RESEND_API_KEY);
-
-
-console.log(resend);
-
+// Never log API keys or client objects (security).
 
 // Helper function to escape HTML (like PHP's htmlspecialchars)
 function escapeHtml(text) {

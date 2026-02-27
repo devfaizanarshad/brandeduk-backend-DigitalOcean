@@ -314,3 +314,14 @@ CREATE TABLE IF NOT EXISTS "weight_ranges" (
   "max_gsm" integer,
   "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
+
+
+
+-- DB_HOST=206.189.119.150
+-- DB_NAME=brandeduk_prod
+-- # DB_PASSWORD=omglol123
+-- # DB_POOL_MAX=50
+-- # DB_POOL_MIN=5
+-- # DB_PORT=5432
+-- # DB_SSL=true
+-- # DB_USER=brandeduk

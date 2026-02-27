@@ -39,6 +39,7 @@ router.get('/products/search', async (req, res) => {
     const {
       q,
       style_code,
+      supplier,
       brand_id,
       product_type_id,
       sku_status,
@@ -63,6 +64,14 @@ router.get('/products/search', async (req, res) => {
     if (style_code) {
       conditions.push(`p.style_code = $${paramIndex}`);
       params.push(style_code.toUpperCase());
+      paramIndex++;
+    }
+
+    if (supplier) {
+      // Allow single or repeated query params: supplier=uneek or supplier=uneek&supplier=ralawise
+      const suppliers = Array.isArray(supplier) ? supplier : [supplier];
+      conditions.push(`sup.slug = ANY($${paramIndex}::text[])`);
+      params.push(suppliers.map(s => String(s).toLowerCase().trim()).filter(Boolean));
       paramIndex++;
     }
 
@@ -118,6 +127,7 @@ router.get('/products/search', async (req, res) => {
         p.style_code,
         p.sku_code,
         s.style_name,
+        sup.slug as supplier,
         b.name as brand_name,
         pt.name as product_type_name,
         p.carton_price,
@@ -135,6 +145,7 @@ router.get('/products/search', async (req, res) => {
         s.is_recommended
       FROM products p
       LEFT JOIN styles s ON p.style_code = s.style_code
+      LEFT JOIN suppliers sup ON s.supplier_id = sup.id
       LEFT JOIN brands b ON s.brand_id = b.id
       LEFT JOIN product_types pt ON s.product_type_id = pt.id
       LEFT JOIN sizes sz ON p.size_id = sz.id
@@ -147,6 +158,7 @@ router.get('/products/search', async (req, res) => {
       SELECT COUNT(*) as total
       FROM products p
       LEFT JOIN styles s ON p.style_code = s.style_code
+      LEFT JOIN suppliers sup ON s.supplier_id = sup.id
       ${whereClause}
     `;
 

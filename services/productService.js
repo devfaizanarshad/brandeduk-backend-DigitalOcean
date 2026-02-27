@@ -303,6 +303,21 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
       paramIndex += filters.brand.length;
     }
 
+    // Supplier filter (Uneek vs Ralawise) - filter via styles.supplier_id
+    if (hasItems(filters.supplier)) {
+      conditions.push(`
+        EXISTS (
+          SELECT 1
+          FROM styles s_sup
+          INNER JOIN suppliers sup ON s_sup.supplier_id = sup.id
+          WHERE s_sup.style_code = psm.style_code
+            AND sup.slug = ANY($${paramIndex}::text[])
+        )
+      `);
+      params.push(filters.supplier.map(s => String(s).toLowerCase().trim()));
+      paramIndex++;
+    }
+
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     return { whereClause, productTypeJoin, params };
   };
@@ -841,6 +856,21 @@ async function buildProductListQuery(filters, page, limit) {
     paramIndex += filters.brand.length;
   }
 
+  // Supplier filter (Uneek vs Ralawise) - filter via styles.supplier_id
+  if (hasItems(filters.supplier)) {
+    conditions.push(`
+      EXISTS (
+        SELECT 1
+        FROM styles s_sup
+        INNER JOIN suppliers sup ON s_sup.supplier_id = sup.id
+        WHERE s_sup.style_code = ${viewAlias}.style_code
+          AND sup.slug = ANY($${paramIndex}::text[])
+      )
+    `);
+    params.push(filters.supplier.map(s => String(s).toLowerCase().trim()));
+    paramIndex++;
+  }
+
   // Flag filter - OPTIMIZED: Use precomputed array column
   if (hasItems(filters.flag)) {
     // Materialized view stores flag IDs (int[]) not slugs.
@@ -1165,9 +1195,11 @@ async function buildProductListQuery(filters, page, limit) {
         FROM paginated_style_codes psc
       `;
       params.push(cachedCount, cachedPriceRange.min, cachedPriceRange.max);
-      queryResult = await queryWithTimeout(simplifiedQuery, params, 20000);
+      // This query can be heavy on large catalogues (CTEs + joins). Give it room.
+      queryResult = await queryWithTimeout(simplifiedQuery, params, 60000);
     } else {
-      queryResult = await queryWithTimeout(optimizedQuery, params, 20000);
+      // First-run / cold-cache can be heavy (total_count + price_range CTEs).
+      queryResult = await queryWithTimeout(optimizedQuery, params, 60000);
     }
 
     const queryTime = Date.now() - startTime;
@@ -1274,6 +1306,7 @@ async function buildProductListQuery(filters, page, limit) {
         p.style_code as code,
         s.style_name as name,
         b.name as brand,
+        sup.slug as supplier,
         p.colour_name,
         p.primary_colour,
         p.colour_shade,
@@ -1293,6 +1326,7 @@ async function buildProductListQuery(filters, page, limit) {
       FROM products p
       INNER JOIN styles s ON p.style_code = s.style_code
       LEFT JOIN brands b ON s.brand_id = b.id
+      LEFT JOIN suppliers sup ON s.supplier_id = sup.id
       LEFT JOIN sizes sz ON p.size_id = sz.id
       LEFT JOIN tags t ON p.tag_id = t.id
       LEFT JOIN product_markup_overrides pmo ON p.style_code = pmo.style_code
@@ -1370,6 +1404,7 @@ async function buildProductListQuery(filters, page, limit) {
           code: styleCode,
           name: row.name,
           brand: row.brand,
+          supplier: row.supplier,
           colorsMap: new Map(),
           sizesSet: new Set(),
           prices: [],
@@ -1538,6 +1573,7 @@ async function buildProductListQuery(filters, page, limit) {
         sizes,
         customization,
         brand: product.brand || '',
+        supplier: product.supplier || '',
         priceBreaks,
         markup_tier: markupPercent, // Send the effective markup percentage
         markup_source: markupSource,
@@ -1820,6 +1856,7 @@ async function buildProductDetailQuery(styleCode) {
       s.fabric_description,
       b.name as brand,
       pt.name as product_type,
+      sup.slug as supplier,
       p.colour_name,
       p.primary_colour,
       p.colour_shade,
@@ -1838,6 +1875,7 @@ async function buildProductDetailQuery(styleCode) {
     FROM styles s
     LEFT JOIN brands b ON s.brand_id = b.id
     LEFT JOIN product_types pt ON s.product_type_id = pt.id
+    LEFT JOIN suppliers sup ON s.supplier_id = sup.id
     LEFT JOIN products p ON p.style_code = s.style_code AND p.sku_status IN ('Live', 'Discontinued')
     LEFT JOIN sizes sz ON p.size_id = sz.id
     LEFT JOIN tags t ON p.tag_id = t.id
@@ -1960,6 +1998,7 @@ async function buildProductDetailQuery(styleCode) {
     code: styleCode,
     name: firstRow.style_name || '',
     brand: firstRow.brand || '',
+    supplier: firstRow.supplier || '',
     productType: firstRow.product_type || '',
     price: basePrice,  // Same as basePrice - single unit price after markup
     basePrice: basePrice,  // Single price after markup (matches 1-9 tier)

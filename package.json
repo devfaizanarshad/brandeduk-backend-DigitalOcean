@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "merge:uneek": "node maintenance/run-uneek-merge.js"
   },
   "keywords": [],
   "author": "",

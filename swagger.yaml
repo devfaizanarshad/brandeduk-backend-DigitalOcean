@@ -110,6 +110,10 @@ paths:
       description: |
         Returns a paginated list of products with optional filtering and search.
         This is the main endpoint that supports all filters combined.
+        You can also filter by **supplier** to separate catalogues:
+
+        - `supplier=uneek` → UNEEK catalogue only
+        - `supplier=ralawise` → Ralawise catalogue only
       operationId: getProducts
       parameters:
         - name: page
@@ -217,6 +221,16 @@ paths:
           description: Alias for brand parameter (accepts multiple values)
           schema:
             type: string
+        - name: supplier
+          in: query
+          description: |
+            Supplier slug filter. Distinguishes between catalogues:
+            - `uneek` → Uneek Clothing catalogue
+            - `ralawise` → Ralawise catalogue
+            Can be specified multiple times (e.g. `supplier=uneek&supplier=ralawise`).
+          schema:
+            type: string
+          example: "uneek"
         - name: colourShade
           in: query
           schema:
@@ -355,6 +369,11 @@ paths:
             type: string
         - name: brand
           in: query
+          schema:
+            type: string
+        - name: supplier
+          in: query
+          description: Supplier slug filter (`uneek` or `ralawise`) applied to the aggregation base set.
           schema:
             type: string
       responses:
@@ -1455,6 +1474,11 @@ paths:
             type: string
         - name: style_code
           in: query
+          schema:
+            type: string
+        - name: supplier
+          in: query
+          description: Supplier slug filter (`uneek` or `ralawise`) to restrict results to a specific catalogue.
           schema:
             type: string
         - name: brand_id

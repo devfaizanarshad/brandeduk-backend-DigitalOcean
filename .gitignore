@@ -12,4 +12,7 @@ DigitalOcean_BrandedUk
 # Large data files
 ProductDataFull.csv
 
+# DB backups
+maintenance/backups/
+
 .env
