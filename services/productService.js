@@ -289,14 +289,22 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
 
     // Brand filter - Match by brand name or slug format
     // Materialized view has 'brand' column (name), match against both slug format and name
+    // Uneek: when filtering by uneek-clothing, also include styles with supplier=uneek (covers brand_id NULL)
     if (hasItems(filters.brand)) {
       const brandConditions = filters.brand.map(b => {
         const normalized = b.toLowerCase().trim();
         // Match by slug format (LOWER(REPLACE(brand, ' ', '-')) or by name (LOWER(brand))
         return `(LOWER(REPLACE(psm.brand, ' ', '-')) = $${paramIndex} OR LOWER(psm.brand) = $${paramIndex})`;
       });
-      conditions.push(`(${brandConditions.join(' OR ')})`);
-      // Add each brand value
+      const isUneekBrand = filters.brand.some(b => {
+        const n = b.toLowerCase().trim().replace(/\s+/g, '-');
+        return n === 'uneek-clothing' || n === 'uneek';
+      });
+      let brandClause = `(${brandConditions.join(' OR ')})`;
+      if (isUneekBrand) {
+        brandClause += ` OR EXISTS (SELECT 1 FROM styles s_ue INNER JOIN suppliers sup ON s_ue.supplier_id = sup.id WHERE s_ue.style_code = psm.style_code AND sup.slug = 'uneek')`;
+      }
+      conditions.push(`(${brandClause})`);
       filters.brand.forEach(b => {
         params.push(b.toLowerCase().trim());
       });
@@ -713,7 +721,15 @@ async function buildProductListQuery(filters, page, limit) {
     const trimmedSearch = searchText.trim();
     if (trimmedSearch) {
       const searchResult = await search.buildSearchConditions(trimmedSearch, viewAlias, paramIndex);
-      conditions.push(...searchResult.conditions);
+      // When searching "uneek", also include all Uneek supplier products (brand may be NULL in MV for some)
+      const isUneekSearch = /\buneek\b/i.test(trimmedSearch);
+      if (isUneekSearch && searchResult.conditions.length > 0) {
+        conditions.push(`((${searchResult.conditions.join(' AND ')}) OR EXISTS (SELECT 1 FROM styles s_ue INNER JOIN suppliers sup ON s_ue.supplier_id = sup.id WHERE s_ue.style_code = ${viewAlias}.style_code AND sup.slug = 'uneek'))`);
+      } else if (isUneekSearch && searchResult.conditions.length === 0) {
+        conditions.push(`EXISTS (SELECT 1 FROM styles s_ue INNER JOIN suppliers sup ON s_ue.supplier_id = sup.id WHERE s_ue.style_code = ${viewAlias}.style_code AND sup.slug = 'uneek')`);
+      } else {
+        conditions.push(...searchResult.conditions);
+      }
       params.push(...searchResult.params);
       paramIndex = searchResult.nextParamIndex;
       searchRelevanceSelect = searchResult.relevanceSelect;
@@ -841,15 +857,21 @@ async function buildProductListQuery(filters, page, limit) {
   }
 
   // Brand filter - Match by brand name or slug format
-  // Materialized view has 'brand' column (name), match against both slug format and name
+  // Uneek: when filtering by uneek-clothing, also include styles with supplier=uneek (covers brand_id NULL)
   if (hasItems(filters.brand)) {
     const brandConditions = filters.brand.map(b => {
       const normalized = b.toLowerCase().trim();
-      // Match by slug format (LOWER(REPLACE(brand, ' ', '-')) or by name (LOWER(brand))
       return `(LOWER(REPLACE(${viewAlias}.brand, ' ', '-')) = $${paramIndex} OR LOWER(${viewAlias}.brand) = $${paramIndex})`;
     });
-    conditions.push(`(${brandConditions.join(' OR ')})`);
-    // Add each brand value
+    const isUneekBrand = filters.brand.some(b => {
+      const n = b.toLowerCase().trim().replace(/\s+/g, '-');
+      return n === 'uneek-clothing' || n === 'uneek';
+    });
+    let brandClause = `(${brandConditions.join(' OR ')})`;
+    if (isUneekBrand) {
+      brandClause += ` OR EXISTS (SELECT 1 FROM styles s_ue INNER JOIN suppliers sup ON s_ue.supplier_id = sup.id WHERE s_ue.style_code = ${viewAlias}.style_code AND sup.slug = 'uneek')`;
+    }
+    conditions.push(`(${brandClause})`);
     filters.brand.forEach(b => {
       params.push(b.toLowerCase().trim());
     });
