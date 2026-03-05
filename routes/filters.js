@@ -1925,12 +1925,21 @@ router.get('/brands/:slug/filters', async (req, res) => {
 
 /**
  * GET /api/filters/product-types
- * Returns all product types from the database
+ * Returns all product types from the database.
+ * Optional query: supplier — slug or array of slugs (e.g. supplier=absolute-apparel) to limit to that supplier's product types.
  */
 router.get('/product-types', async (req, res) => {
   try {
+    const supplierParam = req.query.supplier;
+    const supplierSlugs = supplierParam
+      ? (Array.isArray(supplierParam) ? supplierParam : [supplierParam]).map(s => String(s).toLowerCase().trim()).filter(Boolean)
+      : null;
+
     // Use INNER JOIN to only count styles that actually have Live products
-    // This matches the materialized view behavior and main API
+    // When supplier is passed, restrict to styles belonging to that supplier
+    const supplierJoin = supplierSlugs && supplierSlugs.length > 0
+      ? `INNER JOIN suppliers sup ON s.supplier_id = sup.id AND sup.slug = ANY($1::text[])`
+      : '';
     const query = `
       SELECT 
         pt.id,
@@ -1940,11 +1949,14 @@ router.get('/product-types', async (req, res) => {
         COUNT(DISTINCT psm.style_code) as product_count
       FROM product_types pt
       LEFT JOIN styles s ON pt.id = s.product_type_id
+      ${supplierJoin}
       INNER JOIN product_search_mv psm ON s.style_code = psm.style_code AND psm.sku_status = 'Live'
       GROUP BY pt.id, pt.name, pt.slug, pt.display_order
+      HAVING COUNT(DISTINCT psm.style_code) > 0
       ORDER BY pt.display_order ASC, pt.name ASC
     `;
-    const result = await queryWithTimeout(query, [], 10000);
+    const params = supplierSlugs && supplierSlugs.length > 0 ? [supplierSlugs] : [];
+    const result = await queryWithTimeout(query, params, 10000);
     res.json({ productTypes: result.rows, total: result.rows.length });
   } catch (error) {
     console.error('[ERROR] Failed to fetch product types:', error.message);

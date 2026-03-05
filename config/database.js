@@ -8,21 +8,21 @@ const NODE_ENV = (process.env.NODE_ENV || 'development').toLowerCase();
 const DEFAULTS =
   NODE_ENV === 'production'
     ? {
-        host: 'localhost',
-        port: 5432,
-        database: 'brandeduk_prod',
-        user: 'brandeduk',
-        password: 'omglol123',
-        ssl: true,
-      }
+      host: 'localhost',
+      port: 5432,
+      database: 'brandeduk_prod',
+      user: 'brandeduk',
+      password: 'omglol123',
+      ssl: true,
+    }
     : {
-        host: 'localhost',
-        port: 5432,
-        database: 'brandeduk_ralawise_backup',
-        user: 'postgres',
-        password: '1234',
-        ssl: false,
-      };
+      host: 'localhost',
+      port: 5432,
+      database: 'brandeduk_ralawise_backup',
+      user: 'postgres',
+      password: '1234',
+      ssl: false,
+    };
 
 const resolved = {
   host: process.env.DB_HOST || DEFAULTS.host,
@@ -31,6 +31,7 @@ const resolved = {
   user: process.env.DB_USER || DEFAULTS.user,
   password: process.env.DB_PASSWORD || DEFAULTS.password,
 };
+
 
 // Safety: prevent accidental prod DB usage during testing
 if (

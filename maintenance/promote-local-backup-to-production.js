@@ -7,6 +7,7 @@
  * Flow:
  * 1. Dump local DB brandeduk_ralawise_backup
  * 2. Restore dump into remote brandeduk_prod (host 206.189.119.150 by default)
+ * 3. Refresh materialized views on production (product_search_mv, product_search_materialized)
  *
  * Safety:
  * - Requires CONFIRM_PROMOTE_PROD=YES in environment to run
@@ -149,7 +150,7 @@ async function main() {
   }
 
   // 1. Dump local backup
-  console.log('\n[1/3] Dumping LOCAL brandeduk_ralawise_backup...');
+  console.log('\n[1/4] Dumping LOCAL brandeduk_ralawise_backup...');
   const pgDumpArgs = [
     '-h',
     LOCAL.host,
@@ -174,7 +175,13 @@ async function main() {
   }
 
   // 2. Restore into production (clean existing objects)
-  console.log('\n[2/3] Restoring dump into PRODUCTION (this may take a while)...');
+  console.log('\n[2/4] Restoring dump into PRODUCTION (this may take a while)...');
+  const prodEnv = {
+    PGPASSWORD: PROD.password,
+  };
+  if (process.env.DB_SSL === 'true' || PROD.host !== 'localhost') {
+    prodEnv.PGSSLMODE = 'require';
+  }
   try {
     const res = await run(
       pg('pg_restore'),
@@ -193,9 +200,7 @@ async function main() {
         '-v',
         BACKUP_FILE,
       ],
-      {
-        PGPASSWORD: PROD.password,
-      },
+      prodEnv,
       true // allow exit 1 for role/owner warnings
     );
     console.log('  Restore completed with exit code:', res.code);
@@ -212,8 +217,30 @@ async function main() {
     process.exit(1);
   }
 
-  // 3. Final message
-  console.log('\n[3/3] DONE.');
+  // 3. Refresh materialized views on production (uses DB_* env = prod)
+  console.log('\n[3/4] Refreshing materialized views on PRODUCTION...');
+  try {
+    process.env.DB_HOST = PROD.host;
+    process.env.DB_NAME = PROD.database;
+    process.env.DB_USER = PROD.user;
+    process.env.DB_PASSWORD = PROD.password;
+    process.env.DB_PORT = String(PROD.port);
+    process.env.DB_SSL = 'true';
+    const { refreshMaterializedViews } = require('../utils/refreshViews');
+    const { closePool } = require('../config/database');
+    const refreshResult = await refreshMaterializedViews();
+    if (typeof closePool === 'function') closePool();
+    if (refreshResult.success) {
+      console.log('  Materialized views refreshed successfully.');
+    } else {
+      console.warn('  Refresh completed with errors:', refreshResult.error);
+    }
+  } catch (e) {
+    console.warn('  Could not refresh views on prod (non-fatal):', e.message);
+  }
+
+  // 4. Final message
+  console.log('\n[4/4] DONE.');
   console.log('Production database should now match your local brandeduk_ralawise_backup.');
   console.log(
     'Recommended next step: node maintenance/verify-backup.js  (to compare PROD vs LOCAL backup).'

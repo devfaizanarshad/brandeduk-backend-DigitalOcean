@@ -185,7 +185,8 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
     sport: [],
     tag: [],
     effect: [],
-    brand: []
+    brand: [],
+    productType: []
   };
 
   // Build base WHERE conditions (applied to all aggregations)
@@ -204,17 +205,28 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
       params.push(preFilteredStyleCodes);
       paramIndex++;
     } else if (hasSearch) {
-      // PROD-LEVEL: If search is active but style codes aren't pre-filtered, 
+      // PROD-LEVEL: If search is active but style codes aren't pre-filtered,
       // we MUST apply search conditions here to avoid "ghost counts" (incorrect facet counts)
       const trimmedSearch = searchText.trim();
       if (trimmedSearch) {
-        // We use the same search service to ensure consistency between list and filters
         const searchResult = await search.buildSearchConditions(
           trimmedSearch,
           'psm',
           paramIndex
         );
-        conditions.push(...searchResult.conditions);
+        // When q contains a supplier name/slug, also filter to that supplier (same as list query)
+        const isUneekSearch = /\buneek\b/i.test(trimmedSearch);
+        const isRalawiseSearch = /\bralawise\b/i.test(trimmedSearch);
+        const isAbsoluteSearch = /\babsolute\s*apparel\b|\babsolute-apparel\b/i.test(trimmedSearch);
+        const supplierSlugFromQ = isAbsoluteSearch ? 'absolute-apparel' : isRalawiseSearch ? 'ralawise' : isUneekSearch ? 'uneek' : null;
+
+        if (supplierSlugFromQ && searchResult.conditions.length > 0) {
+          conditions.push(`((${searchResult.conditions.join(' AND ')}) OR EXISTS (SELECT 1 FROM styles s_sq INNER JOIN suppliers sup ON s_sq.supplier_id = sup.id WHERE s_sq.style_code = psm.style_code AND sup.slug = '${supplierSlugFromQ}'))`);
+        } else if (supplierSlugFromQ && searchResult.conditions.length === 0) {
+          conditions.push(`EXISTS (SELECT 1 FROM styles s_sq INNER JOIN suppliers sup ON s_sq.supplier_id = sup.id WHERE s_sq.style_code = psm.style_code AND sup.slug = '${supplierSlugFromQ}')`);
+        } else {
+          conditions.push(...searchResult.conditions);
+        }
         params.push(...searchResult.params);
         paramIndex = searchResult.nextParamIndex;
       }
@@ -626,6 +638,22 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
         GROUP BY LOWER(REPLACE(bp.brand, ' ', '-')), bp.brand
         ORDER BY count DESC
         LIMIT 50
+      ),
+      
+      -- Product type aggregation (join base_products -> styles -> product_types; scoped by supplier when filter active)
+      product_type_agg AS (
+        SELECT 
+          'productType' as filter_type,
+          pt.slug,
+          pt.name,
+          COUNT(DISTINCT bp.style_code)::int as count
+        FROM base_products bp
+        INNER JOIN styles s ON s.style_code = bp.style_code
+        INNER JOIN product_types pt ON s.product_type_id = pt.id
+        WHERE pt.name IS NOT NULL AND pt.name != ''
+        GROUP BY pt.slug, pt.name
+        ORDER BY count DESC
+        LIMIT 50
       )
       
       -- Combine all aggregations
@@ -647,6 +675,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
       UNION ALL SELECT filter_type, slug, name, count FROM sector_agg
       UNION ALL SELECT filter_type, slug, name, count FROM sport_agg
       UNION ALL SELECT filter_type, slug, name, count FROM brand_agg
+      UNION ALL SELECT filter_type, slug, name, count FROM product_type_agg
     `;
 
     const result = await queryWithTimeout(combinedQuery, base.params, 30000);
@@ -721,12 +750,16 @@ async function buildProductListQuery(filters, page, limit) {
     const trimmedSearch = searchText.trim();
     if (trimmedSearch) {
       const searchResult = await search.buildSearchConditions(trimmedSearch, viewAlias, paramIndex);
-      // When searching "uneek", also include all Uneek supplier products (brand may be NULL in MV for some)
+      // When q contains a supplier name/slug, filter to that supplier's catalogue (same as supplier= param)
       const isUneekSearch = /\buneek\b/i.test(trimmedSearch);
-      if (isUneekSearch && searchResult.conditions.length > 0) {
-        conditions.push(`((${searchResult.conditions.join(' AND ')}) OR EXISTS (SELECT 1 FROM styles s_ue INNER JOIN suppliers sup ON s_ue.supplier_id = sup.id WHERE s_ue.style_code = ${viewAlias}.style_code AND sup.slug = 'uneek'))`);
-      } else if (isUneekSearch && searchResult.conditions.length === 0) {
-        conditions.push(`EXISTS (SELECT 1 FROM styles s_ue INNER JOIN suppliers sup ON s_ue.supplier_id = sup.id WHERE s_ue.style_code = ${viewAlias}.style_code AND sup.slug = 'uneek')`);
+      const isRalawiseSearch = /\bralawise\b/i.test(trimmedSearch);
+      const isAbsoluteSearch = /\babsolute\s*apparel\b|\babsolute-apparel\b/i.test(trimmedSearch);
+      const supplierSlugFromQ = isAbsoluteSearch ? 'absolute-apparel' : isRalawiseSearch ? 'ralawise' : isUneekSearch ? 'uneek' : null;
+
+      if (supplierSlugFromQ && searchResult.conditions.length > 0) {
+        conditions.push(`((${searchResult.conditions.join(' AND ')}) OR EXISTS (SELECT 1 FROM styles s_sq INNER JOIN suppliers sup ON s_sq.supplier_id = sup.id WHERE s_sq.style_code = ${viewAlias}.style_code AND sup.slug = '${supplierSlugFromQ}'))`);
+      } else if (supplierSlugFromQ && searchResult.conditions.length === 0) {
+        conditions.push(`EXISTS (SELECT 1 FROM styles s_sq INNER JOIN suppliers sup ON s_sq.supplier_id = sup.id WHERE s_sq.style_code = ${viewAlias}.style_code AND sup.slug = '${supplierSlugFromQ}')`);
       } else {
         conditions.push(...searchResult.conditions);
       }
