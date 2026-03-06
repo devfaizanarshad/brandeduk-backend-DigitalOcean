@@ -1,0 +1,199 @@
+==========================================================================================
+  EXISTING DB PRODUCT TYPES (for reference)
+==========================================================================================
+  [  5] Bags                                          slug: bags                                459 styles
+  [ 93] T-shirts                                      slug: tshirts                             429 styles
+  [ 51] Jackets                                       slug: jackets                             390 styles
+  [ 21] Caps                                          slug: caps                                348 styles
+  [ 66] Polos                                         slug: polos                               288 styles
+  [ 49] Hoodies                                       slug: hoodies                             254 styles
+  [ 92] Sweatshirts                                   slug: sweatshirts                         196 styles
+  [ 41] Gilets & Body Warmers                         slug: gilets-body-warmers                 176 styles
+  [ 77] Shirts                                        slug: shirts                              167 styles
+  [  8] Beanies                                       slug: beanies                             154 styles
+  [ 87] Softshells                                    slug: softshells                          134 styles
+  [101] Trousers                                      slug: trousers                            131 styles
+  [ 38] Fleece                                        slug: fleece                              125 styles
+  [ 79] Shorts                                        slug: shorts                              124 styles
+  [105] Vests (t-shirt)                               slug: vests-t-shirt                       75 styles
+  [ 91] Sweatpants                                    slug: sweatpants                          69 styles
+  [ 46] Hats                                          slug: hats                                62 styles
+  [ 58] Leggings                                      slug: leggings                            52 styles
+  [ 86] Soft Toys                                     slug: soft-toys                           51 styles
+  [  2] Aprons                                        slug: aprons                              46 styles
+  [ 55] Knitted Jumpers                               slug: knitted-jumpers                     42 styles
+  [ 43] Gloves                                        slug: gloves                              40 styles
+  [ 97] Towels                                        slug: towels                              37 styles
+  [ 74] Safety Vests                                  slug: safety-vests                        34 styles
+  [  6] Baselayers                                    slug: baselayers                          29 styles
+  [ 88] Sports Overtops                               slug: sports-overtops                     29 styles
+  [ 85] Socks                                         slug: socks                               25 styles
+  [ 84] Snoods                                        slug: snoods                              24 styles
+  [ 13] Blankets                                      slug: blankets                            24 styles
+  [ 14] Blouses                                       slug: blouses                             21 styles
+  [ 16] Boots                                         slug: boots                               20 styles
+  [ 98] Trackwear                                     slug: trackwear                           19 styles
+  [ 99] Trainers                                      slug: trainers                            19 styles
+  [ 96] Ties                                          slug: ties                                17 styles
+  [ 20] Bras                                          slug: bras                                17 styles
+  [ 22] Cardigans                                     slug: cardigans                           16 styles
+  [ 75] Scarves                                       slug: scarves                             16 styles
+  [  1] Accessories                                   slug: accessories                         15 styles
+  [ 25] Chinos                                        slug: chinos                              15 styles
+  [ 24] Chef Jackets                                  slug: chef-jackets                        14 styles
+  [ 72] Robes                                         slug: robes                               14 styles
+  [ 32] Dresses                                       slug: dresses                             13 styles
+  [ 68] Pyjamas                                       slug: pyjamas                             12 styles
+  [ 59] Loungewear Bottoms                            slug: loungewear-bottoms                  11 styles
+  [ 15] Bodysuits                                     slug: bodysuits                           11 styles
+  [ 10] Belts                                         slug: belts                               10 styles
+  [102] Tunics                                        slug: tunics                              9 styles
+  [ 73] Rugby Shirts                                  slug: rugby-shirts                        8 styles
+  [ 53] Keyrings                                      slug: keyrings                            8 styles
+  [ 70] Rain Suits                                    slug: rain-suits                          8 styles
+  [ 61] Onesies                                       slug: onesies                             8 styles
+  [ 94] Tabards                                       slug: tabards                             7 styles
+  [ 47] Headbands                                     slug: headbands                           7 styles
+  [103] Umbrellas                                     slug: umbrellas                           6 styles
+  [107] Wallets                                       slug: wallets                             6 styles
+  [ 27] Coveralls                                     slug: coveralls                           6 styles
+  [ 50] Hot Water Bottles & Covers                    slug: hot-water-bottles-covers            6 styles
+  [ 83] Slippers                                      slug: slippers                            6 styles
+  [ 67] Ponchos                                       slug: ponchos                             5 styles
+  [ 52] Jeans                                         slug: jeans                               5 styles
+  [ 54] Kneepads                                      slug: kneepads                            5 styles
+  [ 57] Laptop Cases                                  slug: laptop-cases                        5 styles
+  [ 78] Shoes                                         slug: shoes                               4 styles
+  [106] Waistcoats                                    slug: waistcoats                          4 styles
+  [ 64] Pencil Cases                                  slug: pencil-cases                        4 styles
+  [ 11] Bibs                                          slug: bibs                                4 styles
+  [ 81] Skorts                                        slug: skorts                              3 styles
+  [ 76] Shirt Bags                                    slug: shirt-bags                          3 styles
+  [ 89] Storage                                       slug: storage                             3 styles
+  [ 45] Gowns                                         slug: gowns                               3 styles
+  [ 17] Bottles                                       slug: bottles                             3 styles
+  [ 69] Quad Guards                                   slug: quad-guards                         3 styles
+  [  9] Bedding                                       slug: bedding                             3 styles
+  [ 33] Dungarees                                     slug: dungarees                           3 styles
+  [110] Zips Pulls                                    slug: zips-pulls                          2 styles
+  [ 35] Embroidery Accessories                        slug: embroidery-accessories              2 styles
+  [ 62] Packing Tape                                  slug: packing-tape                        2 styles
+  [ 18] Boxers                                        slug: boxers                              2 styles
+  [ 90] Straps                                        slug: straps                              2 styles
+  [ 28] Cushion Covers                                slug: cushion-covers                      2 styles
+  [ 34] Ear Muffs                                     slug: ear-muffs                           2 styles
+  [100] Travel Sets                                   slug: travel-sets                         2 styles
+  [  4] Armbands                                      slug: armbands                            2 styles
+  [ 37] First Aid Boxes                               slug: first-aid-boxes                     2 styles
+  [ 42] Glasses                                       slug: glasses                             2 styles
+  [ 82] Sleepsuits                                    slug: sleepsuits                          2 styles
+  [  3] Arm Guards                                    slug: arm-guards                          2 styles
+  [ 39] Freezer Blocks                                slug: freezer-blocks                      2 styles
+  [108] Winter Accessory Sets                         slug: winter-accessory-sets               2 styles
+  [109] Yoga Mats                                     slug: yoga-mats                           2 styles
+  [ 12] Bin Bags                                      slug: bin-bags                            1 styles
+  [ 65] Phone Holders                                 slug: phone-holders                       1 styles
+  [ 31] Dog Vests                                     slug: dog-vests                           1 styles
+  [ 40] Gifts                                         slug: gifts                               1 styles
+  [ 60] Mail Order Bags                               slug: mail-order-bags                     1 styles
+  [ 71] Reflective Tape                               slug: reflective-tape                     1 styles
+  [ 56] Laces                                         slug: laces                               1 styles
+  [ 30] Document Wallets                              slug: document-wallets                    1 styles
+  [ 29] Cushions                                      slug: cushions                            1 styles
+  [ 80] Skirts                                        slug: skirts                              1 styles
+  [ 26] Christmas Animated Characters                 slug: christmas-animated-characters       1 styles
+  [ 48] Helmets                                       slug: helmets                             1 styles
+  [ 23] Chef Jacket Studs                             slug: chef-jacket-studs                   1 styles
+  [ 19] Braces                                        slug: braces                              1 styles
+  [ 36] Embroidery Backing                            slug: embroidery-backing                  1 styles
+  [ 63] Paper                                         slug: paper                               1 styles
+  [ 95] Tablecloths                                   slug: tablecloths                         1 styles
+  [ 44] Goggles                                       slug: goggles                             1 styles
+  [  7] Batteries                                     slug: batteries                           1 styles
+  [104] Unitards                                      slug: unitards                            1 styles
+
+==========================================================================================
+  CORRECTED CATEGORY MAPPING (Absolute -> Existing DB Product Types)
+==========================================================================================
+
+  ABSOLUTE BROAD TYPE                                COUNT  DB PRODUCT TYPE                DB ID    STATUS
+  --------------------------------------------------------------------------------------------------------------
+  Headwear                                           141    Caps                           id:21    ✅ EXISTING (348 styles)
+  T-Shirts Cotton Crew Neck S/S                      117    T-shirts                       id:93    ✅ EXISTING (429 styles)
+  Sweats Crew Neck                                   42     Sweatshirts                    id:92    ✅ EXISTING (196 styles)
+  Hoodies                                            42     Hoodies                        id:49    ✅ EXISTING (254 styles)
+  Consumables                                        38     SKIP                           ---      Non-product
+  Catering & Hospitality                             28     Aprons                         id:2     ✅ EXISTING (46 styles)
+  Jogpants                                           28     Sweatpants                     id:91    ✅ EXISTING (69 styles)
+  Softshell Full Zip                                 25     Softshells                     id:87    ✅ EXISTING (134 styles)
+  Zip Hoodies                                        23     Hoodies                        id:49    ✅ EXISTING (254 styles)
+  Outdoor Fleece Full Zip                            20     Fleece                         id:38    ✅ EXISTING (125 styles)
+  Workwear                                           20     Trousers                       id:101   ✅ EXISTING (131 styles)
+  Polos Polycotton S/S                               18     Polos                          id:66    ✅ EXISTING (288 styles)
+  Accessories                                        18     Accessories                    id:1     ✅ EXISTING (15 styles)
+  T-Shirts Cotton Crew Neck L/S                      15     T-shirts                       id:93    ✅ EXISTING (429 styles)
+  Polos Cotton S/S                                   14     Polos                          id:66    ✅ EXISTING (288 styles)
+  Vests & Tanks Cotton                               12     Vests (t-shirt)                id:105   ✅ EXISTING (75 styles)
+  T-Shirts Polyester Crew Neck S/S                   10     T-shirts                       id:93    ✅ EXISTING (429 styles)
+  Shirts Poplin L/S                                  10     Shirts                         id:77    ✅ EXISTING (167 styles)
+  Softshell Bodywarmer                               10     Softshells                     id:87    ✅ EXISTING (134 styles)
+  T-Shirts Cotton V-Neck S/S                         9      T-shirts                       id:93    ✅ EXISTING (429 styles)
+  Workwear Trousers                                  9      Trousers                       id:101   ✅ EXISTING (131 styles)
+  Outerwear Insulated Jackets                        9      Jackets                        id:51    ✅ EXISTING (390 styles)
+  Outerwear Bodywarmers                              8      Gilets & Body Warmers          id:41    ✅ EXISTING (176 styles)
+  Outerwear Shell Jackets                            5      Jackets                        id:51    ✅ EXISTING (390 styles)
+  Outdoor Fleece Bodywarmers                         5      Fleece                         id:38    ✅ EXISTING (125 styles)
+  Shorts                                             5      Shorts                         id:79    ✅ EXISTING (124 styles)
+  Workwear Shorts                                    4      Shorts                         id:79    ✅ EXISTING (124 styles)
+  Workwear Thermal Underwear                         3      Trousers                       id:101   ✅ EXISTING (131 styles)
+  Sweats Full Zip                                    3      Sweatshirts                    id:92    ✅ EXISTING (196 styles)
+  Outerwear 3in1 Jackets                             3      Jackets                        id:51    ✅ EXISTING (390 styles)
+  Shirts Oxford L/S                                  3      Shirts                         id:77    ✅ EXISTING (167 styles)
+  Shirts Oxford S/S                                  3      Shirts                         id:77    ✅ EXISTING (167 styles)
+  Shirts Poplin S/S                                  3      Shirts                         id:77    ✅ EXISTING (167 styles)
+  Knitwear                                           3      Knitted Jumpers                id:55    ✅ EXISTING (42 styles)
+  Sweats Quarter Zip                                 3      Sweatshirts                    id:92    ✅ EXISTING (196 styles)
+  Shirts Twill L/S                                   3      Shirts                         id:77    ✅ EXISTING (167 styles)
+  Baby & Toddler 180gsm                              3      Bodysuits                      id:15    ✅ EXISTING (11 styles)
+  Polos Polyester S/S                                3      Polos                          id:66    ✅ EXISTING (288 styles)
+  Outdoor Fleece Quarter Zip                         3      Fleece                         id:38    ✅ EXISTING (125 styles)
+  T-Shirts Polycotton Crew Neck S/S                  3      T-shirts                       id:93    ✅ EXISTING (429 styles)
+  Outerwear Hybrid Jackets                           3      Jackets                        id:51    ✅ EXISTING (390 styles)
+  Catalogues                                         2      SKIP                           ---      Non-product
+  Polos Polycotton L/S                               2      Polos                          id:66    ✅ EXISTING (288 styles)
+  Shirts Herringbone L/S                             2      Shirts                         id:77    ✅ EXISTING (167 styles)
+  Shirts Herringbone S/S                             2      Shirts                         id:77    ✅ EXISTING (167 styles)
+  Shirts Twill S/S                                   2      Shirts                         id:77    ✅ EXISTING (167 styles)
+  Outerwear Hybrid Bodywarmers                       2      Gilets & Body Warmers          id:41    ✅ EXISTING (176 styles)
+  Polos Cotton L/S                                   1      Polos                          id:66    ✅ EXISTING (288 styles)
+  Outerwear Rain Suits                               1      Jackets                        id:51    ✅ EXISTING (390 styles)
+
+  SUMMARY:
+    Products mapped to EXISTING types: 701
+    Products SKIPPED (non-product):    40
+    Products with name NOT FOUND:      0
+    Products UNMAPPED:                 0
+    NEW PRODUCT TYPES TO CREATE:       0 (if all names match)
+
+==========================================================================================
+  VERIFICATION: Do all mapped DB names actually exist?
+==========================================================================================
+  ✅ 'Accessories' -> Found as id:1 (15 existing styles)
+  ✅ 'Aprons' -> Found as id:2 (46 existing styles)
+  ✅ 'Baselayers' -> Found as id:6 (29 existing styles)
+  ✅ 'Bodysuits' -> Found as id:15 (11 existing styles)
+  ✅ 'Caps' -> Found as id:21 (348 existing styles)
+  ✅ 'Fleece' -> Found as id:38 (125 existing styles)
+  ✅ 'Gilets & Body Warmers' -> Found as id:41 (176 existing styles)
+  ✅ 'Hoodies' -> Found as id:49 (254 existing styles)
+  ✅ 'Jackets' -> Found as id:51 (390 existing styles)
+  ✅ 'Knitted Jumpers' -> Found as id:55 (42 existing styles)
+  ✅ 'Polos' -> Found as id:66 (288 existing styles)
+  ✅ 'Shirts' -> Found as id:77 (167 existing styles)
+  ✅ 'Shorts' -> Found as id:79 (124 existing styles)
+  ✅ 'Softshells' -> Found as id:87 (134 existing styles)
+  ✅ 'Sweatpants' -> Found as id:91 (69 existing styles)
+  ✅ 'Sweatshirts' -> Found as id:92 (196 existing styles)
+  ✅ 'T-shirts' -> Found as id:93 (429 existing styles)
+  ✅ 'Trousers' -> Found as id:101 (131 existing styles)
+  ✅ 'Vests (t-shirt)' -> Found as id:105 (75 existing styles)

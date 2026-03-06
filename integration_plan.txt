@@ -1,0 +1,899 @@
+======================================================================
+  PART 1: STYLE CODE OVERLAP - DEFINITIVE VERIFICATION
+======================================================================
+DB Style Codes:         4471
+Absolute Style Codes:   741
+OVERLAPPING CODES:      0
+
+✅ CONFIRMED: ZERO OVERLAP. All 741 Absolute codes are 100% NEW.
+   Safe to import without any conflicts.
+
+======================================================================
+  PART 2: ALL CURRENT DB PRODUCT TYPES
+======================================================================
+Total product types in DB: 110
+
+  [5] Bags (slug: bags) - 459 styles
+       Example: AD192 - Golf premium backpack
+       Example: AD195 - Hybrid duffle
+       Example: AD196 - Hybrid backpack
+  [93] T-shirts (slug: tshirts) - 429 styles
+       Example: AD061 - Blank tee
+       Example: AM010 - Anthem t-shirt
+       Example: AM011 - Men's long sleeve Anthem t-shirt
+  [51] Jackets (slug: jackets) - 390 styles
+       Example: AQ200 - Men's Harrington jacket
+       Example: AQ201 - Men's lightweight shell jacket
+       Example: AQ203 - Men's padded wind jacket
+  [21] Caps (slug: caps) - 348 styles
+       Example: AD077 - Performance cap
+       Example: AD078 - Climacool tour crestable cap
+       Example: AD082 - Golf performance crested cap
+  [66] Polos (slug: polos) - 288 styles
+       Example: AC004 - Academy polo
+       Example: AC04J - Kids Academy polo
+       Example: AD001 - adidas® Performance polo
+  [49] Hoodies (slug: hoodies) - 254 styles
+       Example: AD119 - Fleece hoodie
+       Example: AM001 - Men's Anthem hoodie
+       Example: AM002 - Men's Anthem full-zip hoodie
+  [92] Sweatshirts (slug: sweatshirts) - 196 styles
+       Example: 7620B - Kids raglan sleeve sweatshirt
+       Example: 7620M - Classic sweatshirt
+       Example: AC001 - Senior Academy raglan sweatshirt
+  [41] Gilets & Body Warmers (slug: gilets-body-warmers) - 176 styles
+       Example: 8720M - Outdoor fleece gilet
+       Example: BA516 - B&C Reset bodywarmer
+       Example: BY046 - Bubble vest
+  [77] Shirts (slug: shirts) - 167 styles
+       Example: AQ039 - Mens cotton long sleeve Oxford shirt
+       Example: BY031 - Checked flannel shirt
+       Example: BY152 - Denim shirt
+  [8] Beanies (slug: beanies) - 154 styles
+       Example: B243R - Recycled fleece cuffed beanie
+       Example: B244R - Recycled fleece pull-on beanie
+       Example: B325R - Streetlite reflective beanie
+  [87] Softshells (slug: softshells) - 134 styles
+       Example: BA513 - B&C Reset 3Lr® hooded softshell
+       Example: BA514 - B&C Reset 3Lr® softshell
+       Example: CR309 - Expert Basecamp softshell jacket
+  [101] Trousers (slug: trousers) - 131 styles
+       Example: BD003 - Pure vintage trousers
+       Example: BY274 - Classic cargo pants
+       Example: CR231 - Expert Kiwi tailored trousers
+  [38] Fleece (slug: fleece) - 125 styles
+       Example: 8700B - Kids full-zip outdoor fleece
+       Example: 8700F - Women's full-zip outdoor fleece
+       Example: 8700M - Full-zip outdoor fleece
+  [79] Shorts (slug: shorts) - 124 styles
+       Example: AQ051 - Men's chino shorts
+       Example: AQ053 - Swim shorts
+       Example: AQ056 - Block colour swim shorts
+  [105] Vests (t-shirt) (slug: vests-t-shirt) - 75 styles
+       Example: BA110 - B&C Athletic move
+       Example: BB011 - Basic tank
+       Example: BE004 - Cotton Spandex camisole
+  [91] Sweatpants (slug: sweatpants) - 69 styles
+       Example: AM030 - Anthem jog pants
+       Example: B436B - B&C ID.000 sweatpants /kids
+       Example: BA436 - B&C ID.000 sweatpants
+  [46] Hats (slug: hats) - 62 styles
+       Example: B688B - Junior vintage bucket hat
+       Example: B788R - Wide brim sun hat
+       Example: B790R - Outdoor adventure sun hat
+  [58] Leggings (slug: leggings) - 52 styles
+       Example: BY099 - Women's stretch Jersey leggings
+       Example: BZ049 - Baby leggings
+       Example: JC070 - Women's cool workout leggings
+  [86] Soft Toys (slug: soft-toys) - 51 styles
+       Example: MM001 - Bracken bear
+       Example: MM003 - Brumble bear
+       Example: MM016 - Classic jointed teddy bear
+  [2] Aprons (slug: aprons) - 46 styles
+       Example: PR102 - 100% Organic Cotton Bib Apron
+       Example: PR105 - Waist apron
+       Example: PR110 - Striped bib apron
+  [55] Knitted Jumpers (slug: knitted-jumpers) - 42 styles
+       Example: AQ042 - Men's cotton blend v-neck sweater
+       Example: AQ048 - Men's cotton blend ¼ zip sweater
+       Example: CJ004 - Adults Sprouts Not Just For Christmas jumper
+  [43] Gloves (slug: gloves) - 40 styles
+       Example: B298R - Recycled fleece gloves
+       Example: B397R - Colour pop handwarmers
+       Example: BC295 - Suprafleece® Thinsulate® gloves
+  [97] Towels (slug: towels) - 37 styles
+       Example: HL182 - Baby hooded towel (2-pack)
+       Example: HL212 - Zing tea towels (2-pack)
+       Example: HL214 - Recycled terry tea towels (2-pack)
+  [74] Safety Vests (slug: safety-vests) - 34 styles
+       Example: PP001 - 2 Metre hi-viz vest
+       Example: PW002 - Hi-vis two-band-and-brace vest (C470)
+       Example: PW333 - Hi-vis two-band vest (C474)
+  [6] Baselayers (slug: baselayers) - 29 styles
+       Example: JC232 - Active recycled baselayer
+       Example: NN270 - 'Unstoppable' fresh underscrub baselayer
+       Example: NN370 - Womens 'Unstoppable' fresh underscrub baselayer
+  [88] Sports Overtops (slug: sports-overtops) - 29 styles
+       Example: FR045 - Premium piqué 1/4-zip top
+       Example: JC030 - Cool Flex long half-zip top
+       Example: JC035 - Women's Cool Flex long half-zip top
+  [85] Socks (slug: socks) - 25 styles
+       Example: AD046 - Ankle socks (3-pack)
+       Example: AD047 - Crew socks (3-pack)
+       Example: BY201 - Crew socks
+  [84] Snoods (slug: snoods) - 24 styles
+       Example: B280R - Recycled fleece snood
+       Example: B282R - Recycled fleece hood
+       Example: B320B - Junior softshell sports tech neck warmer
+  [13] Blankets (slug: blankets) - 24 styles
+       Example: GD101 - Heavy Blend fleece stadium blanket
+       Example: HL140 - Weighted blanket
+       Example: HL141 - Kids weighted blanket
+  [14] Blouses (slug: blouses) - 21 styles
+       Example: HB597 - Women's pleat front short sleeve blouse
+       Example: HB598 - Women's pleat front long sleeve blouse
+       Example: K742F - Business blouse short-sleeved (tailored fit)
+  [16] Boots (slug: boots) - 20 styles
+       Example: PW302 - Steelite protector boot S1P (FW10)
+       Example: PW331 - Steelite Neptune rigger boot S5 CI (FW75)
+       Example: R339X - Work-Guard Blackwatch safety boot
+  [98] Trackwear (slug: trackwear) - 19 styles
+       Example: BY288 - Fluffy trackpants
+       Example: JC281 - Active trackpants
+       Example: JC282 - Active track jacket
+  [99] Trainers (slug: trainers) - 19 styles
+       Example: NK382 - Nike Roshe golf trainers 2.0
+       Example: PW304 - Steelite Lusun safety trainer S1P (FW34)
+       Example: PW310 - Women's Steelite trainer S1P HRO (FW39)
+  [96] Ties (slug: ties) - 17 styles
+       Example: CS252 - 59cm Novelty christmas tie
+       Example: PR700 - Work tie
+       Example: PR705 - Bow tie
+  [20] Bras (slug: bras) - 17 styles
+       Example: JC217 - Womens recycled tech sports bra
+       Example: NK379 - Womens Nike Dri-FIT Swoosh one-piece bra
+       Example: NK381 - Womens Nike Dri-FIT indy plunge cutout bra
+  [22] Cardigans (slug: cardigans) - 16 styles
+       Example: AC02J - Kids Academy cardigan
+       Example: HB718 - Unisex zip-through cardigan
+       Example: HB719 - Women's longline open cardigan
+  [75] Scarves (slug: scarves) - 16 styles
+       Example: B293R - Recycled fleece scarf
+       Example: B494R - Fluffy check scarf
+       Example: B496R - Fluffy scarf
+  [1] Accessories (slug: accessories) - 15 styles
+       Example: BG710 - Velvet travel jewellery box
+       Example: BG748 - Boutique pouch wristlet
+       Example: BG884 - Sundae wristlet
+  [25] Chinos (slug: chinos) - 15 styles
+       Example: AQ050 - Men's Classic fit chinos
+       Example: AQ059 - Mens ultimate chinos
+       Example: AQ060 - Women's Classic fit chinos
+  [24] Chef Jackets (slug: chef-jackets) - 14 styles
+       Example: PR656 - Short sleeve chefs jacket
+       Example: PR657 - Long sleeve chefs jacket
+       Example: PR660 - Denim chef's jacket
+  [72] Robes (slug: robes) - 14 styles
+       Example: HL004 - Bamboo kimono robe
+       Example: HL008 - Kids microfibre changing robe
+       Example: HL211 - Cotton changing robe
+  [32] Dresses (slug: dresses) - 13 styles
+       Example: BY101 - Women's turtle extended shoulder dress
+       Example: BY181 - Women's organic oversizes slit tee dress
+       Example: BY214 - Womens tee dress
+  [68] Pyjamas (slug: pyjamas) - 12 styles
+       Example: BZ067 - Baby pyjamas
+       Example: HL219 - Appliqué pyjamas
+       Example: LW71T - Children's pyjamas
+  [59] Loungewear Bottoms (slug: loungewear-bottoms) - 11 styles
+       Example: LW83T - Tartan lounge trousers
+       Example: LW85T - Lounge pants
+       Example: RI006 - The Ribbon luxury Eskimo-style fleece pants
+  [15] Bodysuits (slug: bodysuits) - 11 styles
+       Example: BZ005 - Baby organic kimono bodysuit
+       Example: BZ010 - Baby bodysuit
+       Example: BZ013 - Baby rompersuit
+  [10] Belts (slug: belts) - 10 styles
+       Example: AQ900 - Braid stretch belt
+       Example: AQ901 - Two-colour stripe braid stretch belt
+       Example: AQ903 - Leather braid belt
+  [102] Tunics (slug: tunics) - 9 styles
+       Example: NN200 - 'Limitless' Onna-stretch tunic
+       Example: NN300 - Womens 'Limitless' Onna-stretch tunic
+       Example: NN310 - Womens 'Invincible' Onna-stretch tunic
+  [73] Rugby Shirts (slug: rugby-shirts) - 8 styles
+       Example: FR01M - Long sleeve original rugby shirt
+       Example: FR07M - Panelled rugby shirt
+       Example: FR08M - Sewn stripe long sleeve rugby shirt
+  [53] Keyrings (slug: keyrings) - 8 styles
+       Example: BG100 - Brandable key clip
+       Example: BG324 - Matte PU keyring
+       Example: BG744 - Boutique keyclip
+  [70] Rain Suits (slug: rain-suits) - 8 styles
+       Example: PW550 - Sealtex essential rainsuit (two-piece suit) (L450)
+       Example: R156A - Waterproof 2000 pro-coach trousers
+       Example: R216X - High-viz waterproof suit
+  [61] Onesies (slug: onesies) - 8 styles
+       Example: BZ025 - Baby and toddler all-in-one
+       Example: CC001 - All-in-one
+       Example: CC01J - Kids all-in-one
+  [94] Tabards (slug: tabards) - 7 styles
+       Example: PR171 - Pocket tabard
+       Example: PR172 - Long length pocket tabard
+       Example: R202X - Core zip ID safety tabard
+  [47] Headbands (slug: headbands) - 7 styles
+       Example: BC240 - Suprafleece® Aspen headband
+       Example: BC316 - Softshell sports tech headband
+       Example: BC432 - Twist knit headband
+  [103] Umbrellas (slug: umbrellas) - 6 styles
+       Example: KI003 - Golf umbrella
+       Example: KI004 - Large golf umbrella
+       Example: KI005 - Foldable mini umbrella
+  [107] Wallets (slug: wallets) - 6 styles
+       Example: BG040 - Ripper wallet
+       Example: BG047 - Travel wallet
+       Example: BG326 - Matte PU card holder
+  [27] Coveralls (slug: coveralls) - 6 styles
+       Example: PW065 - Liverpool zip coverall (C813)
+       Example: PW200 - Euro work coverall (S999)
+       Example: PW250 - Bizweld  flame-resistant coverall (BIZ1)
+  [50] Hot Water Bottles & Covers (slug: hot-water-bottles-covers) - 6 styles
+       Example: HL016 - Luxury long faux fur hot water bottle and cover
+       Example: HL213 - Novelty hot water bottles
+       Example: RI011 - Luxury classic faux fur hot water bottle and cover
+  [83] Slippers (slug: slippers) - 6 styles
+       Example: JC092 - Cool sliders
+       Example: TC064 - Classic terry slippers (open-toe)
+       Example: TC066 - Waffle mule slippers
+  [67] Ponchos (slug: ponchos) - 5 styles
+       Example: HL007 - Toddler microfibre changing robe
+       Example: HL038 - Rain ponchos (2-pack)
+       Example: JB03J - Kids emergency hooded plastic poncho
+  [52] Jeans (slug: jeans) - 5 styles
+       Example: AQ062 - Women's jeggings
+       Example: SD001 - Leo straight jeans
+       Example: SD004 - Max slim jeans
+  [54] Kneepads (slug: kneepads) - 5 styles
+       Example: CR707 - Normanton kneepads
+       Example: PW102 - Kneepad (S156)
+       Example: R322X - Work-Guard kneepads
+  [57] Laptop Cases (slug: laptop-cases) - 5 styles
+       Example: BG067 - Essential 13" laptop case
+       Example: BG068 - Essential 15" laptop case
+       Example: BG358 - Reversible iPad/tablet sleeve
+  [78] Shoes (slug: shoes) - 4 styles
+       Example: PR910 - Chefs non-slip Anchor clogs
+       Example: PW300 - Steelite laced safety shoe S2 (FW80)
+       Example: PW301 - Steelite safety clog SB (FW82)
+  [106] Waistcoats (slug: waistcoats) - 4 styles
+       Example: PR622 - Lined polyester waistcoat
+       Example: PR623 - Women's lined polyester waistcoat
+       Example: PR625 - Herringbone waistcoat
+  [64] Pencil Cases (slug: pencil-cases) - 4 styles
+       Example: BG069 - Essential pencil/accessory case
+       Example: BG944 - Sublimation pencil case
+       Example: QD442 - Pencil case
+  [11] Bibs (slug: bibs) - 4 styles
+       Example: BZ012 - Baby bib
+       Example: BZ059 - Single layer bib
+       Example: LW82T - Plain and contrast bib
+  [81] Skorts (slug: skorts) - 3 styles
+       Example: LV833 - Women's skort with wicking finish
+       Example: S261F - Women's Spiro skort
+       Example: S261J - Spiro junior skort
+  [76] Shirt Bags (slug: shirt-bags) - 3 styles
+       Example: ZA027 - Clear polythene bags - stick seal
+       Example: ZA068 - Clear polythene bags - non stick seal
+       Example: ZA120 - Polypropylene shirt bag
+  [89] Storage (slug: storage) - 3 styles
+       Example: HL040 - Explorer foldable cart
+       Example: WM574 - Canvas storage tubs
+       Example: WM580 - Heavy canvas storage trug
+  [45] Gowns (slug: gowns) - 3 styles
+       Example: PR116 - Waterproof salon gown
+       Example: PR117 - Long sleeve waterproof salon gown
+       Example: RI017 - Luxury eskimo faux fur zipped gown
+  [17] Bottles (slug: bottles) - 3 styles
+       Example: HL030 - Travel bottle kit
+       Example: QD440 - Water bottle and holder
+       Example: TR700 - TriDri® Vacuum sports water bottle with flip-up straw
+  [69] Quad Guards (slug: quad-guards) - 3 styles
+       Example: S290X - Spiro compression calf guards
+       Example: S292X - Spiro compression quad guards
+       Example: TR093 - TriDri® Compression calf sleeves
+  [9] Bedding (slug: bedding) - 3 styles
+       Example: HL001 - 100% Bamboo duvet cover
+       Example: HL002 - 100% Bamboo fitted sheet
+       Example: HL037 - Memory foam neck pillow
+  [33] Dungarees (slug: dungarees) - 3 styles
+       Example: BZ056 - Baby Rocks denim dungarees
+       Example: LW651 - Organic cotton dungaree
+       Example: LW700 - Denim dungarees
+  [110] Zips Pulls (slug: zips-pulls) - 2 styles
+       Example: QX505 - SLX® puller pack (pack of 10)
+       Example: RE93X - Zip-pull
+  [35] Embroidery Accessories (slug: embroidery-accessories) - 2 styles
+       Example: MR090 - Towa universal bobbin case
+       Example: MR092 - Bodybuilder foam for 3D embroidery (pack of 10)
+  [62] Packing Tape (slug: packing-tape) - 2 styles
+       Example: ZA070 - Packing tape
+       Example: ZA071 - Packaging tape dispenser
+  [18] Boxers (slug: boxers) - 2 styles
+       Example: AQ094 - Men's classic boxers
+       Example: KB800 - Men's boxer shorts
+  [90] Straps (slug: straps) - 2 styles
+       Example: BG765 - Boutique adjustable bag strap
+       Example: HL036 - Luggage straps
+  [28] Cushion Covers (slug: cushion-covers) - 2 styles
+       Example: WM350 - Fairtrade cotton canvas cushion cover
+       Example: WM355 - Fairtrade cotton piped cushion cover
+  [34] Ear Muffs (slug: ear-muffs) - 2 styles
+       Example: RI020 - Faux fur earmuffs
+       Example: RI028 - Luxury fur ear muffs
+  [100] Travel Sets (slug: travel-sets) - 2 styles
+       Example: HL108 - EU travel adaptor
+       Example: HL220 - Beach mat
+  [4] Armbands (slug: armbands) - 2 styles
+       Example: YK201 - Print-me armbands (HVW066) (Pack of 20)
+       Example: YK202 - ID armbands (ID03)
+  [37] First Aid Boxes (slug: first-aid-boxes) - 2 styles
+       Example: HL035 - Travel first aid kit
+       Example: PW355 - Workplace first aid kit (FA10)
+  [42] Glasses (slug: glasses) - 2 styles
+       Example: PW033 - Profile safety spectacle (PW34)
+       Example: PW046 - Fossa spectacle (PW15)
+  [82] Sleepsuits (slug: sleepsuits) - 2 styles
+       Example: LW50T - Sleepsuit
+       Example: LW650 - Organic sleepsuit
+  [3] Arm Guards (slug: arm-guards) - 2 styles
+       Example: S291X - Spiro compression arm guards
+       Example: TR098 - TriDri® compression arm sleeves
+  [39] Freezer Blocks (slug: freezer-blocks) - 2 styles
+       Example: HL215 - Large freezer blocks (2-pack)
+       Example: HL216 - Medium freezer blocks (3-pack)
+  [108] Winter Accessory Sets (slug: winter-accessory-sets) - 2 styles
+       Example: B401R - Knitted scarf and beanie gift set
+       Example: RE40A - Polartherm fleece accessory set
+  [109] Yoga Mats (slug: yoga-mats) - 2 styles
+       Example: TR096 - TriDri® Yoga and fitness mat
+       Example: TR701 - TriDri® Fitness mat and carry bag
+  [12] Bin Bags (slug: bin-bags) - 1 styles
+       Example: ZA050 - Heavy duty bin bags
+  [65] Phone Holders (slug: phone-holders) - 1 styles
+       Example: BG046 - Phone pouch
+  [31] Dog Vests (slug: dog-vests) - 1 styles
+       Example: YK180 - Hi-vis dog vest (HVDW15)
+  [40] Gifts (slug: gifts) - 1 styles
+       Example: CS699 - 6 New Year photo props
+  [60] Mail Order Bags (slug: mail-order-bags) - 1 styles
+       Example: ZA110 - Mail-order bag
+  [71] Reflective Tape (slug: reflective-tape) - 1 styles
+       Example: YK203 - Heat-apply reflective tape (RP01)
+  [56] Laces (slug: laces) - 1 styles
+       Example: JH200 - Drawcords in a tube
+  [30] Document Wallets (slug: document-wallets) - 1 styles
+       Example: ZA103 - Documents enclosed wallets
+  [29] Cushions (slug: cushions) - 1 styles
+       Example: HL010 - Sublimation Cushion
+  [80] Skirts (slug: skirts) - 1 styles
+       Example: S797F - Spiro recycled womens fitness skort
+  [26] Christmas Animated Characters (slug: christmas-animated-characters) - 1 styles
+       Example: CS309 - 'Santa stop here' window cling
+  [48] Helmets (slug: helmets) - 1 styles
+       Example: PW039 - Expertbase safety helmet (PW50)
+  [23] Chef Jacket Studs (slug: chef-jacket-studs) - 1 styles
+       Example: PR652 - Chef's jacket studs
+  [19] Braces (slug: braces) - 1 styles
+       Example: PR701 - Clip-on trouser braces
+  [36] Embroidery Backing (slug: embroidery-backing) - 1 styles
+       Example: MR091 - 76g cap backing (pack of 250)
+  [63] Paper (slug: paper) - 1 styles
+       Example: ZA077 - Multi purpose copy paper
+  [95] Tablecloths (slug: tablecloths) - 1 styles
+       Example: HL217 - Wipe clean tablecloth
+  [44] Goggles (slug: goggles) - 1 styles
+       Example: RV05X - Medical splash goggles
+  [7] Batteries (slug: batteries) - 1 styles
+       Example: RG004 - Heated jacket battery pack
+  [104] Unitards (slug: unitards) - 1 styles
+       Example: TL330 - Womens unitard
+
+======================================================================
+  PART 3: ABSOLUTE APPAREL CATEGORIES BREAKDOWN
+======================================================================
+Total unique full categories: 202
+Total unique broad types:     49
+
+--- ALL BROAD TYPES FROM ABSOLUTE ---
+  Headwear                                                141 products
+  T-Shirts Cotton Crew Neck S/S                           117 products
+  Sweats Crew Neck                                        42 products
+  Hoodies                                                 42 products
+  Consumables                                             38 products
+  Catering & Hospitality                                  28 products
+  Jogpants                                                28 products
+  Softshell Full Zip                                      25 products
+  Zip Hoodies                                             23 products
+  Outdoor Fleece Full Zip                                 20 products
+  Workwear                                                20 products
+  Polos Polycotton S/S                                    18 products
+  Accessories                                             18 products
+  T-Shirts Cotton Crew Neck L/S                           15 products
+  Polos Cotton S/S                                        14 products
+  Vests & Tanks Cotton                                    12 products
+  T-Shirts Polyester Crew Neck S/S                        10 products
+  Shirts Poplin L/S                                       10 products
+  Softshell Bodywarmer                                    10 products
+  T-Shirts Cotton V-Neck S/S                              9 products
+  Workwear Trousers                                       9 products
+  Outerwear Insulated Jackets                             9 products
+  Outerwear Bodywarmers                                   8 products
+  Outerwear Shell Jackets                                 5 products
+  Outdoor Fleece Bodywarmers                              5 products
+  Shorts                                                  5 products
+  Workwear Shorts                                         4 products
+  Workwear Thermal Underwear                              3 products
+  Sweats Full Zip                                         3 products
+  Outerwear 3in1 Jackets                                  3 products
+  Shirts Oxford L/S                                       3 products
+  Shirts Oxford S/S                                       3 products
+  Shirts Poplin S/S                                       3 products
+  Knitwear                                                3 products
+  Sweats Quarter Zip                                      3 products
+  Shirts Twill L/S                                        3 products
+  Baby & Toddler 180gsm                                   3 products
+  Polos Polyester S/S                                     3 products
+  Outdoor Fleece Quarter Zip                              3 products
+  T-Shirts Polycotton Crew Neck S/S                       3 products
+  Outerwear Hybrid Jackets                                3 products
+  Catalogues                                              2 products
+  Polos Polycotton L/S                                    2 products
+  Shirts Herringbone L/S                                  2 products
+  Shirts Herringbone S/S                                  2 products
+  Shirts Twill S/S                                        2 products
+  Outerwear Hybrid Bodywarmers                            2 products
+  Polos Cotton L/S                                        1 products
+  Outerwear Rain Suits                                    1 products
+
+======================================================================
+  PART 4: SMART CATEGORY MAPPING (Absolute -> DB Product Types)
+======================================================================
+
+This mapping assigns each Absolute broad type to the BEST matching
+existing DB product type, or suggests creating a new one.
+
+  ABSOLUTE BROAD TYPE                                COUNT -> DB PRODUCT TYPE             ACTION    
+  ----------------------------------------------------------------------------------------------------
+  Headwear                                           141   -> Caps & Hats                    [CREATE_NEW] 
+  T-Shirts Cotton Crew Neck S/S                      117   -> T-shirts                       [EXISTING] (id:93)
+  Sweats Crew Neck                                   42    -> Sweatshirts                    [EXISTING] (id:92)
+  Hoodies                                            42    -> Hoodies                        [EXISTING] (id:49)
+  Consumables                                        38    -> SKIP (non-product item)
+  Catering & Hospitality                             28    -> Catering                       [CREATE_NEW] 
+  Jogpants                                           28    -> Joggers                        [CREATE_NEW] 
+  Softshell Full Zip                                 25    -> Softshell Jackets              [CREATE_NEW] 
+  Zip Hoodies                                        23    -> Hoodies                        [EXISTING] (id:49)
+  Outdoor Fleece Full Zip                            20    -> Fleece Jackets                 [CREATE_NEW] 
+  Workwear                                           20    -> Workwear                       [CREATE_NEW] 
+  Polos Polycotton S/S                               18    -> Polo Shirts                    [CREATE_NEW] 
+  Accessories                                        18    -> Accessories                    [EXISTING] (id:1)
+  T-Shirts Cotton Crew Neck L/S                      15    -> T-Shirts Long Sleeve           [CREATE_NEW] 
+  Polos Cotton S/S                                   14    -> Polo Shirts                    [CREATE_NEW] 
+  Vests & Tanks Cotton                               12    -> Vests                          [CREATE_NEW] 
+  T-Shirts Polyester Crew Neck S/S                   10    -> Performance T-Shirts           [CREATE_NEW] 
+  Shirts Poplin L/S                                  10    -> Long Sleeve Shirts             [CREATE_NEW] 
+  Softshell Bodywarmer                               10    -> Softshell Bodywarmers          [CREATE_NEW] 
+  T-Shirts Cotton V-Neck S/S                         9     -> T-Shirts V-Neck                [CREATE_NEW] 
+  Workwear Trousers                                  9     -> Trousers                       [EXISTING] (id:101)
+  Outerwear Insulated Jackets                        9     -> Jackets                        [EXISTING] (id:51)
+  Outerwear Bodywarmers                              8     -> Bodywarmers                    [CREATE_NEW] 
+  Outerwear Shell Jackets                            5     -> Waterproof Jackets             [CREATE_NEW] 
+  Outdoor Fleece Bodywarmers                         5     -> Fleece Bodywarmers             [CREATE_NEW] 
+  Shorts                                             5     -> Shorts                         [EXISTING] (id:79)
+  Workwear Shorts                                    4     -> Shorts                         [EXISTING] (id:79)
+  Workwear Thermal Underwear                         3     -> Workwear                       [CREATE_NEW] 
+  Sweats Full Zip                                    3     -> Full Zip Sweatshirts           [CREATE_NEW] 
+  Outerwear 3in1 Jackets                             3     -> 3 in 1 Jackets                 [CREATE_NEW] 
+  Shirts Oxford L/S                                  3     -> Long Sleeve Shirts             [CREATE_NEW] 
+  Shirts Oxford S/S                                  3     -> Short Sleeve Shirts            [CREATE_NEW] 
+  Shirts Poplin S/S                                  3     -> Short Sleeve Shirts            [CREATE_NEW] 
+  Knitwear                                           3     -> Knitwear                       [CREATE_NEW] 
+  Sweats Quarter Zip                                 3     -> Quarter Zip Sweatshirts        [CREATE_NEW] 
+  Shirts Twill L/S                                   3     -> Long Sleeve Shirts             [CREATE_NEW] 
+  Baby & Toddler 180gsm                              3     -> Baby & Toddler                 [CREATE_NEW] 
+  Polos Polyester S/S                                3     -> Performance Polo Shirts        [CREATE_NEW] 
+  Outdoor Fleece Quarter Zip                         3     -> Fleece Jackets                 [CREATE_NEW] 
+  T-Shirts Polycotton Crew Neck S/S                  3     -> T-shirts                       [EXISTING] (id:93)
+  Outerwear Hybrid Jackets                           3     -> Jackets                        [EXISTING] (id:51)
+  Catalogues                                         2     -> SKIP (non-product item)
+  Polos Polycotton L/S                               2     -> Long Sleeve Polo Shirts        [CREATE_NEW] 
+  Shirts Herringbone L/S                             2     -> Long Sleeve Shirts             [CREATE_NEW] 
+  Shirts Herringbone S/S                             2     -> Short Sleeve Shirts            [CREATE_NEW] 
+  Shirts Twill S/S                                   2     -> Short Sleeve Shirts            [CREATE_NEW] 
+  Outerwear Hybrid Bodywarmers                       2     -> Bodywarmers                    [CREATE_NEW] 
+  Polos Cotton L/S                                   1     -> Long Sleeve Polo Shirts        [CREATE_NEW] 
+  Outerwear Rain Suits                               1     -> Waterproof Trousers            [CREATE_NEW] 
+
+  MAPPING SUMMARY:
+    Mapped to EXISTING DB types:  11
+    Fuzzy matched:                0
+    Need to CREATE NEW:           36
+    SKIP (non-products):          2
+
+======================================================================
+  PART 5: BRAND MAPPING
+======================================================================
+  ABSOLUTE BRAND                      COUNT  ACTION       DB BRAND                           
+  ------------------------------------------------------------------------------------------
+  Casual Classics                     160    CREATE_NEW   Casual Classics                     
+  Atlantis                            134    CREATE_NEW   Atlantis                            
+  Regatta Professional                81     EXISTING     Regatta Professional                (id:59)
+  Fruit Of The Loom                   64     EXISTING     Fruit of the Loom                   (id:30)
+  Russell Athletic                    45     CREATE_NEW   Russell Athletic                    
+  Gildan                              38     EXISTING     Gildan                              (id:31)
+  Stedman                             33     CREATE_NEW   Stedman                             
+  Russell Athletic Collection         31     CREATE_NEW   Russell Athletic Collection         
+  Absolute Apparel                    26     CREATE_NEW   Absolute Apparel                    
+  Madeira                             26     EXISTING     Madeira                             (id:41)
+  Korntex                             17     CREATE_NEW   Korntex                             
+  BonChef                             16     CREATE_NEW   BonChef                             
+  Jerzees                             11     CREATE_NEW   Jerzees                             
+  Dennys                              10     CREATE_NEW   Dennys                              
+  Next Level Apparel                  9      CREATE_NEW   Next Level Apparel                  
+  Work Force                          8      CREATE_NEW   Work Force                          
+  Consumables                         6      CREATE_NEW   Consumables                         
+  Gildan Hammer                       5      CREATE_NEW   Gildan Hammer                       
+  AFD By Dennys                       4      CREATE_NEW   AFD By Dennys                       
+  Regatta Honestly Made               4      EXISTING     Regatta Honestly Made               (id:57)
+  Dae Ha                              4      CREATE_NEW   Dae Ha                              
+  Warrior                             3      CREATE_NEW   Warrior                             
+  Marketing                           2      CREATE_NEW   Marketing                           
+  EZ Trans                            2      CREATE_NEW   EZ Trans                            
+  Russell Athletic Pure Organic       2      CREATE_NEW   Russell Athletic Pure Organic       
+
+  Existing brands to reuse: 5
+  New brands to create:     20
+
+======================================================================
+  PART 6: COLOUR & SIZE DEDUPLICATION
+======================================================================
+  Absolute unique colours: 626
+  Already in DB:           302
+  NEW colours to add:      324
+
+  New colours (first 30):
+    + 10cm X 30cm
+    + 2014
+    + 40 gm
+    + 50 gm
+    + Acid Black
+    + Acid Charcoal
+    + Acid Chocolate
+    + Acid Green
+    + Antique Cherry
+    + Antique Gold
+    + Aquamarine
+    + Aquamarine/Black
+    + Aviateur
+    + Ballpoint
+    + Banana Cream
+    + Black 1000
+    + Black 1800
+    + Black 4000
+    + Black 500
+    + Black 7800
+    + Black Ink
+    + Black Ink Heather
+    + Black Opal
+    + Black/Fuchsia Fluo
+    + Black/Orange Fluo
+    + Black/Safety Green
+    + Black/Safety Yellow
+    + Blue 1733
+    + Blue 1829
+    + Blue 1977
+    ... and 294 more
+
+  Absolute unique sizes: 203
+  Already in DB:         30
+  NEW sizes to add:      173
+
+  New sizes:
+    + 0>3M
+    + 10
+    + 100M
+    + 105mm x 148mm
+    + 10>12
+    + 10L
+    + 10R
+    + 10S
+    + 11>12yr (152cm)
+    + 12
+    + 12/14
+    + 12>13 (152cm)
+    + 12>13yr (152cm)
+    + 12>18 mth (86cm)
+    + 12>18M
+    + 12L
+    + 12R
+    + 12S
+    + 13>14yr (164cm)
+    + 148mm x 210mm
+    + 14>15yr (164cm)
+    + 14>16
+    + 14L
+    + 14R
+    + 14S
+    + 16L
+    + 16R
+    + 16S
+    + 18>20
+    + 18>24 mth (92cm)
+    + 18>24M
+    + 18L
+    + 18R
+    + 18S
+    + 1>2 (92cm)
+    + 1>2yr (90cm)
+    + 1M
+    + 20L
+    + 20R
+    + 20S
+    + 20cm x 100m
+    + 20cm x 20cm
+    + 228mm x 305mm
+    + 22>24
+    + 22L
+    + 22R
+    + 22S
+    + 24>36 mth (98cm)
+    + 250mm x 350mm
+    + 254mm x 305mm
+    + 25M
+    + 26>28
+    + 28
+    + 28L
+    + 28R
+    + 28S
+    + 2>3 (98cm)
+    + 2T 20in
+    + 2XS
+    + 2yr (98cm)
+    + 30
+    + 300ml
+    + 300mm x 405mm
+    + 305mm x 405mm
+    + 30>32
+    + 30L
+    + 30R
+    + 30S
+    + 32
+    + 32L
+    + 32R
+    + 32S
+    + 34
+    + 34>36
+    + 34L
+    + 34R
+    + 34S
+    + 350mm x 525mm
+    + 36
+    + 36>48 mth (104cm)
+    + 36L
+    + 36R
+    + 36S
+    + 38
+    + 381mm x 508mm
+    + 38L
+    + 38R
+    + 38S
+    + 3>4 (104cm)
+    + 3>4yr (104cm)
+    + 3>6M
+    + 3T 22in
+    + 4"
+    + 4.5"
+    + 40
+    + 400ml
+    + 400mm x 300m
+    + 40L
+    + 40R
+    + 40S
+    + 42
+    + 425mm x 600mm
+    + 42L
+    + 42R
+    + 42S
+    + 44
+    + 44L
+    + 44R
+    + 44S
+    + 457mm x 737mm x 991mm
+    + 46
+    + 46L
+    + 46R
+    + 46S
+    + 48
+    + 48>60 mth (110cm)
+    + 48L
+    + 48R
+    + 48S
+    + 48mm x 66m
+    + 4T 24in
+    + 500ml
+    + 50L
+    + 50M
+    + 50R
+    + 50S
+    + 525mm x 600mm
+    + 52L
+    + 52R
+    + 52S
+    + 5>6 (116cm)
+    + 5>6yr (116cm)
+    + 5M
+    + 5T 26in
+    + 6
+    + 6-11
+    + 60>72 mth (116cm)
+    + 6>11
+    + 6>12 mth (80cm)
+    + 6>12M
+    + 6>8
+    + 6T 28in
+    + 76
+    + 7>8 (128cm)
+    + 7>8yr (128cm)
+    + 8
+    + 8L
+    + 8R
+    + 8S
+    + 9"
+    + 9>10yr (140cm)
+    + 9>11 (140cm)
+    + 9>11yr (140cm)
+    + A3
+    + CONE
+    + Cop
+    + No60
+    + No65
+    + No75
+    + OS
+    + Priced
+    + Square 16.5cm
+    + Square 18cm
+    + Square 20cm
+    + Unpriced
+    + Y2XS
+    + Y3XS
+    + YL
+    + YM
+    + YS
+    + YXL
+    + YXS
+    + YXXS
+
+======================================================================
+  PART 7: FULL INTEGRATION PLAN
+======================================================================
+
+  STEP 1: CREATE SUPPLIER
+  ─────────────────────────
+  INSERT INTO suppliers (name, slug) VALUES ('Absolute Apparel', 'absolute-apparel');
+  This gives us a supplier_id to link all new styles to.
+
+  STEP 2: CREATE NEW BRANDS
+  ─────────────────────────
+  Create 20 new brand records:
+    INSERT brands: name='AFD By Dennys', slug='afd-by-dennys'
+    INSERT brands: name='Absolute Apparel', slug='absolute-apparel'
+    INSERT brands: name='Atlantis', slug='atlantis'
+    INSERT brands: name='BonChef', slug='bonchef'
+    INSERT brands: name='Casual Classics', slug='casual-classics'
+    INSERT brands: name='Consumables', slug='consumables'
+    INSERT brands: name='Dae Ha', slug='dae-ha'
+    INSERT brands: name='Dennys', slug='dennys'
+    INSERT brands: name='EZ Trans', slug='ez-trans'
+    INSERT brands: name='Gildan Hammer', slug='gildan-hammer'
+    INSERT brands: name='Jerzees', slug='jerzees'
+    INSERT brands: name='Korntex', slug='korntex'
+    INSERT brands: name='Marketing', slug='marketing'
+    INSERT brands: name='Next Level Apparel', slug='next-level-apparel'
+    INSERT brands: name='Russell Athletic', slug='russell-athletic'
+    INSERT brands: name='Russell Athletic Collection', slug='russell-athletic-collection'
+    INSERT brands: name='Russell Athletic Pure Organic', slug='russell-athletic-pure-organic'
+    INSERT brands: name='Stedman', slug='stedman'
+    INSERT brands: name='Warrior', slug='warrior'
+    INSERT brands: name='Work Force', slug='work-force'
+
+  STEP 3: CREATE NEW PRODUCT TYPES (if needed)
+  ─────────────────────────────────────────────
+    INSERT product_types: name='Baby & Toddler', slug='baby-toddler'
+    INSERT product_types: name='Catering', slug='catering'
+    INSERT product_types: name='Caps & Hats', slug='caps-hats'
+    INSERT product_types: name='Joggers', slug='joggers'
+    INSERT product_types: name='Knitwear', slug='knitwear'
+    INSERT product_types: name='Fleece Bodywarmers', slug='fleece-bodywarmers'
+    INSERT product_types: name='Fleece Jackets', slug='fleece-jackets'
+    INSERT product_types: name='Fleece Jackets', slug='fleece-jackets'
+    INSERT product_types: name='3 in 1 Jackets', slug='3-in-1-jackets'
+    INSERT product_types: name='Bodywarmers', slug='bodywarmers'
+    INSERT product_types: name='Bodywarmers', slug='bodywarmers'
+    INSERT product_types: name='Waterproof Trousers', slug='waterproof-trousers'
+    INSERT product_types: name='Waterproof Jackets', slug='waterproof-jackets'
+    INSERT product_types: name='Long Sleeve Polo Shirts', slug='long-sleeve-polo-shirts'
+    INSERT product_types: name='Polo Shirts', slug='polo-shirts'
+    INSERT product_types: name='Long Sleeve Polo Shirts', slug='long-sleeve-polo-shirts'
+    INSERT product_types: name='Polo Shirts', slug='polo-shirts'
+    INSERT product_types: name='Performance Polo Shirts', slug='performance-polo-shirts'
+    INSERT product_types: name='Long Sleeve Shirts', slug='long-sleeve-shirts'
+    INSERT product_types: name='Short Sleeve Shirts', slug='short-sleeve-shirts'
+    INSERT product_types: name='Long Sleeve Shirts', slug='long-sleeve-shirts'
+    INSERT product_types: name='Short Sleeve Shirts', slug='short-sleeve-shirts'
+    INSERT product_types: name='Long Sleeve Shirts', slug='long-sleeve-shirts'
+    INSERT product_types: name='Short Sleeve Shirts', slug='short-sleeve-shirts'
+    INSERT product_types: name='Long Sleeve Shirts', slug='long-sleeve-shirts'
+    INSERT product_types: name='Short Sleeve Shirts', slug='short-sleeve-shirts'
+    INSERT product_types: name='Softshell Bodywarmers', slug='softshell-bodywarmers'
+    INSERT product_types: name='Softshell Jackets', slug='softshell-jackets'
+    INSERT product_types: name='Full Zip Sweatshirts', slug='full-zip-sweatshirts'
+    INSERT product_types: name='Quarter Zip Sweatshirts', slug='quarter-zip-sweatshirts'
+    INSERT product_types: name='T-Shirts Long Sleeve', slug='t-shirts-long-sleeve'
+    INSERT product_types: name='T-Shirts V-Neck', slug='t-shirts-v-neck'
+    INSERT product_types: name='Performance T-Shirts', slug='performance-t-shirts'
+    INSERT product_types: name='Vests', slug='vests'
+    INSERT product_types: name='Workwear', slug='workwear'
+    INSERT product_types: name='Workwear', slug='workwear'
+
+  STEP 4: CREATE NEW COLOURS & SIZES
+  ───────────────────────────────────
+    Insert 324 new colours
+    Insert 173 new sizes
+
+  STEP 5: IMPORT STYLES (741 new style records)
+  ──────────────────────────────────────────────
+  For each Absolute product:
+    - style_code = ProductCode
+    - style_name = ProductName
+    - brand_id = lookup from brands table
+    - product_type_id = lookup from mapping above
+    - gender_id = extract from category (Mens/Ladies/Kids)
+    - specification = KeyFeatures joined as text
+    - supplier_id = new Absolute Apparel supplier ID
+    - external_style_code = ProductCode
+
+  STEP 6: IMPORT PRODUCTS/SKUs (28,986 records)
+  ──────────────────────────────────────────────
+  For each SKU in each Absolute product:
+    - style_code = parent ProductCode
+    - sku_code = SKU.StockCode
+    - colour_name = SKU.Colour
+    - colour_id = lookup from colours table
+    - size_id = lookup from sizes table
+    - single_price = SKU.Price
+    - stock_quantity = SKU.Stock
+    - primary_image_url = first image from parent
+    - sku_status = 'Live' or 'Discontinued' based on SKU.Discontinued
+    - external_sku = SKU.BarCode
+
+  STEP 7: LINK CATEGORIES
+  ───────────────────────
+  Insert into product_categories to link styles to categories.
+
+  STEP 8: APPLY PRICING RULES
+  ───────────────────────────
+  Run existing pricing engine to calculate sell_price for new products.
+  NOTE: Absolute only has single_price (no carton/pack tiers).
+  Set carton_price = pack_price = single_price = SKU.Price
+
+  SAFETY MEASURES:
+  ────────────────
+  1. Run the import script inside a TRANSACTION
+  2. BACKUP the database before importing
+  3. Validate counts after import
+  4. Test the search view refreshes correctly
+  5. Verify no existing records were modified
+
+======================================================================
+  END OF INTEGRATION PLAN
+======================================================================

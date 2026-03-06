@@ -216,9 +216,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
         );
         // When q contains a supplier name/slug, also filter to that supplier (same as list query)
         const isUneekSearch = /\buneek\b/i.test(trimmedSearch);
-        const isRalawiseSearch = /\bralawise\b/i.test(trimmedSearch);
-        const isAbsoluteSearch = /\babsolute\s*apparel\b|\babsolute-apparel\b/i.test(trimmedSearch);
-        const supplierSlugFromQ = isAbsoluteSearch ? 'absolute-apparel' : isRalawiseSearch ? 'ralawise' : isUneekSearch ? 'uneek' : null;
+        const supplierSlugFromQ = isUneekSearch ? 'uneek' : null;
 
         if (supplierSlugFromQ && searchResult.conditions.length > 0) {
           conditions.push(`((${searchResult.conditions.join(' AND ')}) OR EXISTS (SELECT 1 FROM styles s_sq INNER JOIN suppliers sup ON s_sq.supplier_id = sup.id WHERE s_sq.style_code = psm.style_code AND sup.slug = '${supplierSlugFromQ}'))`);
@@ -752,9 +750,7 @@ async function buildProductListQuery(filters, page, limit) {
       const searchResult = await search.buildSearchConditions(trimmedSearch, viewAlias, paramIndex);
       // When q contains a supplier name/slug, filter to that supplier's catalogue (same as supplier= param)
       const isUneekSearch = /\buneek\b/i.test(trimmedSearch);
-      const isRalawiseSearch = /\bralawise\b/i.test(trimmedSearch);
-      const isAbsoluteSearch = /\babsolute\s*apparel\b|\babsolute-apparel\b/i.test(trimmedSearch);
-      const supplierSlugFromQ = isAbsoluteSearch ? 'absolute-apparel' : isRalawiseSearch ? 'ralawise' : isUneekSearch ? 'uneek' : null;
+      const supplierSlugFromQ = isUneekSearch ? 'uneek' : null;
 
       if (supplierSlugFromQ && searchResult.conditions.length > 0) {
         conditions.push(`((${searchResult.conditions.join(' AND ')}) OR EXISTS (SELECT 1 FROM styles s_sq INNER JOIN suppliers sup ON s_sq.supplier_id = sup.id WHERE s_sq.style_code = ${viewAlias}.style_code AND sup.slug = '${supplierSlugFromQ}'))`);

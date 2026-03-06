@@ -1,0 +1,1029 @@
+======================================================================
+   COMPREHENSIVE CATALOGUE COMPARISON REPORT
+   Existing DB (Uneek + Ralawise) vs New Absolute Apparel
+======================================================================
+
+======================================================================
+  SECTION 1: CURRENT DATABASE SCHEMA OVERVIEW
+======================================================================
+Total Tables: 43
+
+  Table: accreditations (5 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - description                         text                           NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: age_groups (5 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - display_order                       integer                        NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: brand_collections (7 columns)
+    - id                                  integer                        NOT NULL
+    - brand_id                            integer                        NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - display_order                       integer                        NULL
+    - created_at                          timestamp without time zone    NULL
+    - updated_at                          timestamp without time zone    NULL
+
+  Table: brands (8 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - display_order                       integer                        NULL
+    - description                         text                           NULL
+    - created_at                          timestamp without time zone    NULL
+    - updated_at                          timestamp without time zone    NULL
+    - is_active                           boolean                        NULL
+
+  Table: button_counts (5 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - button_count                        integer                        NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: categories (9 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - parent_id                           integer                        NULL
+    - category_type                       character varying              NULL
+    - display_order                       integer                        NULL
+    - description                         text                           NULL
+    - created_at                          timestamp without time zone    NULL
+    - updated_at                          timestamp without time zone    NULL
+
+  Table: category_hierarchy_cache (3 columns)
+    - category_id                         integer                        NOT NULL
+    - all_child_ids                       ARRAY                          NOT NULL
+    - updated_at                          timestamp without time zone    NULL
+
+  Table: colours (7 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - hex_code                            character varying              NULL
+    - colour_family                       character varying              NULL
+    - display_order                       integer                        NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: effects (5 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - description                         text                           NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: fabrics (7 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - fabric_type                         character varying              NULL
+    - percentage                          character varying              NULL
+    - description                         text                           NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: genders (5 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - display_order                       integer                        NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: price_breaks (7 columns)
+    - id                                  integer                        NOT NULL
+    - min_qty                             integer                        NOT NULL
+    - max_qty                             integer                        NOT NULL
+    - discount_percent                    numeric                        NOT NULL
+    - tier_name                           character varying              NOT NULL
+    - created_at                          timestamp without time zone    NULL
+    - updated_at                          timestamp without time zone    NULL
+
+  Table: price_history (5 columns)
+    - product_id                          integer                        NOT NULL
+    - old_price                           numeric                        NULL
+    - new_price                           numeric                        NULL
+    - version                             character varying              NULL
+    - changed_at                          timestamp without time zone    NULL
+
+  Table: pricing_rules (5 columns)
+    - version                             character varying              NOT NULL
+    - from_price                          numeric                        NOT NULL
+    - to_price                            numeric                        NOT NULL
+    - markup_percent                      numeric                        NOT NULL
+    - active                              boolean                        NULL
+
+  Table: product_accreditations (3 columns)
+    - product_id                          integer                        NOT NULL
+    - accreditation_id                    integer                        NOT NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: product_buttons (3 columns)
+    - product_id                          integer                        NOT NULL
+    - button_count_id                     integer                        NOT NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: product_categories (3 columns)
+    - product_id                          integer                        NOT NULL
+    - category_id                         integer                        NOT NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: product_display_order (8 columns)
+    - id                                  integer                        NOT NULL
+    - style_code                          character varying              NOT NULL
+    - brand_id                            integer                        NULL
+    - product_type_id                     integer                        NULL
+    - display_order                       integer                        NULL
+    - created_at                          timestamp without time zone    NULL
+    - updated_at                          timestamp without time zone    NULL
+    - active                              boolean                        NULL
+
+  Table: product_display_order_audit (11 columns)
+    - id                                  integer                        NOT NULL
+    - action                              character varying              NOT NULL
+    - style_code                          character varying              NULL
+    - product_type_id                     integer                        NULL
+    - brand_id                            integer                        NULL
+    - old_display_order                   integer                        NULL
+    - new_display_order                   integer                        NULL
+    - context                             text                           NULL
+    - batch_id                            character varying              NULL
+    - created_at                          timestamp without time zone    NULL
+    - source                              character varying              NULL
+
+  Table: product_effects (3 columns)
+    - product_id                          integer                        NOT NULL
+    - effect_id                           integer                        NOT NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: product_fabrics (3 columns)
+    - product_id                          integer                        NOT NULL
+    - fabric_id                           integer                        NOT NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: product_flags (3 columns)
+    - product_id                          integer                        NOT NULL
+    - flag_id                             integer                        NOT NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: product_markup_overrides (5 columns)
+    - id                                  integer                        NOT NULL
+    - style_code                          character varying              NOT NULL
+    - markup_percent                      numeric                        NOT NULL
+    - created_at                          timestamp without time zone    NULL
+    - updated_at                          timestamp without time zone    NULL
+
+  Table: product_price_overrides (7 columns)
+    - id                                  integer                        NOT NULL
+    - style_code                          character varying              NOT NULL
+    - min_qty                             integer                        NOT NULL
+    - max_qty                             integer                        NOT NULL
+    - discount_percent                    numeric                        NOT NULL
+    - created_at                          timestamp without time zone    NULL
+    - updated_at                          timestamp without time zone    NULL
+
+  Table: product_search_view (49 columns)
+    - id                                  integer                        NULL
+    - sku_code                            character varying              NULL
+    - colour_name                         character varying              NULL
+    - primary_colour                      character varying              NULL
+    - colour_shade                        character varying              NULL
+    - single_price                        numeric                        NULL
+    - carton_price                        numeric                        NULL
+    - pack_price                          numeric                        NULL
+    - sku_status                          character varying              NULL
+    - primary_image_url                   text                           NULL
+    - colour_image_url                    text                           NULL
+    - stock_quantity                      integer                        NULL
+    - created_at                          timestamp without time zone    NULL
+    - updated_at                          timestamp without time zone    NULL
+    - style_code                          character varying              NULL
+    - style_name                          character varying              NULL
+    - specification                       text                           NULL
+    - fabric_description                  text                           NULL
+    - product_type_id                     integer                        NULL
+    - product_type                        character varying              NULL
+    - product_type_slug                   character varying              NULL
+    - brand_id                            integer                        NULL
+    - brand                               character varying              NULL
+    - brand_slug                          character varying              NULL
+    - gender_id                           integer                        NULL
+    - gender                              character varying              NULL
+    - gender_slug                         character varying              NULL
+    - age_group_id                        integer                        NULL
+    - age_group                           character varying              NULL
+    - age_group_slug                      character varying              NULL
+    - size_id                             integer                        NULL
+    - size                                character varying              NULL
+    - size_slug                           character varying              NULL
+    - size_order                          integer                        NULL
+    - tag_id                              integer                        NULL
+    - tag                                 character varying              NULL
+    - tag_slug                            character varying              NULL
+    - colour_id                           integer                        NULL
+    - colour                              character varying              NULL
+    - colour_hex                          character varying              NULL
+    - colour_family                       character varying              NULL
+    - categories                          text                           NULL
+    - accreditations                      text                           NULL
+    - effects                             text                           NULL
+    - flags                               text                           NULL
+    - fabrics                             text                           NULL
+    - style_keywords                      text                           NULL
+    - searchable_text                     text                           NULL
+    - search_vector                       tsvector                       NULL
+
+  Table: product_sectors (3 columns)
+    - product_id                          integer                        NOT NULL
+    - sector_id                           integer                        NOT NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: product_sports (3 columns)
+    - product_id                          integer                        NOT NULL
+    - sport_id                            integer                        NOT NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: product_types (7 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - display_order                       integer                        NULL
+    - description                         text                           NULL
+    - created_at                          timestamp without time zone    NULL
+    - updated_at                          timestamp without time zone    NULL
+
+  Table: product_weight_ranges (3 columns)
+    - product_id                          integer                        NOT NULL
+    - weight_range_id                     integer                        NOT NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: products (22 columns)
+    - id                                  integer                        NOT NULL
+    - style_code                          character varying              NULL
+    - sku_code                            character varying              NOT NULL
+    - colour_name                         character varying              NULL
+    - primary_colour                      character varying              NULL
+    - colour_shade                        character varying              NULL
+    - colour_id                           integer                        NULL
+    - size_id                             integer                        NULL
+    - tag_id                              integer                        NULL
+    - sku_status                          character varying              NULL
+    - carton_price                        numeric                        NULL
+    - pack_price                          numeric                        NULL
+    - single_price                        numeric                        NULL
+    - primary_image_url                   text                           NULL
+    - colour_image_url                    text                           NULL
+    - stock_quantity                      integer                        NULL
+    - created_at                          timestamp without time zone    NULL
+    - updated_at                          timestamp without time zone    NULL
+    - sell_price                          numeric                        NULL
+    - pricing_version                     character varying              NULL
+    - last_priced_at                      timestamp without time zone    NULL
+    - external_sku                        character varying              NULL
+
+  Table: quote_requests (12 columns)
+    - id                                  integer                        NOT NULL
+    - quote_id                            character varying              NOT NULL
+    - customer_name                       character varying              NOT NULL
+    - customer_email                      character varying              NOT NULL
+    - customer_phone                      character varying              NULL
+    - customer_company                    character varying              NULL
+    - customer_address                    text                           NULL
+    - total_amount                        numeric                        NULL
+    - quote_data                          jsonb                          NOT NULL
+    - status                              character varying              NULL
+    - created_at                          timestamp without time zone    NULL
+    - updated_at                          timestamp without time zone    NULL
+
+  Table: related_sectors (4 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: related_sports (4 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: search_synonyms (5 columns)
+    - id                                  integer                        NOT NULL
+    - term                                text                           NOT NULL
+    - canonical                           text                           NOT NULL
+    - synonym_type                        text                           NOT NULL
+    - created_at                          timestamp with time zone       NULL
+
+  Table: sizes (6 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - size_order                          integer                        NULL
+    - size_type                           character varying              NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: special_flags (7 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - flag_type                           character varying              NULL
+    - display_order                       integer                        NULL
+    - description                         text                           NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: staging_products (22 columns)
+    - Style Code                          text                           NULL
+    - Style Name                          text                           NULL
+    - Brand                               text                           NULL
+    - Product Type                        text                           NULL
+    - Gender                              text                           NULL
+    - Age Group                           text                           NULL
+    - Fabric                              text                           NULL
+    - Specification                       text                           NULL
+    - Sku Code                            text                           NULL
+    - Colour Name                         text                           NULL
+    - Primary Colour                      text                           NULL
+    - Colour Shade                        text                           NULL
+    - Size Name                           text                           NULL
+    - Tag                                 text                           NULL
+    - Sku Status                          text                           NULL
+    - Carton Price                        text                           NULL
+    - Pack Price                          text                           NULL
+    - Single Price                        text                           NULL
+    - Primary Product Image URL           text                           NULL
+    - Colour Image                        text                           NULL
+    - Categorisation                      text                           NULL
+    - Accreditations                      text                           NULL
+
+  Table: style_keywords (5 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - keyword_type                        character varying              NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: style_keywords_mapping (3 columns)
+    - style_code                          character varying              NOT NULL
+    - keyword_id                          integer                        NOT NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: styles (16 columns)
+    - style_code                          character varying              NOT NULL
+    - style_name                          character varying              NULL
+    - brand_id                            integer                        NULL
+    - product_type_id                     integer                        NULL
+    - gender_id                           integer                        NULL
+    - age_group_id                        integer                        NULL
+    - fabric_description                  text                           NULL
+    - specification                       text                           NULL
+    - created_at                          timestamp without time zone    NULL
+    - updated_at                          timestamp without time zone    NULL
+    - is_best_seller                      boolean                        NULL
+    - is_recommended                      boolean                        NULL
+    - best_seller_order                   integer                        NULL
+    - recommended_order                   integer                        NULL
+    - supplier_id                         integer                        NULL
+    - external_style_code                 character varying              NULL
+
+  Table: suppliers (4 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - created_at                          timestamp with time zone       NULL
+
+  Table: tags (5 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - display_order                       integer                        NULL
+    - created_at                          timestamp without time zone    NULL
+
+  Table: weight_ranges (6 columns)
+    - id                                  integer                        NOT NULL
+    - name                                character varying              NOT NULL
+    - slug                                character varying              NOT NULL
+    - min_gsm                             integer                        NULL
+    - max_gsm                             integer                        NULL
+    - created_at                          timestamp without time zone    NULL
+
+======================================================================
+  SECTION 2: CURRENT DATABASE STATISTICS
+======================================================================
+Total Styles (Master Products): 4471
+Total Products (SKUs):          106675
+Total Brands:                   92
+Total Categories:               282
+Total Product Types:            110
+Total Colours:                  2652
+Total Sizes:                    328
+
+
+--- SUPPLIERS ---
+
+--- BRANDS IN DB (with product counts) ---
+
+--- PRODUCT TYPES IN DB ---
+
+--- CATEGORIES IN DB (Top 30) ---
+
+======================================================================
+  SECTION 3: NEW ABSOLUTE APPAREL CATALOGUE STATISTICS
+======================================================================
+Total Products (Styles):    741
+Total SKUs:                 28986
+Total Images:               22610
+
+--- ABSOLUTE APPAREL BRANDS ---
+  Casual Classics                     160 styles
+  Atlantis                            134 styles
+  Regatta Professional                81 styles
+  Fruit Of The Loom                   64 styles
+  Russell Athletic                    45 styles
+  Gildan                              38 styles
+  Stedman                             33 styles
+  Russell Athletic Collection         31 styles
+  Absolute Apparel                    26 styles
+  Madeira                             26 styles
+  Korntex                             17 styles
+  BonChef                             16 styles
+  Jerzees                             11 styles
+  Dennys                              10 styles
+  Next Level Apparel                  9 styles
+  Work Force                          8 styles
+  Consumables                         6 styles
+  Gildan Hammer                       5 styles
+  AFD By Dennys                       4 styles
+  Regatta Honestly Made               4 styles
+  Dae Ha                              4 styles
+  Warrior                             3 styles
+  Marketing                           2 styles
+  EZ Trans                            2 styles
+  Russell Athletic Pure Organic       2 styles
+
+--- ABSOLUTE APPAREL CATEGORIES (Top 20) ---
+  Headwear - Structured Baseball Caps                     42 styles
+  T-Shirts Cotton Crew Neck S/S - 180gsm - 200gsm Mens (Unisex) 33 styles
+  Headwear - Beanies                                      29 styles
+  Headwear - Trucker Caps (Mesh or Laser)                 25 styles
+  T-Shirts Cotton Crew Neck S/S - 140gsm - 155gsm Mens (Unisex) 24 styles
+  T-Shirts Cotton Crew Neck S/S - 205gsm - 230gsm Mens (Unisex) 18 styles
+  Sweats Crew Neck - 260gsm - 295gsm Mens (Unisex)        18 styles
+  Hoodies - 260gsm - 295gsm Mens (Unisex)                 17 styles
+  Headwear - Unstructured Baseball Caps                   16 styles
+  Jogpants - 260gsm - 295gsm Mens (Unisex)                13 styles
+  Zip Hoodies - 260gsm - 295gsm Mens (Unisex)             12 styles
+  Consumables - Embroidery Accessories                    12 styles
+  Sweats Crew Neck - 300gsm - 335gsm Mens (Unisex)        11 styles
+  Catering & Hospitality - Aprons Waist Length            11 styles
+  Hoodies - 300gsm - 335gsm Mens (Unisex)                 10 styles
+  Consumables - Embroidery Threads                        10 styles
+  Jogpants - 300gsm - 335gsm Mens (Unisex)                10 styles
+  Softshell Full Zip - 260gsm - 295gsm Mens (Unisex)      9 styles
+  Accessories - Socks                                     9 styles
+  Headwear - Bucket Hats                                  9 styles
+  ... and 182 more categories
+
+Price Range:  GBP 0.49 - GBP 350.00 (Avg: GBP 6.97)
+RRP Range:    GBP 0.49 - GBP 350.00 (Avg: GBP 7.29)
+
+======================================================================
+  SECTION 4: BRAND OVERLAP ANALYSIS
+======================================================================
+Brands ONLY in DB:                 87
+Brands ONLY in Absolute Apparel:   20
+Brands in BOTH (Common):           5
+
+  [COMMON BRANDS]
+    ✓ fruit of the loom
+    ✓ gildan
+    ✓ madeira
+    ✓ regatta honestly made
+    ✓ regatta professional
+
+  [ONLY IN DB - Not in Absolute Apparel]
+    - 2786
+    - adidas®
+    - anthem
+    - asquith & fox
+    - awdis
+    - awdis academy
+    - awdis ecologie
+    - awdis just cool
+    - awdis just hoods
+    - awdis just polo's
+    - awdis just t's
+    - awdis so denim
+    - b&c collection
+    - babybugz
+    - bagbase
+    - beechfield
+    - bella canvas
+    - build your brand
+    - build your brand basic
+    - build your brandit
+    - callaway
+    - colortone
+    - comfort colors®
+    - comfy co
+    - craghoppers
+    - essentials
+    - finden & hales
+    - flexfit by yupoong
+    - front row
+    - henbury
+    - home & living
+    - jack wolfskin
+    - kariban
+    - kariban proact
+    - kimood
+    - kustom kit
+    - larkwood
+    - maddins
+    - mumbles
+    - new era
+    - new morning studios
+    - nike
+    - nimbus
+    - nutshell®
+    - ogio
+    - onna by premier
+    - personal protective wear
+    - portwest
+    - premier
+    - prortx
+    - prortx high visibility
+    - quadra
+    - regatta high visibility
+    - regatta junior
+    - regatta safety footwear
+    - result
+    - result core
+    - result essential hygiene ppe
+    - result genuine recycled
+    - result headwear
+    - result safeguard
+    - result urban outdoor
+    - result winter essentials
+    - result workguard
+    - rhino
+    - ribbon
+    - russell collection
+    - russell europe
+    - scruffs
+    - sf
+    - spiro
+    - spiro recycled
+    - splashmacs
+    - stanley workwear
+    - stanley/stella
+    - stormtech
+    - tee jays
+    - the christmas shop
+    - tombo
+    - towel city
+    - tridri®
+    - under armour
+    - under armour golf
+    - uneek clothing
+    - westford mill
+    - wombat
+    - yoko
+
+  [ONLY IN ABSOLUTE APPAREL - New brands to add]
+    + absolute apparel
+    + afd by dennys
+    + atlantis
+    + bonchef
+    + casual classics
+    + consumables
+    + dae ha
+    + dennys
+    + ez trans
+    + gildan hammer
+    + jerzees
+    + korntex
+    + marketing
+    + next level apparel
+    + russell athletic
+    + russell athletic collection
+    + russell athletic pure organic
+    + stedman
+    + warrior
+    + work force
+
+======================================================================
+  SECTION 5: CATEGORY / PRODUCT TYPE OVERLAP
+======================================================================
+DB Categories:            282
+DB Product Types:         110
+Absolute Category Count:  202
+Absolute Broad Types:     49
+
+Category overlaps (fuzzy match): 94
+New categories from Absolute:    108
+Product type overlaps:           32
+New product types from Absolute: 17
+
+  [PRODUCT TYPE OVERLAPS]
+    ✓ accessories
+    ✓ hoodies
+    ✓ outdoor fleece bodywarmers
+    ✓ outdoor fleece full zip
+    ✓ outdoor fleece quarter zip
+    ✓ outerwear 3in1 jackets
+    ✓ outerwear hybrid jackets
+    ✓ outerwear insulated jackets
+    ✓ outerwear rain suits
+    ✓ outerwear shell jackets
+    ✓ polos cotton l/s
+    ✓ polos cotton s/s
+    ✓ polos polycotton l/s
+    ✓ polos polycotton s/s
+    ✓ polos polyester s/s
+    ✓ shirts herringbone l/s
+    ✓ shirts herringbone s/s
+    ✓ shirts oxford l/s
+    ✓ shirts oxford s/s
+    ✓ shirts poplin l/s
+    ✓ shirts poplin s/s
+    ✓ shirts twill l/s
+    ✓ shirts twill s/s
+    ✓ shorts
+    ✓ t-shirts cotton crew neck l/s
+    ✓ t-shirts cotton crew neck s/s
+    ✓ t-shirts cotton v-neck s/s
+    ✓ t-shirts polycotton crew neck s/s
+    ✓ t-shirts polyester crew neck s/s
+    ✓ workwear shorts
+    ✓ workwear trousers
+    ✓ zip hoodies
+
+  [NEW PRODUCT TYPES FROM ABSOLUTE]
+    + baby & toddler 180gsm
+    + catalogues
+    + catering & hospitality
+    + consumables
+    + headwear
+    + jogpants
+    + knitwear
+    + outerwear bodywarmers
+    + outerwear hybrid bodywarmers
+    + softshell bodywarmer
+    + softshell full zip
+    + sweats crew neck
+    + sweats full zip
+    + sweats quarter zip
+    + vests & tanks cotton
+    + workwear
+    + workwear thermal underwear
+
+======================================================================
+  SECTION 6: PRODUCT CODE / STYLE CODE OVERLAP
+======================================================================
+Style codes in DB:                  0
+Style codes in Absolute Apparel:    741
+COMMON Style Codes (Overlap):       0
+ONLY in DB:                         0
+ONLY in Absolute (New to add):      741
+
+
+  [NEW PRODUCT CODES FROM ABSOLUTE - 741 to add]
+    + AA13
+    + AA24
+    + AA502
+    + AA755
+    + ACBCCT
+    + ACBONS
+    + ACCHAO
+    + ACFAMC
+    + ACFAMS
+    + ACFRBA
+    + ACHOLB
+    + ACPURB
+    + ACRAPC
+    + ACRAYS
+    + ACRPSD
+    + ACSKTE
+    + ACZIOC
+    + B773
+    + CRBPJ100
+    + CRBSW15
+    + CRBSWAC400
+    + CRBT30
+    + CRBT515
+    + CRBT905
+    + CRBTAC30
+    + CRBTAC405
+    + CRBTAC800
+    + CRBV100
+    + CRBV65
+    + CRBVAC120
+    + CRBVAC600
+    + F61036
+    + F61432
+    + F62062
+    + G18000
+    + G64V00L
+    + GH000
+    + M915S
+    + R180B
+    + R762M
+    + R922M
+    + R933F
+    + RTRA301
+    + RTRA563
+    + RTRA645
+    + RTRA712
+    + RTRF532
+    + RTRF695
+    + RTRJ332
+    + ST4370
+    ... and 691 more
+
+======================================================================
+  SECTION 7: DATA STRUCTURE COMPARISON
+======================================================================
+
+--- DB STYLE COLUMNS ---
+  style_code
+  style_name
+  brand_id
+  product_type_id
+  gender_id
+  age_group_id
+  fabric_description
+  specification
+  created_at
+  updated_at
+  is_best_seller
+  is_recommended
+  best_seller_order
+  recommended_order
+  supplier_id
+  external_style_code
+
+--- DB PRODUCT (SKU) COLUMNS ---
+  id
+  style_code
+  sku_code
+  colour_name
+  primary_colour
+  colour_shade
+  colour_id
+  size_id
+  tag_id
+  sku_status
+  carton_price
+  pack_price
+  single_price
+  primary_image_url
+  colour_image_url
+  stock_quantity
+  created_at
+  updated_at
+  sell_price
+  pricing_version
+  last_priced_at
+  external_sku
+
+--- ABSOLUTE APPAREL PRODUCT FIELDS ---
+  Company
+  Category
+  ProductCode
+  ProductName
+  Manufacturer
+  KeyFeatures
+  Images
+  SKUs
+
+--- ABSOLUTE APPAREL SKU FIELDS ---
+  SKUID
+  StockCode
+  Colour
+  Size
+  Price
+  RRP
+  Stock
+  LocalStock
+  BarCode
+  Discontinued
+
+--- SUGGESTED FIELD MAPPING (Absolute -> DB) ---
+  Absolute Field          =>  DB Table.Column
+  -------------------------------------------------
+  ProductCode             =>  styles.style_code
+  ProductName             =>  styles.name
+  Manufacturer            =>  brands.name (via styles.brand_id)
+  Category                =>  categories.name (via product_categories)
+  KeyFeatures             =>  styles.description or custom field
+  Images                  =>  styles.images (array) or separate table
+  SKU.StockCode           =>  products.sku
+  SKU.Colour              =>  colours.name (via products.colour_id)
+  SKU.Size                =>  sizes.name (via products.size_id)
+  SKU.Price               =>  products.price
+  SKU.RRP                 =>  products.rrp
+  SKU.Stock               =>  products.stock
+  SKU.BarCode             =>  products.barcode
+  SKU.Discontinued        =>  products.discontinued
+
+======================================================================
+  SECTION 8: COLOUR & SIZE ANALYSIS
+======================================================================
+Unique Colours in Absolute: 626
+Unique Sizes in Absolute:   203
+Unique Colours in DB:       2652
+Unique Sizes in DB:         328
+
+--- TOP 20 COLOURS IN ABSOLUTE ---
+  Black                          2946 SKUs
+  White                          2323 SKUs
+  Navy                           1506 SKUs
+  Red                            782 SKUs
+  Royal                          773 SKUs
+  Charcoal                       680 SKUs
+  Burgundy                       484 SKUs
+  Stone                          449 SKUs
+  Heather Grey                   428 SKUs
+  French Navy                    427 SKUs
+  Bright Royal                   394 SKUs
+  Orange                         393 SKUs
+  Ash Grey                       393 SKUs
+  Sand                           381 SKUs
+  Bottle Green                   380 SKUs
+  Sport Grey                     351 SKUs
+  Ecru                           346 SKUs
+  Deep Navy                      333 SKUs
+  Classic Red                    326 SKUs
+  Yellow                         300 SKUs
+
+--- TOP 20 SIZES IN ABSOLUTE ---
+  L                    3368 SKUs
+  S                    3365 SKUs
+  XL                   3361 SKUs
+  M                    3360 SKUs
+  2XL                  3302 SKUs
+  3XL                  2576 SKUs
+  XS                   1587 SKUs
+  4XL                  1392 SKUs
+  OS                   1181 SKUs
+  5XL                  1021 SKUs
+  YS                   190 SKUs
+  YXS                  184 SKUs
+  YM                   181 SKUs
+  YL                   181 SKUs
+  YXL                  181 SKUs
+  5>6 (116cm)          143 SKUs
+  7>8 (128cm)          143 SKUs
+  9>11 (140cm)         143 SKUs
+  12>13 (152cm)        143 SKUs
+  14>15yr (164cm)      143 SKUs
+
+======================================================================
+  SECTION 9: SAMPLE DATA (Side by Side)
+======================================================================
+
+--- SAMPLE DB STYLE ---
+  Style 1:
+    style_code                     = GR11
+    style_name                     = Eco Poloshirt
+    brand_id                       = None
+    product_type_id                = 66
+    gender_id                      = 3
+    age_group_id                   = None
+    fabric_description             = 50% Recycled Polyester 30% Recycled Cotton 20% Organic Cotton
+    specification                  = 50% Recycled Polyester 30% Recycled Cotton 20% Organic Cotton,Reactive Dyed,Knitted Collar,Taped Neck,Hemmed Sleeve & Bottom,Washable at 60 Degrees,3 Self Coloured Button Placket
+    created_at                     = 2026-02-27 22:08:57.985667
+    updated_at                     = 2026-02-27 22:08:57.985667
+    is_best_seller                 = False
+    is_recommended                 = False
+    best_seller_order              = 999999
+    recommended_order              = 999999
+    supplier_id                    = 2
+    external_style_code            = GR11
+
+  Style 2:
+    style_code                     = GR21
+    style_name                     = Eco Sweatshirt
+    brand_id                       = None
+    product_type_id                = 92
+    gender_id                      = 3
+    age_group_id                   = None
+    fabric_description             = 50% Recycled Polyester 30% Recycled Cotton 20% Organic Cotton (Charcoal - 55% Recycled Polyester 27% Recycled Cotton 18% Organic Cotton)
+    specification                  = Super Soft Luxurious Feel Fabric,50% Recycled Polyester 30% Recycled Cotton 20% Organic Cotton (Charcoal - 55% Recycled Polyester 27% Recycled Cotton 18% Organic Cotton),Reactive Dyed,Set in Sleeve,Brushed Effect for Superior Comfort and Look,Twin Needle Stitching at Neck, Shoulders, Armholes and Sleeves,Lycra Ribbed Cuffs, Welt and Neck
+    created_at                     = 2026-02-27 22:08:58.432796
+    updated_at                     = 2026-02-27 22:08:58.432796
+    is_best_seller                 = False
+    is_recommended                 = False
+    best_seller_order              = 999999
+    recommended_order              = 999999
+    supplier_id                    = 2
+    external_style_code            = GR21
+
+--- SAMPLE DB PRODUCT (SKU) ---
+  Product 1:
+    id                             = 38158
+    style_code                     = GD002
+    sku_code                       = GD002ASHG2XL
+    colour_name                    = Ash*
+    primary_colour                 = Grey
+    colour_shade                   = Grey - Light Grey
+    colour_id                      = 84
+    size_id                        = 84
+    tag_id                         = 3
+    sku_status                     = Live
+    carton_price                   = 3.19
+    pack_price                     = 3.74
+    single_price                   = 4.34
+    primary_image_url              = https://cdn.pimber.ly/public/asset/raw/571f95845f13380f0056d06a/fc1e389e/6748416615b286ee281f13ae/GD002_LS00_2025.jpg
+    colour_image_url               = https://cdn.pimber.ly/public/asset/raw/571f95845f13380f0056d06a/13bdc30c/5c5c3e3deb9f5b1c75ce293c/d93d6325/GD002_Ash_FT.jpg
+    stock_quantity                 = 0
+    created_at                     = 2025-12-15 12:56:07.949000
+    updated_at                     = 2026-02-20 15:20:32.429622
+    sell_price                     = 7.82
+    pricing_version                = v1
+    last_priced_at                 = 2026-01-21 18:00:03.261667
+    external_sku                   = None
+
+  Product 2:
+    id                             = 38159
+    style_code                     = GD002
+    sku_code                       = GD002ASHG3XL
+    colour_name                    = Ash*
+    primary_colour                 = Grey
+    colour_shade                   = Grey - Light Grey
+    colour_id                      = 84
+    size_id                        = 139
+    tag_id                         = 3
+    sku_status                     = Live
+    carton_price                   = 4.42
+    pack_price                     = 5.07
+    single_price                   = 5.82
+    primary_image_url              = https://cdn.pimber.ly/public/asset/raw/571f95845f13380f0056d06a/fc1e389e/6748416615b286ee281f13ae/GD002_LS00_2025.jpg
+    colour_image_url               = https://cdn.pimber.ly/public/asset/raw/571f95845f13380f0056d06a/13bdc30c/5c5c3e3deb9f5b1c75ce293c/d93d6325/GD002_Ash_FT.jpg
+    stock_quantity                 = 0
+    created_at                     = 2025-12-15 12:56:07.949000
+    updated_at                     = 2026-02-20 15:20:32.429622
+    sell_price                     = 10.83
+    pricing_version                = v1
+    last_priced_at                 = 2026-01-21 18:00:03.261667
+    external_sku                   = None
+
+--- SAMPLE ABSOLUTE APPAREL PRODUCT ---
+  ProductCode: G5000
+  ProductName: Gildan Heavy Cotton Open End 180 Regular Tee Adult
+  Manufacturer: Gildan
+  Category: T-Shirts Cotton Crew Neck S/S - 180gsm - 200gsm Mens (Unisex)\Gildan Heavy Cotton Open End 180 Regular Fit Tee Adult
+  KeyFeatures: ['Heavy Cotton T-Shirt ', 'Crew Necked T-Shirt', 'Adult (Unisex)']...
+  Images: 223 images
+  SKUs: 377 variants
+  Sample SKU: {
+    "SKUID": "163",
+    "StockCode": "G5000-12-S",
+    "Colour": "Lime Green",
+    "Size": "S",
+    "Price": 2.13,
+    "RRP": 2.6,
+    "Stock": 71,
+    "LocalStock": 71,
+    "BarCode": "00821780055153",
+    "Discontinued": false
+}
+
+======================================================================
+  SECTION 10: INTEGRATION SUMMARY & RECOMMENDATIONS
+======================================================================
+
+New Styles to Add:           741
+Overlapping Styles (Update): 0
+New Brands to Create:        20
+Existing Brands to Reuse:    5
+New Colours to Add:          ~626 (needs dedup with DB)
+New Sizes to Add:            ~203 (needs dedup with DB)
+
+--- INTEGRATION STEPS ---
+1. Create new Supplier record: 'Absolute Apparel'
+2. Create 20 new Brand records
+3. Map 5 existing brands
+4. Map or create Category records from Absolute's category tree
+5. Map or create Product Type records
+6. Import Colour records (deduplicate with existing)
+7. Import Size records (deduplicate with existing)
+8. Import 741 new Style records
+9. Import ~28986 Product (SKU) records
+10. Store 22610 image URLs
+
+--- POTENTIAL ISSUES ---
+
+--- DATA QUALITY NOTES ---
+Products with no images: 0
+Products with no SKUs:   0
+
+======================================================================
+  END OF REPORT
+======================================================================
