@@ -1894,6 +1894,21 @@ async function buildProductDetailQuery(styleCode) {
   const cached = await getCached(cacheKey);
   if (cached) {
     console.log(`[CACHE] Hit for product detail: ${styleCode}`);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/253c2345-deac-4027-aa71-611e1b34236b', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: `log_${Date.now()}_detail_cache_hit`,
+        timestamp: Date.now(),
+        location: 'services/productService.js:1894',
+        message: 'Product detail cache hit',
+        runId: 'pre-fix-1',
+        hypothesisId: 'H4',
+        data: { styleCode }
+      })
+    }).catch(() => {});
+    // #endregion
     return cached;
   }
 
@@ -1942,6 +1957,21 @@ async function buildProductDetailQuery(styleCode) {
   console.log(`[QUERY] Product detail: ${queryTime}ms`);
 
   if (detailResult.rows.length === 0) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/253c2345-deac-4027-aa71-611e1b34236b', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: `log_${Date.now()}_detail_no_rows`,
+        timestamp: Date.now(),
+        location: 'services/productService.js:1944',
+        message: 'Product detail query returned no rows',
+        runId: 'pre-fix-1',
+        hypothesisId: 'H1',
+        data: { styleCode }
+      })
+    }).catch(() => {});
+    // #endregion
     return null;
   }
 
@@ -1996,6 +2026,47 @@ async function buildProductDetailQuery(styleCode) {
       customizationSet.add(row.tag.toLowerCase());
     }
   });
+
+  // #region agent log
+  (function () {
+    let minSingle = null;
+    let minSell = null;
+    let firstCarton = null;
+    detailResult.rows.forEach(r => {
+      if (r.single_price) {
+        const v = parseFloat(r.single_price);
+        if (!isNaN(v) && (minSingle === null || v < minSingle)) minSingle = v;
+      }
+      if (r.sell_price) {
+        const v = parseFloat(r.sell_price);
+        if (!isNaN(v) && (minSell === null || v < minSell)) minSell = v;
+      }
+      if (firstCarton === null && r.carton_price != null) {
+        const v = parseFloat(r.carton_price);
+        if (!isNaN(v)) firstCarton = v;
+      }
+    });
+    fetch('http://127.0.0.1:7242/ingest/253c2345-deac-4027-aa71-611e1b34236b', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: `log_${Date.now()}_detail_db_values`,
+        timestamp: Date.now(),
+        location: 'services/productService.js:1990',
+        message: 'Product detail DB values summary',
+        runId: 'pre-fix-1',
+        hypothesisId: 'H1',
+        data: {
+          styleCode,
+          minSingle,
+          minSell,
+          firstCarton,
+          computedMinSellFromLoop: maxSellPrice
+        }
+      })
+    }).catch(() => {});
+  })();
+  // #endregion
 
   // Use minimum sell_price directly (already marked-up in DB)
   // This matches the product list API which uses MIN(sell_price) per style_code
@@ -2080,6 +2151,30 @@ async function buildProductDetailQuery(styleCode) {
     is_best_seller: firstRow.is_best_seller || false,
     is_recommended: firstRow.is_recommended || false
   };
+
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/253c2345-deac-4027-aa71-611e1b34236b', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: `log_${Date.now()}_detail_response`,
+      timestamp: Date.now(),
+      location: 'services/productService.js:2057',
+      message: 'Product detail response pricing',
+      runId: 'pre-fix-1',
+      hypothesisId: 'H2',
+      data: {
+        styleCode,
+        price: productDetail.price,
+        basePrice: productDetail.basePrice,
+        sell_price: productDetail.sell_price,
+        carton_price: productDetail.carton_price,
+        markup_tier: productDetail.markup_tier,
+        firstPriceBreak: productDetail.priceBreaks && productDetail.priceBreaks[0] ? productDetail.priceBreaks[0] : null
+      }
+    })
+  }).catch(() => {});
+  // #endregion
 
   // Cache product details (longer TTL)
   await setCache(cacheKey, productDetail, REDIS_TTL.PRODUCT_DETAIL);

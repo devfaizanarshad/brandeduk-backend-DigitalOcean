@@ -10,9 +10,20 @@ test-quote.js
 DigitalOcean_BrandedUk
 
 # Large data files
-ProductDataFull.csv
+*_clean.json
+search_results.json
+styles_output.txt
+cat_comp_report.txt
+catalogue_comparison_report.txt
+fixed_mapping.txt
+*.csv
 
 # DB backups
 maintenance/backups/
 
+# Config
 .env
+
+# Temp and Uploads
+uploads/
+tmp/

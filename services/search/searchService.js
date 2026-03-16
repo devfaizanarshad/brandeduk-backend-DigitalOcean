@@ -313,7 +313,8 @@ async function getSearchSuggestions(query) {
         s.style_code, 
         s.style_name, 
         p.primary_image_url, 
-        b.name as brand
+        b.name as brand,
+        p.sell_price as price
       FROM styles s
       JOIN products p ON s.style_code = p.style_code
       LEFT JOIN brands b ON s.brand_id = b.id
@@ -331,6 +332,7 @@ async function getSearchSuggestions(query) {
       value: r.style_code,
       image: r.primary_image_url,
       brand: r.brand,
+      price: r.price,
       type: 'product'
     }))
   };
