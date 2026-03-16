@@ -73,32 +73,10 @@ const cleanupFiles = (files) => {
   });
 };
 
-// Schedule cleanup of old files (files older than 24 hours)
-const cleanupOldFiles = () => {
-  try {
-    if (!fs.existsSync(uploadsDir)) return;
-
-    const now = Date.now();
-    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
-
-    const files = fs.readdirSync(uploadsDir);
-    files.forEach(file => {
-      const filePath = path.join(uploadsDir, file);
-      const stats = fs.statSync(filePath);
-      if (now - stats.mtimeMs > maxAge) {
-        fs.unlinkSync(filePath);
-        console.log(`[QUOTES] Cleaned up old file: ${file}`);
-      }
-    });
-  } catch (err) {
-    console.error('[QUOTES] Error during file cleanup:', err.message);
-  }
+const buildLogoUrl = (req, filename) => {
+  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  return `${baseUrl}/uploads/logos/${encodeURIComponent(filename)}`;
 };
-
-// Run cleanup every hour
-setInterval(cleanupOldFiles, 60 * 60 * 1000);
-// Also run on startup
-cleanupOldFiles();
 
 /**
  * POST /api/quotes
@@ -265,6 +243,8 @@ router.post('/', upload.any(), async (req, res) => {
           originalName: file.originalname,
           filename: file.filename,
           path: file.path,
+          relativePath: path.posix.join('uploads', 'logos', file.filename),
+          url: buildLogoUrl(req, file.filename),
           size: file.size,
           mimetype: file.mimetype
         };
@@ -311,16 +291,19 @@ router.post('/', upload.any(), async (req, res) => {
 
       customizations: Array.isArray(customizations)
         ? customizations.map(c => ({
+          positionSlug: c.position?.toLowerCase().replace(/\s+/g, '-'),
           position: c.position,
           method: c.method,
           type: c.type,
           hasLogo: c.hasLogo || logoFiles[c.position?.toLowerCase().replace(/\s+/g, '-')] !== undefined,
+          logo: logoFiles[c.position?.toLowerCase().replace(/\s+/g, '-')] || null,
           text: c.text ?? null,
           unitPrice: c.unitPrice,
           lineTotal: c.lineTotal,
           quantity: c.quantity,
         }))
         : [],
+      logos: logoFiles,
 
       timestamp: timestamp || new Date().toISOString(),
     };
@@ -331,14 +314,17 @@ router.post('/', upload.any(), async (req, res) => {
     if (logoAttachments.length > 0) {
       // Send email with attachments
       console.log(`[QUOTES] Sending quote email with ${logoAttachments.length} logo attachment(s)`);
-      emailResult = await sendQuoteEmailWithAttachments(emailData, logoAttachments, {});
+      emailResult = await sendQuoteEmailWithAttachments(
+        emailData,
+        logoAttachments,
+        Object.fromEntries(
+          Object.entries(logoFiles).map(([positionSlug, file]) => [positionSlug, file.url])
+        )
+      );
     } else {
       // Send regular email without attachments
       emailResult = await sendQuoteEmail(emailData);
     }
-
-    // Cleanup uploaded files after sending email (we don't need to store them)
-    cleanupFiles(uploadedFiles);
 
     // ===== SAVE TO DATABASE =====
     try {
@@ -377,7 +363,8 @@ router.post('/', upload.any(), async (req, res) => {
       return res.status(200).json({
         success: true,
         message: 'Quote submitted successfully',
-        quoteId: quoteId
+        quoteId: quoteId,
+        logos: logoFiles
       });
     }
 
@@ -386,7 +373,8 @@ router.post('/', upload.any(), async (req, res) => {
       return res.status(200).json({
         success: true,
         message: 'Quote received (email disabled in dev)',
-        quoteId: quoteId
+        quoteId: quoteId,
+        logos: logoFiles
       });
     }
 
