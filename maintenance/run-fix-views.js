@@ -61,8 +61,10 @@ async function runFixViews() {
           t.slug AS tag_slug,
           s.is_best_seller,
           s.is_recommended,
+          s.is_featured,
           s.best_seller_order,
           s.recommended_order,
+          s.featured_order,
           
           array_agg(DISTINCT cat.id) FILTER (WHERE cat.id IS NOT NULL) AS category_ids,
           array_agg(DISTINCT f.id) FILTER (WHERE f.id IS NOT NULL) AS fabric_ids,
@@ -123,7 +125,7 @@ async function runFixViews() {
       LEFT JOIN product_weight_ranges pwr ON p.id = pwr.product_id
       LEFT JOIN weight_ranges wr ON pwr.weight_range_id = wr.id
       WHERE p.sku_status = 'Live'
-      GROUP BY p.id, s.style_code, s.style_name, b.name, g.slug, ag.slug, sz.slug, t.slug, s.is_best_seller, s.is_recommended, s.best_seller_order, s.recommended_order
+      GROUP BY p.id, s.style_code, s.style_name, b.name, g.slug, ag.slug, sz.slug, t.slug, s.is_best_seller, s.is_recommended, s.is_featured, s.best_seller_order, s.recommended_order, s.featured_order
       WITH DATA
     `;
     await client.query(createMvQuery);
@@ -158,8 +160,9 @@ async function runFixViews() {
       'CREATE INDEX idx_psm_gender ON public.product_search_materialized USING btree (gender_slug) WHERE sku_status = \'Live\'',
       'CREATE INDEX idx_psm_brand ON public.product_search_materialized USING btree (brand) WHERE sku_status = \'Live\'',
       'CREATE INDEX idx_psm_primary_colour ON public.product_search_materialized USING btree (primary_colour) WHERE sku_status = \'Live\'',
-      'CREATE INDEX idx_psm_is_best ON public.product_search_materialized USING btree (is_best_seller) WHERE sku_status = \'Live\' AND is_best_seller = true',
-      'CREATE INDEX idx_psm_is_recommended ON public.product_search_materialized USING btree (is_recommended) WHERE sku_status = \'Live\' AND is_recommended = true',
+      'CREATE INDEX IF NOT EXISTS idx_psm_is_best ON public.product_search_materialized USING btree (is_best_seller) WHERE sku_status = \'Live\' AND is_best_seller = true',
+      'CREATE INDEX IF NOT EXISTS idx_psm_is_recommended ON public.product_search_materialized USING btree (is_recommended) WHERE sku_status = \'Live\' AND is_recommended = true',
+      'CREATE INDEX IF NOT EXISTS idx_psm_is_featured ON public.product_search_materialized USING btree (is_featured) WHERE sku_status = \'Live\' AND is_featured = true',
 
       // GIN indexes for array columns
       'CREATE INDEX idx_psm_search_gin ON public.product_search_materialized USING gin (search_vector) WHERE sku_status = \'Live\'',

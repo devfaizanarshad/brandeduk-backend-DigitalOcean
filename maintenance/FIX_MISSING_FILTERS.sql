@@ -48,6 +48,10 @@ SELECT
     t.slug AS tag_slug,
     s.is_best_seller,
     s.is_recommended,
+    s.is_featured,
+    s.best_seller_order,
+    s.recommended_order,
+    s.featured_order,
     
     -- Array aggregations for IDs
     array_agg(DISTINCT cat.id) FILTER (WHERE cat.id IS NOT NULL) AS category_ids,
@@ -172,7 +176,7 @@ LEFT JOIN weight_ranges wr ON pwr.weight_range_id = wr.id
 
 WHERE p.sku_status = 'Live'
   AND (b.id IS NULL OR b.is_active = true)
-GROUP BY p.id, s.style_code, s.style_name, b.name, g.slug, ag.slug, sz.slug, t.slug, s.is_best_seller, s.is_recommended
+GROUP BY p.id, s.style_code, s.style_name, b.name, g.slug, ag.slug, sz.slug, t.slug, s.is_best_seller, s.is_recommended, s.is_featured, s.best_seller_order, s.recommended_order, s.featured_order
 WITH DATA;
 
 ALTER TABLE IF EXISTS public.product_search_mv OWNER TO brandeduk;
@@ -262,6 +266,10 @@ CREATE INDEX idx_psm_effects_arr_gin ON public.product_search_materialized USING
 CREATE INDEX idx_psm_sector_slugs_gin ON public.product_search_materialized USING gin (sector_slugs) WHERE sku_status = 'Live';
 CREATE INDEX idx_psm_sport_slugs_gin ON public.product_search_materialized USING gin (sport_slugs) WHERE sku_status = 'Live';
 CREATE INDEX idx_psm_weight_slugs_gin ON public.product_search_materialized USING gin (weight_slugs) WHERE sku_status = 'Live';
+
+CREATE INDEX idx_psm_is_best ON public.product_search_materialized USING btree (is_best_seller) WHERE sku_status = 'Live' AND is_best_seller = true;
+CREATE INDEX idx_psm_is_recommended ON public.product_search_materialized USING btree (is_recommended) WHERE sku_status = 'Live' AND is_recommended = true;
+CREATE INDEX idx_psm_is_featured ON public.product_search_materialized USING btree (is_featured) WHERE sku_status = 'Live' AND is_featured = true;
 
 -- Composite indexes for common queries
 CREATE INDEX idx_psm_counting ON public.product_search_materialized USING btree (sku_status, style_code) WHERE sku_status = 'Live';

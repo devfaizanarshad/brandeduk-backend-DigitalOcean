@@ -245,12 +245,18 @@ paths:
           description: Filter by recommended products
           schema:
             type: boolean
+        - name: isFeatured
+          in: query
+          description: Filter by featured products
+          schema:
+            type: boolean
         - name: sort
           in: query
           description: |
             Sort option. Available values:
             - `newest` - Sort by creation date (newest first)
             - `best` - Best sellers (uses newest as proxy)
+            - `featured` - Featured products first
             - `brand-az` - Sort by brand name A-Z
             - `brand-za` - Sort by brand name Z-A
             - `code-az` - Sort by product code A-Z
@@ -261,7 +267,7 @@ paths:
             - `name` - Sort by product name (use with order parameter)
           schema:
             type: string
-            enum: [newest, best, brand-az, brand-za, code-az, code-za, price-lh, price-hl, price, price-low, price-high, name]
+            enum: [newest, best, featured, brand-az, brand-za, code-az, code-za, price-lh, price-hl, price, price-low, price-high, name]
             default: newest
             default: newest
       responses:
@@ -1536,16 +1542,16 @@ paths:
     get:
       tags:
         - Admin
-      summary: List styles that are Best Seller or Recommended
+      summary: List styles that are Best Seller, Recommended, or Featured
       description: Returns styles that have featured flags enabled.
       operationId: listFeaturedProducts
       parameters:
         - name: type
           in: query
-          description: Filter by feature type (best or recommended)
+          description: Filter by feature type (best, recommended, or featured)
           schema:
             type: string
-            enum: [best, recommended]
+            enum: [best, recommended, featured]
       responses:
         '200':
           description: Successful response
@@ -1567,9 +1573,13 @@ paths:
                           type: boolean
                         is_recommended:
                           type: boolean
+                        is_featured:
+                          type: boolean
                         best_seller_order:
                           type: integer
                         recommended_order:
+                          type: integer
+                        featured_order:
                           type: integer
                         brand_name:
                           type: string
@@ -1589,7 +1599,7 @@ paths:
       tags:
         - Admin
       summary: Bulk update featured flags for multiple styles
-      description: Mark multiple styles as best seller or recommended in a single request.
+      description: Mark multiple styles as best seller, recommended, or featured in a single request.
       operationId: bulkUpdateFeatured
       requestBody:
         required: true
@@ -1607,6 +1617,8 @@ paths:
                 is_best_seller:
                   type: boolean
                 is_recommended:
+                  type: boolean
+                is_featured:
                   type: boolean
       responses:
         '200':

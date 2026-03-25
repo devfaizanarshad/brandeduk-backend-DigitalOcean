@@ -47,6 +47,7 @@ router.get('/products/search', async (req, res) => {
       price_max,
       is_best_seller,
       is_recommended,
+      is_featured,
       limit = 50,
       offset = 0
     } = req.query;
@@ -116,6 +117,12 @@ router.get('/products/search', async (req, res) => {
       params.push(is_recommended === 'true' || is_recommended === true);
       paramIndex++;
     }
+    
+    if (is_featured !== undefined) {
+      conditions.push(`s.is_featured = $${paramIndex}`);
+      params.push(is_featured === 'true' || is_featured === true);
+      paramIndex++;
+    }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const limitNum = Math.min(parseInt(limit, 10) || 50, 500);
@@ -142,7 +149,8 @@ router.get('/products/search', async (req, res) => {
         p.pricing_version,
         p.last_priced_at,
         s.is_best_seller,
-        s.is_recommended
+        s.is_recommended,
+        s.is_featured
       FROM products p
       LEFT JOIN styles s ON p.style_code = s.style_code
       LEFT JOIN suppliers sup ON s.supplier_id = sup.id
@@ -190,7 +198,7 @@ router.get('/products/featured', async (req, res) => {
   try {
     const { type, product_type_id, limit = 50, offset = 0 } = req.query;
 
-    let conditions = ['(s.is_best_seller = true OR s.is_recommended = true)'];
+    let conditions = ['(s.is_best_seller = true OR s.is_recommended = true OR s.is_featured = true)'];
     const params = [];
     let pIdx = 1;
 
@@ -198,6 +206,8 @@ router.get('/products/featured', async (req, res) => {
       conditions = ['s.is_best_seller = true'];
     } else if (type === 'recommended') {
       conditions = ['s.is_recommended = true'];
+    } else if (type === 'featured') {
+      conditions = ['s.is_featured = true'];
     }
 
     if (product_type_id) {
@@ -216,19 +226,23 @@ router.get('/products/featured', async (req, res) => {
         s.style_name,
         s.is_best_seller,
         s.is_recommended,
+        s.is_featured,
         s.best_seller_order,
         s.recommended_order,
+        s.featured_order,
         b.name as brand_name,
         pt.name as product_type_name,
+        sup.slug as supplier,
         (SELECT p.sell_price FROM products p WHERE p.style_code = s.style_code AND p.sku_status = 'Live' LIMIT 1) as price,
         (SELECT p.primary_image_url FROM products p WHERE p.style_code = s.style_code AND p.sku_status = 'Live' LIMIT 1) as image,
         (SELECT COUNT(*) FROM products p WHERE p.style_code = s.style_code AND p.sku_status = 'Live') as sku_count
       FROM styles s
       LEFT JOIN brands b ON s.brand_id = b.id
       LEFT JOIN product_types pt ON s.product_type_id = pt.id
+      LEFT JOIN suppliers sup ON s.supplier_id = sup.id
       ${whereClause}
       ORDER BY 
-        ${type === 'best' ? 's.best_seller_order ASC' : (type === 'recommended' ? 's.recommended_order ASC' : 's.updated_at DESC')}
+        ${type === 'best' ? 's.best_seller_order ASC' : (type === 'recommended' ? 's.recommended_order ASC' : (type === 'featured' ? 's.featured_order ASC' : 's.updated_at DESC'))}
       LIMIT $${pIdx++} OFFSET $${pIdx++}
     `;
 
@@ -238,7 +252,7 @@ router.get('/products/featured', async (req, res) => {
       SELECT pt.id, pt.name, COUNT(DISTINCT s.style_code) as count
       FROM styles s
       JOIN product_types pt ON s.product_type_id = pt.id
-      WHERE s.is_best_seller = true OR s.is_recommended = true
+      WHERE s.is_best_seller = true OR s.is_recommended = true OR s.is_featured = true
       GROUP BY pt.id, pt.name
       ORDER BY pt.name ASC
     `;
@@ -287,7 +301,8 @@ router.get('/products/by-style/:code', async (req, res) => {
         c.name as colour_name,
         t.name as tag_name,
         s.is_best_seller,
-        s.is_recommended
+        s.is_recommended,
+        s.is_featured
       FROM products p
       LEFT JOIN styles s ON p.style_code = s.style_code
       LEFT JOIN brands b ON s.brand_id = b.id
@@ -1301,7 +1316,7 @@ router.put('/products/bulk-markup-override', async (req, res) => {
  */
 router.put('/products/bulk-featured', async (req, res) => {
   try {
-    const { style_codes, is_best_seller, is_recommended } = req.body;
+    const { style_codes, is_best_seller, is_recommended, is_featured } = req.body;
 
     if (!style_codes || !Array.isArray(style_codes) || style_codes.length === 0) {
       return res.status(400).json({
@@ -1310,10 +1325,10 @@ router.put('/products/bulk-featured', async (req, res) => {
       });
     }
 
-    if (is_best_seller === undefined && is_recommended === undefined) {
+    if (is_best_seller === undefined && is_recommended === undefined && is_featured === undefined) {
       return res.status(400).json({
         error: 'Bad request',
-        message: 'At least one flag (is_best_seller or is_recommended) must be provided'
+        message: 'At least one flag (is_best_seller, is_recommended, or is_featured) must be provided'
       });
     }
 
@@ -1337,6 +1352,15 @@ router.put('/products/bulk-featured', async (req, res) => {
       // Reset order to default when removing from recommended
       if (!isRecValue) {
         updates.push(`recommended_order = 999999`);
+      }
+    }
+    if (is_featured !== undefined) {
+      const isFeaturedValue = is_featured === true || is_featured === 'true';
+      updates.push(`is_featured = $${idx++}`);
+      params.push(isFeaturedValue);
+      // Reset order to default when removing from featured
+      if (!isFeaturedValue) {
+        updates.push(`featured_order = 999999`);
       }
     }
 
@@ -1385,7 +1409,7 @@ router.put('/products/order-featured', async (req, res) => {
 
     const results = [];
     for (const item of orders) {
-      const { style_code, best_seller_order, recommended_order } = item;
+      const { style_code, best_seller_order, recommended_order, featured_order } = item;
       if (!style_code) continue;
 
       const styleCode = style_code.toUpperCase();
@@ -1406,6 +1430,13 @@ router.put('/products/order-featured', async (req, res) => {
         params.push(val);
         // Automatically sync the boolean flag: if order is 999999, it's not recommended anymore
         updates.push(`is_recommended = ${val < 999999}`);
+      }
+      if (featured_order !== undefined) {
+        const val = parseInt(featured_order, 10);
+        updates.push(`featured_order = $${pIdx++}`);
+        params.push(val);
+        // Automatically sync the boolean flag: if order is 999999, it's not featured anymore
+        updates.push(`is_featured = ${val < 999999}`);
       }
 
       if (updates.length > 0) {
@@ -1553,8 +1584,10 @@ router.put('/products/:code', async (req, res) => {
       colorImages,
       is_best_seller,
       is_recommended,
+      is_featured,
       best_seller_order,
-      recommended_order
+      recommended_order,
+      featured_order
     } = req.body;
 
     // Check style exists
@@ -1579,8 +1612,10 @@ router.put('/products/:code', async (req, res) => {
       fabric_description !== undefined ||
       is_best_seller !== undefined ||
       is_recommended !== undefined ||
+      is_featured !== undefined ||
       best_seller_order !== undefined ||
-      recommended_order !== undefined
+      recommended_order !== undefined ||
+      featured_order !== undefined
     ) {
       const styleFields = [];
       const styleParams = [];
@@ -1632,6 +1667,24 @@ router.put('/products/:code', async (req, res) => {
         // Reset order if unsetting recommended and no specific order provided in request
         if (!isRecValue && recommended_order === undefined) {
           styleFields.push(`recommended_order = 999999`);
+        }
+      }
+      if (featured_order !== undefined) {
+        const val = parseInt(featured_order, 10);
+        styleFields.push(`featured_order = $${idx++}`);
+        styleParams.push(val);
+        // Sync flag if not explicitly provided
+        if (is_featured === undefined) {
+          styleFields.push(`is_featured = ${val < 999999}`);
+        }
+      }
+      if (is_featured !== undefined) {
+        const isFeaturedValue = is_featured === true || is_featured === 'true';
+        styleFields.push(`is_featured = $${idx++}`);
+        styleParams.push(isFeaturedValue);
+        // Reset order if unsetting featured and no specific order provided in request
+        if (!isFeaturedValue && featured_order === undefined) {
+          styleFields.push(`featured_order = 999999`);
         }
       }
       styleFields.push('updated_at = NOW()');

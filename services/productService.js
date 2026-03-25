@@ -1058,6 +1058,7 @@ async function buildProductListQuery(filters, page, limit) {
   // Featured prioritization: prioritize if sort is 'best'/'recommended' OR if featured filters are on
   const prioritizeBest = sort === 'best' || filters.isBestSeller === 'true' || filters.isBestSeller === true;
   const prioritizeRecommended = sort === 'recommended' || filters.isRecommended === 'true' || filters.isRecommended === true;
+  const prioritizeFeatured = sort === 'featured' || filters.isFeatured === 'true' || filters.isFeatured === true;
 
   // PERFORMANCE FIX: The product_flags table is no longer needed since flags are in the view
   const needsFlagJoin = false;
@@ -1072,10 +1073,13 @@ async function buildProductListQuery(filters, page, limit) {
     orderByClause = `custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}`;
   } else if (prioritizeBest) {
     // "Best" sort: prioritise products flagged as best seller with custom order
-    orderByClause = `is_best DESC, best_seller_order ASC, is_recommended DESC, recommended_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}`;
+    orderByClause = `is_best DESC, best_seller_order ASC, is_recommended DESC, recommended_order ASC, is_featured DESC, featured_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}`;
   } else if (prioritizeRecommended) {
     // "Recommended" sort: prioritise products flagged as recommended with custom order
-    orderByClause = `is_recommended DESC, recommended_order ASC, is_best DESC, best_seller_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}`;
+    orderByClause = `is_recommended DESC, recommended_order ASC, is_best DESC, best_seller_order ASC, is_featured DESC, featured_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}`;
+  } else if (prioritizeFeatured) {
+    // "Featured" sort: prioritise products flagged as featured with custom order
+    orderByClause = `is_featured DESC, featured_order ASC, is_best DESC, best_seller_order ASC, is_recommended DESC, recommended_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}`;
   } else {
     // Normal sorting
     if (sort === 'price') {
@@ -1097,8 +1101,10 @@ async function buildProductListQuery(filters, page, limit) {
   const flagSelectClause = `
     MAX(${viewAlias}.is_best_seller::int) as is_best,
     MAX(${viewAlias}.is_recommended::int) as is_recommended,
+    MAX(${viewAlias}.is_featured::int) as is_featured,
     MIN(${viewAlias}.best_seller_order) as best_seller_order,
-    MIN(${viewAlias}.recommended_order) as recommended_order
+    MIN(${viewAlias}.recommended_order) as recommended_order,
+    MIN(${viewAlias}.featured_order) as featured_order
   `;
 
   const optimizedQuery = `
@@ -1137,7 +1143,7 @@ async function buildProductListQuery(filters, page, limit) {
         ${filters.priceMax !== null && filters.priceMax !== undefined ? `AND MIN(p.sell_price) <= $${priceFilterParamIndex + (filters.priceMin !== null && filters.priceMin !== undefined ? 1 : 0)}` : ''}
       ),
     paginated_style_codes AS (
-      SELECT style_code, sell_price, custom_display_order, is_best, is_recommended
+      SELECT style_code, sell_price, custom_display_order, is_best, is_recommended, is_featured
       FROM style_codes_with_meta
       ORDER BY 
         ${orderByClause}
@@ -1170,7 +1176,8 @@ async function buildProductListQuery(filters, page, limit) {
         sell_price as sorted_sell_price, 
         custom_display_order, 
         is_best, 
-        is_recommended 
+        is_recommended,
+        is_featured 
       FROM paginated_style_codes
     ) psc
       CROSS JOIN total_count tc
@@ -1210,7 +1217,12 @@ async function buildProductListQuery(filters, page, limit) {
             MIN(COALESCE(pt.display_order, 999)) as product_type_priority,
             MIN(COALESCE(b.name, '')) as brand_name,
             MIN(COALESCE(pdo.display_order, 999999)) as custom_display_order,
-            ${flagSelectClause}
+            MAX(${viewAlias}.is_best_seller::int) as is_best,
+            MAX(${viewAlias}.is_recommended::int) as is_recommended,
+            MAX(${viewAlias}.is_featured::int) as is_featured,
+            MIN(${viewAlias}.best_seller_order) as best_seller_order,
+            MIN(${viewAlias}.recommended_order) as recommended_order,
+            MIN(${viewAlias}.featured_order) as featured_order,
             ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
           FROM style_codes_filtered scf
           INNER JOIN product_search_mv ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
@@ -1228,7 +1240,7 @@ async function buildProductListQuery(filters, page, limit) {
             ${filters.priceMax !== null && filters.priceMax !== undefined ? `AND MIN(p.sell_price) <= $${priceFilterParamIndex + (filters.priceMin !== null && filters.priceMin !== undefined ? 1 : 0)}` : ''}
         ),
         paginated_style_codes AS (
-          SELECT style_code, sell_price, custom_display_order, is_best, is_recommended
+          SELECT style_code, sell_price, custom_display_order, is_best, is_recommended, is_featured
           FROM style_codes_with_meta
           ORDER BY 
             ${orderByClause}
@@ -1240,6 +1252,7 @@ async function buildProductListQuery(filters, page, limit) {
           psc.custom_display_order,
           psc.is_best,
           psc.is_recommended,
+          psc.is_featured,
           $${params.length + 1}::bigint as total,
           $${params.length + 2}::numeric as min_price,
           $${params.length + 3}::numeric as max_price
@@ -1295,7 +1308,8 @@ async function buildProductListQuery(filters, page, limit) {
       }
       flagsMap.set(row.style_code, {
         isBestSeller: !!row.is_best,
-        isRecommended: !!row.is_recommended
+        isRecommended: !!row.is_recommended,
+        isFeatured: !!row.is_featured
       });
     });
 

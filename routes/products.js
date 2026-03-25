@@ -71,6 +71,7 @@ router.get('/', async (req, res) => {
       flag,
       isBestSeller,
       isRecommended,
+      isFeatured,
       weight,
       fit,
       sector,
@@ -94,6 +95,9 @@ router.get('/', async (req, res) => {
 
     if (sort === 'best') {
       normalizedSort = 'best';
+      normalizedOrder = 'desc';
+    } else if (sort === 'featured') {
+      normalizedSort = 'featured';
       normalizedOrder = 'desc';
     } else if (sort === 'brand-az') {
       normalizedSort = 'brand';
@@ -158,6 +162,7 @@ router.get('/', async (req, res) => {
       flag: parseArray(flag),
       isBestSeller: isBestSeller === 'true' || isBestSeller === true,
       isRecommended: isRecommended === 'true' || isRecommended === true,
+      isFeatured: isFeatured === 'true' || isFeatured === true,
       weight: parseArray(weight).map(mapWeightToSlug),
       fit: parseArray(fit),
       sector: parseArray(sector),
