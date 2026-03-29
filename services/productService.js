@@ -1222,7 +1222,7 @@ async function buildProductListQuery(filters, page, limit) {
             MAX(${viewAlias}.is_featured::int) as is_featured,
             MIN(${viewAlias}.best_seller_order) as best_seller_order,
             MIN(${viewAlias}.recommended_order) as recommended_order,
-            MIN(${viewAlias}.featured_order) as featured_order,
+            MIN(${viewAlias}.featured_order) as featured_order
             ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
           FROM style_codes_filtered scf
           INNER JOIN product_search_mv ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
