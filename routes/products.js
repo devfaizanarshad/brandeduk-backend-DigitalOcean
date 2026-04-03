@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { pool, queryWithTimeout } = require('../config/database');
-const { buildProductListQuery, buildProductDetailQuery } = require('../services/productService');
+const { buildProductListQuery, buildProductDetailQuery, buildRelatedProductsQuery, buildAlternativeProductsQuery } = require('../services/productService');
 const { applyMarkup } = require('../utils/priceMarkup');
 const cache = require('../services/cacheService');
 
@@ -409,25 +409,46 @@ router.get('/types', async (req, res) => {
 
 /**
  * GET /api/products/:code/related
+ * Related products endpoint:
+ * strict style-family siblings (same supplier, brand, product type, normalized family name)
+ * ranked by complementary demographic and capped at 2.
  */
 router.get('/:code/related', async (req, res) => {
   try {
+    const rc = await routeCache(req, cache.TTL.PRODUCT_DETAIL);
+    if (rc.cached) return res.json(rc.cached);
+
     const { code } = req.params;
-    const { limit = 12 } = req.query;
+    const related = await buildRelatedProductsQuery(code, 2);
 
-    const query = `
-      SELECT DISTINCT psm.style_code as code, psm.style_name as name, psm.sell_price as price, psm.primary_image_url as image
-      FROM product_search_mv psm
-      JOIN styles s ON psm.style_code = s.style_code
-      WHERE s.product_type_id = (SELECT product_type_id FROM styles WHERE style_code = $1)
-        AND psm.style_code != $1
-        AND psm.sku_status = 'Live'
-      LIMIT $2
-    `;
-
-    const result = await queryWithTimeout(query, [code.toUpperCase(), parseInt(limit)], 10000);
-    res.json({ related: result.rows });
+    const response = { related };
+    await rc.store(response);
+    res.json(response);
   } catch (error) {
+    console.error('[ERROR] Failed to fetch related products:', error.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/products/:code/alternatives
+ * Alternative products endpoint:
+ * same supplier + same product lane, excluding sibling-family related styles,
+ * ranked by text/fabric/price similarity and capped at 5.
+ */
+router.get('/:code/alternatives', async (req, res) => {
+  try {
+    const rc = await routeCache(req, cache.TTL.PRODUCT_DETAIL);
+    if (rc.cached) return res.json(rc.cached);
+
+    const { code } = req.params;
+    const alternatives = await buildAlternativeProductsQuery(code, 5);
+
+    const response = { alternatives };
+    await rc.store(response);
+    res.json(response);
+  } catch (error) {
+    console.error('[ERROR] Failed to fetch alternative products:', error.message);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -1903,6 +1903,727 @@ async function buildPriceBreaksWithOverrides(basePrice, styleCode) {
   }));
 }
 
+const NORMALIZED_STYLE_ROOT_SQL = `
+  trim(
+    regexp_replace(
+      regexp_replace(
+        regexp_replace(lower(s.style_name), '[^a-z0-9 ]', ' ', 'g'),
+        '\\m(adult|adults|youth|kids|kid|children|child|childrens|womens|women s|women|mens|men s|men|ladies|lady|girls|girl s|boys|boy s|unisex|junior|juniors|toddler|toddlers)\\M',
+        '',
+        'g'
+      ),
+      '\\s+',
+      ' ',
+      'g'
+    )
+  )
+`;
+
+const INFERRED_AGE_GROUP_SQL = `
+  CASE
+    WHEN lower(s.style_name) ~ '\\m(infant|baby|babies|toddler|toddlers)\\M' THEN 'infant'
+    WHEN lower(s.style_name) ~ '\\m(kids|kid|youth|junior|juniors|children|child|childrens)\\M' THEN 'kids'
+    WHEN lower(s.style_name) ~ '\\m(adult|adults|men|mens|male|women|womens|ladies|lady|female|unisex)\\M' THEN 'adult'
+    ELSE NULL
+  END
+`;
+
+const INFERRED_GENDER_SQL = `
+  CASE
+    WHEN lower(s.style_name) ~ '\\m(women|womens|ladies|lady|female|girls|girl)\\M' THEN 'female'
+    WHEN lower(s.style_name) ~ '\\m(men|mens|male)\\M' THEN 'male'
+    WHEN lower(s.style_name) ~ '\\m(unisex|adult|adults|youth|kids|kid|junior|juniors|children|child|childrens)\\M' THEN 'unisex'
+    ELSE NULL
+  END
+`;
+
+const DISPLAY_BRAND_SQL = `
+  COALESCE(
+    b.name,
+    CASE
+      WHEN sup.slug = 'uneek' THEN 'Uneek Clothing'
+      ELSE sup.name
+    END
+  )
+`;
+
+const EFFECTIVE_GENDER_SQL = `
+  CASE
+    WHEN ${INFERRED_GENDER_SQL} IN ('female', 'male')
+      AND COALESCE(g.slug, 'unisex') = 'unisex'
+      THEN ${INFERRED_GENDER_SQL}
+    ELSE COALESCE(g.slug, ${INFERRED_GENDER_SQL})
+  END
+`;
+
+const EFFECTIVE_AGE_GROUP_SQL = `
+  CASE
+    WHEN ag.slug IS NOT NULL THEN ag.slug
+    ELSE ${INFERRED_AGE_GROUP_SQL}
+  END
+`;
+
+const CURRENT_STYLE_BRAND_KEY_SQL = `
+  CASE
+    WHEN s.brand_id IS NOT NULL THEN 'brand:' || s.brand_id::text
+    WHEN sup.slug = 'uneek' THEN 'supplier:' || s.supplier_id::text
+    ELSE NULL
+  END
+`;
+
+const CANDIDATE_STYLE_BRAND_KEY_SQL = `
+  CASE
+    WHEN s.brand_id IS NOT NULL THEN 'brand:' || s.brand_id::text
+    WHEN current.supplier = 'uneek' THEN 'supplier:' || s.supplier_id::text
+    ELSE NULL
+  END
+`;
+
+async function buildRelatedProductsQuery(styleCode, limit = 2) {
+  const normalizedCode = String(styleCode || '').toUpperCase().trim();
+  const normalizedLimit = Math.min(2, Math.max(1, parseInt(limit, 10) || 2));
+
+  if (!normalizedCode) {
+    return [];
+  }
+
+  const query = `
+    WITH current_style AS (
+      SELECT
+        s.style_code,
+        s.style_name,
+        s.supplier_id,
+        s.brand_id,
+        s.product_type_id,
+        ${DISPLAY_BRAND_SQL} AS brand,
+        pt.name AS product_type,
+        sup.slug AS supplier,
+        ${CURRENT_STYLE_BRAND_KEY_SQL} AS family_brand_key,
+        ${EFFECTIVE_GENDER_SQL} AS effective_gender,
+        ${EFFECTIVE_AGE_GROUP_SQL} AS effective_age_group,
+        ${NORMALIZED_STYLE_ROOT_SQL} AS style_root,
+        COALESCE(fabric_set.fabric_ids, '__NULL__') AS fabric_ids,
+        COALESCE(keyword_set.keyword_ids, '__NULL__') AS keyword_ids
+      FROM styles s
+      LEFT JOIN brands b ON b.id = s.brand_id
+      LEFT JOIN product_types pt ON pt.id = s.product_type_id
+      LEFT JOIN suppliers sup ON sup.id = s.supplier_id
+      LEFT JOIN genders g ON g.id = s.gender_id
+      LEFT JOIN age_groups ag ON ag.id = s.age_group_id
+      LEFT JOIN LATERAL (
+        SELECT string_agg(DISTINCT pf.fabric_id::text, ',' ORDER BY pf.fabric_id::text) AS fabric_ids
+        FROM products p
+        JOIN product_fabrics pf ON pf.product_id = p.id
+        WHERE p.style_code = s.style_code
+      ) fabric_set ON true
+      LEFT JOIN LATERAL (
+        SELECT string_agg(DISTINCT skm.keyword_id::text, ',' ORDER BY skm.keyword_id::text) AS keyword_ids
+        FROM style_keywords_mapping skm
+        WHERE skm.style_code = s.style_code
+      ) keyword_set ON true
+      WHERE s.style_code = $1
+      LIMIT 1
+    ),
+    family_candidates AS (
+      SELECT
+        s.style_code AS code,
+        s.style_name AS name,
+        ${DISPLAY_BRAND_SQL} AS brand,
+        pt.name AS product_type,
+        sup.slug AS supplier,
+        ${CURRENT_STYLE_BRAND_KEY_SQL} AS family_brand_key,
+        ${EFFECTIVE_GENDER_SQL} AS effective_gender,
+        ${EFFECTIVE_AGE_GROUP_SQL} AS effective_age_group,
+        ${NORMALIZED_STYLE_ROOT_SQL} AS style_root,
+        COALESCE(fabric_set.fabric_ids, '__NULL__') AS fabric_ids,
+        COALESCE(keyword_set.keyword_ids, '__NULL__') AS keyword_ids
+      FROM styles s
+      JOIN current_style current
+        ON s.supplier_id = current.supplier_id
+       AND ${CANDIDATE_STYLE_BRAND_KEY_SQL} = current.family_brand_key
+       AND s.product_type_id = current.product_type_id
+      LEFT JOIN brands b ON b.id = s.brand_id
+      LEFT JOIN product_types pt ON pt.id = s.product_type_id
+      LEFT JOIN suppliers sup ON sup.id = s.supplier_id
+      LEFT JOIN genders g ON g.id = s.gender_id
+      LEFT JOIN age_groups ag ON ag.id = s.age_group_id
+      LEFT JOIN LATERAL (
+        SELECT string_agg(DISTINCT pf.fabric_id::text, ',' ORDER BY pf.fabric_id::text) AS fabric_ids
+        FROM products p
+        JOIN product_fabrics pf ON pf.product_id = p.id
+        WHERE p.style_code = s.style_code
+      ) fabric_set ON true
+      LEFT JOIN LATERAL (
+        SELECT string_agg(DISTINCT skm.keyword_id::text, ',' ORDER BY skm.keyword_id::text) AS keyword_ids
+        FROM style_keywords_mapping skm
+        WHERE skm.style_code = s.style_code
+      ) keyword_set ON true
+      WHERE s.style_code <> current.style_code
+        AND ${NORMALIZED_STYLE_ROOT_SQL} = current.style_root
+        AND EXISTS (
+          SELECT 1
+          FROM products p_live
+          WHERE p_live.style_code = s.style_code
+            AND p_live.sku_status = 'Live'
+        )
+    )
+    SELECT
+      candidate.code,
+      candidate.name,
+      candidate.brand,
+      candidate.product_type AS "productType",
+      candidate.supplier,
+      candidate.effective_gender AS gender,
+      candidate.effective_age_group AS "ageGroup",
+      stats.price,
+      COALESCE(stats.primary_image, stats.colour_image, '') AS image,
+      stats.colour_count AS "colourCount",
+      stats.size_count AS "sizeCount"
+    FROM family_candidates candidate
+    JOIN current_style current ON true
+    JOIN LATERAL (
+      SELECT
+        MIN(p.sell_price) AS price,
+        MIN(NULLIF(p.primary_image_url, 'Not available')) AS primary_image,
+        MIN(NULLIF(p.colour_image_url, 'Not available')) AS colour_image,
+        COUNT(DISTINCT COALESCE(p.colour_name, p.primary_colour)) AS colour_count,
+        COUNT(DISTINCT p.size_id) AS size_count
+      FROM products p
+      WHERE p.style_code = candidate.code
+        AND p.sku_status = 'Live'
+    ) stats ON true
+    ORDER BY
+      (
+        CASE
+          WHEN current.effective_age_group = 'kids' THEN
+            CASE
+              WHEN candidate.effective_age_group = 'adult' AND candidate.effective_gender IN ('male', 'unisex') THEN 120
+              WHEN candidate.effective_age_group = 'adult' AND candidate.effective_gender = 'female' THEN 115
+              WHEN candidate.effective_age_group = 'adult' THEN 100
+              WHEN candidate.effective_age_group = 'infant' THEN 70
+              ELSE 10
+            END
+          WHEN current.effective_age_group = 'infant' THEN
+            CASE
+              WHEN candidate.effective_age_group = 'kids' THEN 120
+              WHEN candidate.effective_age_group = 'adult' THEN 95
+              ELSE 10
+            END
+          WHEN current.effective_gender = 'female' AND current.effective_age_group = 'adult' THEN
+            CASE
+              WHEN candidate.effective_age_group = 'adult' AND candidate.effective_gender IN ('male', 'unisex') THEN 120
+              WHEN candidate.effective_age_group = 'kids' THEN 110
+              WHEN candidate.effective_age_group = 'infant' THEN 80
+              WHEN candidate.effective_age_group = 'adult' THEN 60
+              ELSE 10
+            END
+          WHEN current.effective_gender = 'male' AND current.effective_age_group = 'adult' THEN
+            CASE
+              WHEN candidate.effective_age_group = 'adult' AND candidate.effective_gender = 'female' THEN 120
+              WHEN candidate.effective_age_group = 'kids' THEN 110
+              WHEN candidate.effective_age_group = 'adult' AND candidate.effective_gender = 'unisex' THEN 100
+              WHEN candidate.effective_age_group = 'infant' THEN 80
+              WHEN candidate.effective_age_group = 'adult' THEN 60
+              ELSE 10
+            END
+          WHEN current.effective_gender = 'unisex' AND current.effective_age_group = 'adult' THEN
+            CASE
+              WHEN candidate.effective_age_group = 'adult' AND candidate.effective_gender = 'female' THEN 120
+              WHEN candidate.effective_age_group = 'kids' THEN 110
+              WHEN candidate.effective_age_group = 'adult' AND candidate.effective_gender = 'male' THEN 100
+              WHEN candidate.effective_age_group = 'infant' THEN 80
+              WHEN candidate.effective_age_group = 'adult' THEN 60
+              ELSE 10
+            END
+          ELSE
+            CASE
+              WHEN candidate.effective_age_group = 'adult' THEN 100
+              WHEN candidate.effective_age_group = 'kids' THEN 90
+              WHEN candidate.effective_age_group = 'infant' THEN 70
+              ELSE 10
+            END
+        END
+      )
+      + CASE
+          WHEN candidate.fabric_ids = current.fabric_ids AND candidate.fabric_ids <> '__NULL__' THEN 8
+          ELSE 0
+        END
+      + CASE
+          WHEN candidate.keyword_ids = current.keyword_ids AND candidate.keyword_ids <> '__NULL__' THEN 5
+          ELSE 0
+        END DESC,
+      stats.colour_count DESC,
+      candidate.name ASC
+    LIMIT $2
+  `;
+
+  const result = await queryWithTimeout(query, [normalizedCode, normalizedLimit], 20000);
+  return result.rows;
+}
+
+const ALT_STYLE_TEXT_BLOB_SQL = `
+  lower(
+    concat_ws(
+      ' ',
+      COALESCE(s.style_name, ''),
+      COALESCE(s.specification, ''),
+      COALESCE(s.fabric_description, '')
+    )
+  )
+`;
+
+const ALT_INFERRED_AGE_GROUP_SQL = `
+  CASE
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '\\m(infant|baby|babies|toddler|toddlers)\\M' THEN 'infant'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '\\m(kids|kid|children|child|childrens|youth|junior|juniors)\\M' THEN 'kids'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '\\m(adult|adults|unisex|men|mens|male|women|womens|ladies|lady|female)\\M' THEN 'adult'
+    WHEN sup.slug IN ('absolute-apparel', 'uneek') THEN 'adult'
+    ELSE NULL
+  END
+`;
+
+const ALT_INFERRED_GENDER_SQL = `
+  CASE
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '\\m(women|womens|ladies|lady|female|girls|girl)\\M' THEN 'female'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '\\m(men|mens|male)\\M' THEN 'male'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '\\m(unisex|adult|adults|kids|kid|children|child|childrens|youth|junior|juniors)\\M' THEN 'unisex'
+    WHEN sup.slug IN ('absolute-apparel', 'uneek') THEN 'unisex'
+    ELSE NULL
+  END
+`;
+
+const ALT_EFFECTIVE_GENDER_SQL = `
+  CASE
+    WHEN ${ALT_INFERRED_GENDER_SQL} IN ('female', 'male')
+      AND COALESCE(g.slug, 'unisex') = 'unisex'
+      THEN ${ALT_INFERRED_GENDER_SQL}
+    ELSE COALESCE(g.slug, ${ALT_INFERRED_GENDER_SQL})
+  END
+`;
+
+const ALT_EFFECTIVE_AGE_GROUP_SQL = `
+  CASE
+    WHEN ag.slug IS NOT NULL THEN ag.slug
+    ELSE ${ALT_INFERRED_AGE_GROUP_SQL}
+  END
+`;
+
+const ALT_SUBTYPE_BUCKET_SQL = `
+  CASE
+    WHEN pt.name = 'T-shirts' THEN 'tshirt'
+    WHEN pt.name = 'Polos' THEN 'polo'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '(t-shirt|t shirt|\\mtee\\M|\\mtees\\M)' THEN 'tshirt'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '(polo|poloshirt)' THEN 'polo'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ 'hoodie' THEN 'hoodie'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '(sweatshirt|sweat shirt|sweater)' THEN 'sweatshirt'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ 'fleece' THEN 'fleece'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ 'softshell' THEN 'softshell'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '(gilet|bodywarmer|\\mvest\\M)' THEN 'vest'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ 'jacket' THEN 'jacket'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ 'shorts' THEN 'shorts'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '(trouser|trousers|pants|jogger|joggers)' THEN 'trousers'
+    ELSE NULL
+  END
+`;
+
+const ALT_GSM_SQL = `
+  NULLIF(substring(${ALT_STYLE_TEXT_BLOB_SQL} from '([0-9]{3})\\s*gsm'), '')::integer
+`;
+
+const ALT_WEIGHT_BUCKET_SQL = `
+  CASE
+    WHEN merch.is_light THEN 'light'
+    WHEN merch.is_mid THEN 'mid'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '\\m(lightweight|light weight)\\M' THEN 'light'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '\\m(midweight|mid weight|medium weight)\\M' THEN 'mid'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '\\m(heavyweight|heavy weight)\\M' THEN 'heavy'
+    WHEN ${ALT_GSM_SQL} IS NOT NULL AND ${ALT_GSM_SQL} <= 160 THEN 'light'
+    WHEN ${ALT_GSM_SQL} IS NOT NULL AND ${ALT_GSM_SQL} <= 200 THEN 'mid'
+    WHEN ${ALT_GSM_SQL} IS NOT NULL AND ${ALT_GSM_SQL} > 200 THEN 'heavy'
+    ELSE NULL
+  END
+`;
+
+const ALT_TEE_FORM_SQL = `
+  CASE
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '(long sleeve|long-sleeve)' THEN 'long-sleeve'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '(v-neck|v neck)' THEN 'v-neck'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '\\mringer\\M' THEN 'ringer'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '(muscle|sleeveless|tank top|tank|\\mvest\\M)' THEN 'sleeveless'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '\\mbaseball\\M' THEN 'baseball'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '(cropped|crop top|crop tee)' THEN 'cropped'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '(oversized|oversize|boxy)' THEN 'oversized'
+    WHEN ${ALT_SUBTYPE_BUCKET_SQL} = 'tshirt' THEN 'plain'
+    ELSE NULL
+  END
+`;
+
+const ALT_SPECIALTY_BUCKET_SQL = `
+  CASE
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '(performance t-shirt|performance tee|aircool|cool smooth|dry blend|wicking|quick-dry|quick dry|training|gym|sports? tee|active t|base layer|moisture)' THEN 'performance'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '(workwear|work wear)' THEN 'workwear'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '\\mtriblend\\M' THEN 'triblend'
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '(sublimation|subli)' THEN 'sublimation'
+    ELSE NULL
+  END
+`;
+
+const ALT_CORE_TEE_SQL = `
+  CASE
+    WHEN ${ALT_SUBTYPE_BUCKET_SQL} = 'tshirt'
+      AND ${ALT_TEE_FORM_SQL} = 'plain'
+      AND ${ALT_SPECIALTY_BUCKET_SQL} IS NULL
+      AND (
+        ${ALT_STYLE_TEXT_BLOB_SQL} ~ '(classic|original|iconic|premium|softstyle|inspire|exact|basic|regular tee|core)'
+        OR ${ALT_STYLE_TEXT_BLOB_SQL} ~ '(^|[^0-9])(150|180|190)([^0-9]|$)'
+        OR ${ALT_STYLE_TEXT_BLOB_SQL} ~ '\\m(t-shirt|t shirt|tee)\\M'
+      )
+      THEN true
+    ELSE false
+  END
+`;
+
+const ALT_NOVELTY_STYLE_SQL = `
+  CASE
+    WHEN ${ALT_STYLE_TEXT_BLOB_SQL} ~ '(rocker|blaster|essential unisex|\\(|\\))' THEN true
+    ELSE false
+  END
+`;
+
+async function buildAlternativeProductsQuery(styleCode, limit = 5) {
+  const normalizedCode = String(styleCode || '').toUpperCase().trim();
+  const normalizedLimit = Math.min(5, Math.max(1, parseInt(limit, 10) || 5));
+
+  if (!normalizedCode) {
+    return [];
+  }
+
+  const query = `
+    WITH current_base AS (
+      SELECT
+        s.style_code,
+        s.style_name,
+        s.supplier_id,
+        s.brand_id,
+        s.product_type_id,
+        ${DISPLAY_BRAND_SQL} AS brand,
+        pt.name AS product_type,
+        sup.slug AS supplier,
+        ${ALT_STYLE_TEXT_BLOB_SQL} AS text_blob,
+        ${ALT_EFFECTIVE_GENDER_SQL} AS effective_gender,
+        ${ALT_EFFECTIVE_AGE_GROUP_SQL} AS effective_age_group,
+        ${ALT_SUBTYPE_BUCKET_SQL} AS subtype_bucket,
+        ${ALT_TEE_FORM_SQL} AS tee_form,
+        ${ALT_SPECIALTY_BUCKET_SQL} AS specialty_bucket,
+        ${ALT_CORE_TEE_SQL} AS is_core_tee,
+        ${ALT_NOVELTY_STYLE_SQL} AS is_novelty_style,
+        ${ALT_GSM_SQL} AS gsm,
+        ${NORMALIZED_STYLE_ROOT_SQL} AS family_root
+      FROM styles s
+      LEFT JOIN brands b ON b.id = s.brand_id
+      LEFT JOIN product_types pt ON pt.id = s.product_type_id
+      LEFT JOIN suppliers sup ON sup.id = s.supplier_id
+      LEFT JOIN genders g ON g.id = s.gender_id
+      LEFT JOIN age_groups ag ON ag.id = s.age_group_id
+      WHERE s.style_code = $1
+      LIMIT 1
+    ),
+    supplier_type_styles AS (
+      SELECT
+        s.style_code,
+        s.style_name,
+        ${DISPLAY_BRAND_SQL} AS brand,
+        pt.name AS product_type,
+        sup.slug AS supplier,
+        ${ALT_STYLE_TEXT_BLOB_SQL} AS text_blob,
+        ${ALT_EFFECTIVE_GENDER_SQL} AS effective_gender,
+        ${ALT_EFFECTIVE_AGE_GROUP_SQL} AS effective_age_group,
+        ${ALT_SUBTYPE_BUCKET_SQL} AS subtype_bucket,
+        ${ALT_TEE_FORM_SQL} AS tee_form,
+        ${ALT_SPECIALTY_BUCKET_SQL} AS specialty_bucket,
+        ${ALT_CORE_TEE_SQL} AS is_core_tee,
+        ${ALT_NOVELTY_STYLE_SQL} AS is_novelty_style,
+        ${ALT_GSM_SQL} AS gsm,
+        ${NORMALIZED_STYLE_ROOT_SQL} AS family_root
+      FROM styles s
+      JOIN current_base current
+        ON s.supplier_id = current.supplier_id
+       AND s.product_type_id = current.product_type_id
+      LEFT JOIN brands b ON b.id = s.brand_id
+      LEFT JOIN product_types pt ON pt.id = s.product_type_id
+      LEFT JOIN suppliers sup ON sup.id = s.supplier_id
+      LEFT JOIN genders g ON g.id = s.gender_id
+      LEFT JOIN age_groups ag ON ag.id = s.age_group_id
+    ),
+    live_stats AS (
+      SELECT
+        p.style_code,
+        MIN(p.sell_price) AS price,
+        MIN(NULLIF(p.primary_image_url, 'Not available')) AS primary_image,
+        MIN(NULLIF(p.colour_image_url, 'Not available')) AS colour_image,
+        COUNT(DISTINCT COALESCE(p.colour_name, p.primary_colour)) AS colour_count,
+        COUNT(DISTINCT p.size_id) AS size_count
+      FROM products p
+      JOIN supplier_type_styles sts ON sts.style_code = p.style_code
+      WHERE p.sku_status = 'Live'
+      GROUP BY p.style_code
+    ),
+    fabric_sets AS (
+      SELECT
+        p.style_code,
+        string_agg(DISTINCT pf.fabric_id::text, ',' ORDER BY pf.fabric_id::text) AS fabric_ids
+      FROM products p
+      JOIN supplier_type_styles sts ON sts.style_code = p.style_code
+      JOIN product_fabrics pf ON pf.product_id = p.id
+      WHERE p.sku_status = 'Live'
+      GROUP BY p.style_code
+    ),
+    merch_flags AS (
+      SELECT
+        p.style_code,
+        bool_or(c.name = 'Must Haves') AS is_must_have,
+        bool_or(c.name = 'Top 1000 Sellers - DM200724') AS is_top_seller,
+        bool_or(c.name = 'Rebrandable') AS is_rebrandable,
+        bool_or(c.name = 'Tees - Lightweight') AS is_light,
+        bool_or(c.name = 'Tees - Midweight') AS is_mid
+      FROM products p
+      JOIN supplier_type_styles sts ON sts.style_code = p.style_code
+      LEFT JOIN product_categories pc ON pc.product_id = p.id
+      LEFT JOIN categories c ON c.id = pc.category_id
+      WHERE p.sku_status = 'Live'
+      GROUP BY p.style_code
+    ),
+    style_pool AS (
+      SELECT
+        sts.style_code AS code,
+        sts.style_name AS name,
+        sts.brand,
+        sts.product_type,
+        sts.supplier,
+        sts.text_blob,
+        sts.effective_gender,
+        sts.effective_age_group,
+        sts.subtype_bucket,
+        sts.tee_form,
+        sts.specialty_bucket,
+        sts.is_core_tee,
+        sts.is_novelty_style,
+        CASE
+          WHEN merch.is_light THEN 'light'
+          WHEN merch.is_mid THEN 'mid'
+          WHEN sts.text_blob ~ '\\m(lightweight|light weight)\\M' THEN 'light'
+          WHEN sts.text_blob ~ '\\m(midweight|mid weight|medium weight)\\M' THEN 'mid'
+          WHEN sts.text_blob ~ '\\m(heavyweight|heavy weight)\\M' THEN 'heavy'
+          WHEN sts.gsm IS NOT NULL AND sts.gsm <= 160 THEN 'light'
+          WHEN sts.gsm IS NOT NULL AND sts.gsm <= 200 THEN 'mid'
+          WHEN sts.gsm IS NOT NULL AND sts.gsm > 200 THEN 'heavy'
+          ELSE NULL
+        END AS weight_bucket,
+        sts.gsm,
+        sts.family_root,
+        COALESCE(fabrics.fabric_ids, '__NULL__') AS fabric_ids,
+        COALESCE(merch.is_must_have, false) AS is_must_have,
+        COALESCE(merch.is_top_seller, false) AS is_top_seller,
+        COALESCE(merch.is_rebrandable, false) AS is_rebrandable,
+        COALESCE(merch.is_light, false) AS is_light,
+        COALESCE(merch.is_mid, false) AS is_mid,
+        stats.price,
+        stats.primary_image,
+        stats.colour_image,
+        stats.colour_count,
+        stats.size_count
+      FROM supplier_type_styles sts
+      JOIN live_stats stats ON stats.style_code = sts.style_code
+      LEFT JOIN fabric_sets fabrics ON fabrics.style_code = sts.style_code
+      LEFT JOIN merch_flags merch ON merch.style_code = sts.style_code
+    ),
+    current_style AS (
+      SELECT *
+      FROM style_pool
+      WHERE code = $1
+      LIMIT 1
+    ),
+    candidate_pool AS (
+      SELECT candidate.*
+      FROM style_pool candidate
+      JOIN current_style current ON true
+      WHERE candidate.code <> current.code
+        AND candidate.family_root <> current.family_root
+        AND (
+          current.subtype_bucket IS NULL
+          OR candidate.subtype_bucket = current.subtype_bucket
+        )
+        AND (
+          current.subtype_bucket <> 'tshirt'
+          OR current.tee_form IS NULL
+          OR candidate.tee_form = current.tee_form
+        )
+        AND (
+          current.subtype_bucket <> 'tshirt'
+          OR current.specialty_bucket IS NOT NULL
+          OR candidate.specialty_bucket IS NULL
+        )
+        AND (
+          current.subtype_bucket <> 'tshirt'
+          OR current.specialty_bucket IS NULL
+          OR candidate.specialty_bucket = current.specialty_bucket
+        )
+        AND (
+          current.effective_age_group IS NULL
+          OR candidate.effective_age_group = current.effective_age_group
+        )
+        AND (
+          current.effective_age_group <> 'adult'
+          OR current.effective_gender IS NULL
+          OR (
+            CASE
+              WHEN current.effective_gender = 'female' THEN candidate.effective_gender = 'female'
+              WHEN current.effective_gender IN ('male', 'unisex') THEN candidate.effective_gender IN ('male', 'unisex')
+              ELSE true
+            END
+          )
+        )
+    ),
+    scored_candidates AS (
+      SELECT
+        candidate.*,
+        current.brand AS current_brand,
+        current.price AS current_price,
+        (
+          60
+          + CASE
+              WHEN candidate.subtype_bucket = current.subtype_bucket AND current.subtype_bucket IS NOT NULL THEN 18
+              ELSE 0
+            END
+          + CASE
+              WHEN candidate.tee_form = current.tee_form AND current.tee_form IS NOT NULL THEN 10
+              ELSE 0
+            END
+          + CASE
+              WHEN candidate.weight_bucket = current.weight_bucket AND current.weight_bucket IS NOT NULL THEN 14
+              ELSE 0
+            END
+          + CASE
+              WHEN current.weight_bucket IS NOT NULL
+                AND candidate.weight_bucket IS NOT NULL
+                AND current.weight_bucket <> candidate.weight_bucket
+                AND current.weight_bucket IN ('light', 'mid')
+                AND candidate.weight_bucket IN ('light', 'mid')
+                THEN 4
+              ELSE 0
+            END
+          + CASE
+              WHEN candidate.is_core_tee AND current.is_core_tee THEN 12
+              ELSE 0
+            END
+          + CASE
+              WHEN candidate.fabric_ids = current.fabric_ids AND candidate.fabric_ids <> '__NULL__' THEN 10
+              ELSE 0
+            END
+          + CASE
+              WHEN candidate.text_blob LIKE '%ringspun%' AND current.text_blob LIKE '%ringspun%' THEN 8
+              ELSE 0
+            END
+          + CASE
+              WHEN candidate.text_blob LIKE '%cotton%' AND current.text_blob LIKE '%cotton%' THEN 6
+              ELSE 0
+            END
+          + CASE
+              WHEN candidate.text_blob LIKE '%organic%' AND current.text_blob LIKE '%organic%' THEN 5
+              ELSE 0
+            END
+          + CASE
+              WHEN candidate.text_blob LIKE '%recycled%' AND current.text_blob LIKE '%recycled%' THEN 4
+              ELSE 0
+            END
+          + CASE
+              WHEN candidate.text_blob LIKE '%crew neck%' AND current.text_blob LIKE '%crew neck%' THEN 3
+              ELSE 0
+            END
+          + CASE
+              WHEN candidate.text_blob LIKE '%v neck%' AND current.text_blob LIKE '%v neck%' THEN 2
+              ELSE 0
+            END
+          + CASE
+              WHEN current.gsm IS NOT NULL AND candidate.gsm IS NOT NULL THEN
+                CASE
+                  WHEN ABS(candidate.gsm - current.gsm) = 0 THEN 15
+                  WHEN ABS(candidate.gsm - current.gsm) <= 20 THEN 10
+                  WHEN ABS(candidate.gsm - current.gsm) <= 40 THEN 6
+                  ELSE 0
+                END
+              ELSE 0
+            END
+          + CASE
+              WHEN current.price IS NOT NULL AND candidate.price IS NOT NULL THEN
+                CASE
+                  WHEN candidate.price BETWEEN current.price * 0.75 AND current.price * 1.35 THEN 18
+                  WHEN candidate.price BETWEEN current.price * 0.55 AND current.price * 1.60 THEN 10
+                  ELSE 0
+                END
+              ELSE 0
+            END
+          + CASE
+              WHEN candidate.colour_count >= 25 THEN 10
+              WHEN candidate.colour_count >= 15 THEN 6
+              WHEN candidate.colour_count < 8 THEN -8
+              ELSE 0
+            END
+          + CASE
+              WHEN candidate.size_count >= 8 THEN 4
+              WHEN candidate.size_count >= 6 THEN 2
+              ELSE 0
+            END
+          + CASE WHEN candidate.is_must_have THEN 4 ELSE 0 END
+          + CASE WHEN candidate.is_top_seller THEN 4 ELSE 0 END
+          + CASE WHEN candidate.is_rebrandable THEN 4 ELSE 0 END
+          + CASE WHEN candidate.brand = current.brand THEN 3 ELSE 0 END
+          - CASE
+              WHEN current.subtype_bucket = 'tshirt'
+                AND current.specialty_bucket IS NULL
+                AND candidate.specialty_bucket IS NOT NULL
+                THEN 20
+              ELSE 0
+            END
+          - CASE
+              WHEN candidate.is_novelty_style THEN 12
+              ELSE 0
+            END
+        ) AS score
+      FROM candidate_pool candidate
+      JOIN current_style current ON true
+    ),
+    ranked_candidates AS (
+      SELECT
+        *,
+        ROW_NUMBER() OVER (
+          PARTITION BY brand
+          ORDER BY score DESC, ABS(price - current_price) ASC NULLS LAST, colour_count DESC, name ASC
+        ) AS brand_rank
+      FROM scored_candidates
+    )
+    SELECT
+      code,
+      name,
+      brand,
+      product_type AS "productType",
+      supplier,
+      effective_gender AS gender,
+      effective_age_group AS "ageGroup",
+      price,
+      COALESCE(primary_image, colour_image, '') AS image,
+      colour_count AS "colourCount",
+      size_count AS "sizeCount"
+    FROM ranked_candidates
+    WHERE brand_rank <= 1
+    ORDER BY score DESC, ABS(price - current_price) ASC NULLS LAST, colour_count DESC, name ASC
+    LIMIT $2
+  `;
+
+  const result = await queryWithTimeout(query, [normalizedCode, normalizedLimit], 20000);
+  return result.rows;
+}
+
 async function buildProductDetailQuery(styleCode) {
   const cacheKey = `product:${styleCode}`;
   const cached = await getCached(cacheKey);
@@ -2203,6 +2924,8 @@ async function getFilterAggregations(filters) {
 
 module.exports = {
   buildProductListQuery,
+  buildAlternativeProductsQuery,
+  buildRelatedProductsQuery,
   buildProductDetailQuery,
   buildFilterAggregations: getFilterAggregations, // Export for routes
   clearCache

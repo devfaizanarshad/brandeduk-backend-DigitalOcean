@@ -18,6 +18,8 @@ info:
     - `GET /api/products/filters` - Product type counts for filtering
     - `GET /api/products/types` - All product types with counts
     - `GET /api/products/{code}` - Single product details
+    - `GET /api/products/{code}/alternatives` - Alternative same-lane products
+    - `GET /api/products/{code}/related` - Related sibling products
     - `GET /api/products/{code}/pricing` - Get pricing information for a style code
     
     ### Contact & Quotes
@@ -535,8 +537,17 @@ paths:
         - Products
       summary: Get related products
       description: |
-        Returns products related to the specified product.
-        Priority: Same brand AND same product type first, then same product type from other brands.
+        Returns up to 2 related sibling products for the specified style.
+        Related products are matched at style level using:
+        - same supplier
+        - same brand (with a supplier-brand fallback for Uneek styles that have no brand_id)
+        - same product type
+        - same normalized product-family name
+
+        Results are then ranked by complementary demographic, so typical outcomes are:
+        - men -> women, kids
+        - women -> men, kids
+        - kids -> men, women
       operationId: getRelatedProducts
       parameters:
         - name: code
@@ -545,14 +556,7 @@ paths:
           description: Product style code
           schema:
             type: string
-          example: "JC001"
-        - name: limit
-          in: query
-          description: Maximum number of related products to return
-          schema:
-            type: integer
-            default: 12
-          example: 12
+          example: "GD001"
       responses:
         '200':
           description: Successful response
@@ -561,42 +565,139 @@ paths:
               schema:
                 type: object
                 properties:
-                  currentProduct:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                      brand:
-                        type: string
-                      productType:
-                        type: string
                   related:
                     type: array
+                    maxItems: 2
                     items:
                       type: object
                       properties:
                         code:
                           type: string
+                          example: "GD072"
                         name:
                           type: string
-                        price:
-                          type: number
-                        image:
-                          type: string
+                          example: "Softstyle women's ringspun t-shirt"
                         brand:
                           type: string
-                        product_type:
+                          example: "Gildan"
+                        productType:
                           type: string
-                  total:
-                    type: integer
-                  sameBrandAndType:
-                    type: integer
-                    description: Number of products from same brand AND type
-                  sameTypeOnly:
-                    type: integer
-                    description: Number of products from same type only (different brand)
-        '404':
-          description: Product not found
+                          example: "T-shirts"
+                        supplier:
+                          type: string
+                          example: "ralawise"
+                        gender:
+                          type: string
+                          nullable: true
+                          example: "female"
+                        ageGroup:
+                          type: string
+                          nullable: true
+                          example: "adult"
+                        price:
+                          type: number
+                          nullable: true
+                          example: 6.08
+                        image:
+                          type: string
+                          example: "https://cdn.pimber.ly/public/asset/example.jpg"
+                        colourCount:
+                          type: integer
+                          example: 18
+                        sizeCount:
+                          type: integer
+                          example: 6
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/products/{code}/alternatives:
+    get:
+      tags:
+        - Products
+      summary: Get alternative products
+      description: |
+        Returns up to 5 alternative products for the specified style.
+        Alternative products are matched at style level using:
+        - same supplier
+        - same product type
+        - same demographic lane
+        - same subtype bucket when one can be inferred (for example t-shirt vs polo)
+        - excluding the current sibling-family group used by the related-products endpoint
+
+        Results are then ranked by a supplier-aware similarity score using:
+        - text/fabric similarity
+        - weight/gsm similarity
+        - price proximity
+        - merchandising boosts where available
+      operationId: getAlternativeProducts
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: Product style code
+          schema:
+            type: string
+          example: "GD001"
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alternatives:
+                    type: array
+                    maxItems: 5
+                    items:
+                      type: object
+                      properties:
+                        code:
+                          type: string
+                          example: "AT001"
+                        name:
+                          type: string
+                          example: "The AWDis 150 T"
+                        brand:
+                          type: string
+                          example: "AWDis"
+                        productType:
+                          type: string
+                          example: "T-shirts"
+                        supplier:
+                          type: string
+                          example: "ralawise"
+                        gender:
+                          type: string
+                          nullable: true
+                          example: "unisex"
+                        ageGroup:
+                          type: string
+                          nullable: true
+                          example: "adult"
+                        price:
+                          type: number
+                          nullable: true
+                          example: 4.06
+                        image:
+                          type: string
+                          example: "https://cdn.pimber.ly/public/asset/example.jpg"
+                        colourCount:
+                          type: integer
+                          example: 15
+                        sizeCount:
+                          type: integer
+                          example: 8
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /api/products/{code}/pricing:
     get:
