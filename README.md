@@ -10,7 +10,6 @@
 ```bash
 npm install
 ```
-
 2. Create `.env` file (copy from `.env.example`):
 ```bash
 DB_HOST=localhost
