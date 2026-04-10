@@ -2658,6 +2658,8 @@ async function buildProductDetailQuery(styleCode) {
       b.name as brand,
       pt.name as product_type,
       sup.slug as supplier,
+      p.sku_code,
+      p.stock_quantity,
       p.colour_name,
       p.primary_colour,
       p.colour_shade,
@@ -2714,10 +2716,11 @@ async function buildProductDetailQuery(styleCode) {
   const colorsMap = new Map();
   const sizesSet = new Set();
   const prices = [];
+  const variants = [];
   const customizationSet = new Set();
   const rawMainImage = firstRow.primary_image_url || '';
   let mainImage = rawMainImage === 'Not available' ? '' : rawMainImage;
-  let maxSellPrice = 0; // Track minimum sell_price across all rows (consistent with product list API)
+  let minSellPrice = 0; 
   let cartonPrice = null;
   let markupPercent = null;
 
@@ -2739,26 +2742,41 @@ async function buildProductDetailQuery(styleCode) {
     }
 
     if (row.single_price) prices.push(parseFloat(row.single_price));
-    if (row.carton_price != null) {
-      const cp = parseFloat(row.carton_price);
-      if (!isNaN(cp)) cartonPrice = cartonPrice ?? cp;
-    }
-
-    if (row.markup_percent != null && markupPercent == null) {
-      const mp = parseFloat(row.markup_percent);
-      if (!isNaN(mp)) markupPercent = mp;
-    }
-
-    // Track minimum sell_price (consistent with product list API which uses MIN)
+    // Track attributes of the variant with the minimum sell_price
+    // This ensures that the header "basePrice" and "carton_price" are consistent with the "From" price shown to the customer
     if (row.sell_price) {
       const sell = parseFloat(row.sell_price);
-      if (maxSellPrice === 0 || sell < maxSellPrice) {
-        maxSellPrice = sell;
+      const cp = row.carton_price != null ? parseFloat(row.carton_price) : null;
+      const mp = row.markup_percent != null ? parseFloat(row.markup_percent) : null;
+
+      if (minSellPrice === 0 || sell < minSellPrice) {
+        minSellPrice = sell;
+        cartonPrice = cp;
+        markupPercent = mp;
+      } else if (sell === minSellPrice) {
+        // If prices match, pick the one with lower cost for the header
+        if (cp !== null && (cartonPrice === null || cp < cartonPrice)) {
+            cartonPrice = cp;
+            markupPercent = mp;
+        }
       }
     }
 
     if (row.tag) {
       customizationSet.add(row.tag.toLowerCase());
+    }
+
+    if (row.sku_code && row.size) {
+      variants.push({
+        sku_code: row.sku_code,
+        color: row.colour_name || row.primary_colour || 'Unknown',
+        size: row.size,
+        single_price: row.single_price != null ? parseFloat(row.single_price) : null,
+        pack_price: row.pack_price != null ? parseFloat(row.pack_price) : null,
+        carton_price: row.carton_price != null ? parseFloat(row.carton_price) : null,
+        sell_price: row.sell_price != null ? parseFloat(row.sell_price) : null,
+        stock: parseInt(row.stock_quantity) || 0
+      });
     }
   });
 
@@ -2796,7 +2814,7 @@ async function buildProductDetailQuery(styleCode) {
           minSingle,
           minSell,
           firstCarton,
-          computedMinSellFromLoop: maxSellPrice
+          computedMinSellFromLoop: minSellPrice
         }
       })
     }).catch(() => {});
@@ -2805,7 +2823,7 @@ async function buildProductDetailQuery(styleCode) {
 
   // Use minimum sell_price directly (already marked-up in DB)
   // This matches the product list API which uses MIN(sell_price) per style_code
-  const basePrice = maxSellPrice || 0;
+  const basePrice = minSellPrice || 0;
   const priceBreaks = await buildPriceBreaksWithOverrides(basePrice, styleCode);
 
   const sizes = Array.from(sizesSet).sort((a, b) => {
@@ -2816,7 +2834,7 @@ async function buildProductDetailQuery(styleCode) {
     if (aIndex !== -1) return -1;
     if (bIndex !== -1) return 1;
     return a.localeCompare(b);
-  }).slice(0, 5);
+  });
 
   const colors = Array.from(colorsMap.values());
 
@@ -2874,6 +2892,7 @@ async function buildProductDetailQuery(styleCode) {
     priceBreaks: priceBreaks || [],
     colors: colors,
     sizes: sizes.length > 0 ? sizes : [],
+    variants: variants,
     images: images,
     description: firstRow.description || '',
     details: {

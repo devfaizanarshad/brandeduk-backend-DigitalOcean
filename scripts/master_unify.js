@@ -1,3 +1,6 @@
+console.error("DEPRECATED: This script flattens variant pricing. Do not use.");
+process.exit(1);
+
 const { Pool } = require('pg');
 const fs = require('fs');
 
