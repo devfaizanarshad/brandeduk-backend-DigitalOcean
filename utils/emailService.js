@@ -120,11 +120,11 @@ function generateQuoteEmailHTML(data) {
       // Build logo preview HTML
       let logoHTML = '';
       if (c.logo) {
+        const posSlug = (c.position || 'unknown').replace(/\s+/g, '-').toLowerCase();
         if (c.logo.startsWith('data:')) {
-          // Base64 — can't show inline in email, reference the attachment
-          const posSlug = (c.position || 'unknown').replace(/\s+/g, '-');
+          // Base64 — show message to check attachment
           const ext = c.logo.startsWith('data:image/png') ? 'png' : 'jpg';
-          logoHTML = `<br><span style="color:#7c3aed;font-size:13px;">📎 Logo attached: <strong>logo-${escapeHtml(posSlug)}.${ext}</strong></span>`;
+          logoHTML = `<br><span style="background:#7c3aed;color:white;padding:4px 10px;border-radius:4px;font-size:13px;">📎 Logo attached: <strong>logo-${escapeHtml(posSlug)}.${ext}</strong></span>`;
         } else {
           // CDN URL — show inline
           logoHTML = `<br><img src="${escapeHtml(c.logo)}" alt="Logo" style="max-width: 150px; max-height: 100px; margin-top: 8px; border: 1px solid #e5e7eb; border-radius: 4px;"><br><a href="${escapeHtml(c.logo)}" target="_blank" style="color: #7c3aed; font-size: 12px;">Download Logo</a>`;
@@ -265,16 +265,15 @@ async function sendQuoteEmail(data) {
       if (!c.logo) continue;
 
       if (c.logo.startsWith('data:')) {
-        // BASE64 LOGO — convert to attachment
+        // BASE64 LOGO — convert to downloadable attachment
         const matches = c.logo.match(/data:([^;]+);base64,(.+)/);
         if (matches) {
           const mimeType = matches[1];
           const ext = mimeType === 'image/png' ? 'png' : 'jpg';
-          const posSlug = (c.position || 'unknown').replace(/\s+/g, '-');
+          const posSlug = (c.position || 'unknown').replace(/\s+/g, '-').toLowerCase();
           logoAttachments.push({
             filename: `logo-${posSlug}.${ext}`,
-            content: Buffer.from(matches[2], 'base64').toString('base64'),
-            contentType: mimeType,
+            content: matches[2], // base64 string directly
           });
           console.log(`[EMAIL] Extracted base64 logo for position: ${c.position}`);
         }
