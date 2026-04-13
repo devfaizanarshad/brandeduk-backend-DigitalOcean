@@ -85,7 +85,14 @@ function generateQuoteEmailHTML(data) {
 
       basketHTML += `
                     <tr><td class="label">Unit Price:</td><td class="value">£${unitPrice}</td></tr>
-                    <tr><td class="label">Item Total:</td><td class="value"><strong>£${itemTotal}</strong></td></tr>
+                    <tr><td class="label">Item Total:</td><td class="value"><strong>£${itemTotal}</strong></td></tr>`;
+
+      // Add item notes if present
+      if (item.note) {
+        basketHTML += `<tr><td class="label">Notes:</td><td class="value" style="color:#7c3aed;font-style:italic;">${escapeHtml(item.note)}</td></tr>`;
+      }
+
+      basketHTML += `
                 </table>
             </div>`;
     });
@@ -104,19 +111,33 @@ function generateQuoteEmailHTML(data) {
       const method = (c.method || 'N/A').toUpperCase();
       const type = escapeHtml(c.type || 'N/A');
       const position = escapeHtml(c.position || 'Unknown');
-      const hasLogo = c.hasLogo ?? c.uploadedLogo ?? false;
-      const logo = hasLogo ? '✅ Yes' : '❌ No';
+      const hasLogo = c.hasLogo ?? c.uploadedLogo ?? !!c.logo;
       const text = c.text ? ` - Text: ${escapeHtml(c.text)}` : '';
       const unitPrice = c.unitPrice === 'POA' ? 'POA' : `£${formatNumber(c.unitPrice)}`;
       const lineTotal = c.lineTotal === 'POA' ? 'POA' : `£${formatNumber(c.lineTotal)}`;
       const qty = c.quantity || 0;
 
+      // Build logo preview HTML
+      let logoHTML = '';
+      if (c.logo) {
+        if (c.logo.startsWith('data:')) {
+          // Base64 — can't show inline in email, reference the attachment
+          const posSlug = (c.position || 'unknown').replace(/\s+/g, '-');
+          const ext = c.logo.startsWith('data:image/png') ? 'png' : 'jpg';
+          logoHTML = `<br><span style="color:#7c3aed;font-size:13px;">📎 Logo attached: <strong>logo-${escapeHtml(posSlug)}.${ext}</strong></span>`;
+        } else {
+          // CDN URL — show inline
+          logoHTML = `<br><img src="${escapeHtml(c.logo)}" alt="Logo" style="max-width: 150px; max-height: 100px; margin-top: 8px; border: 1px solid #e5e7eb; border-radius: 4px;"><br><a href="${escapeHtml(c.logo)}" target="_blank" style="color: #7c3aed; font-size: 12px;">Download Logo</a>`;
+        }
+      } else if (hasLogo) {
+        logoHTML = '<br><span style="color:#059669;">✅ Logo uploaded</span>';
+      }
+
       customizationsHTML += `
                 <tr>
                     <td class="label">${position}</td>
                     <td class="value">
-                        <strong>${method}</strong> - ${type}<br>
-                        Logo Uploaded: ${logo}${text}<br>
+                        <strong>${method}</strong> - ${type}${logoHTML}${text}<br>
                         <small>Unit: ${unitPrice} × Qty: ${qty} = ${lineTotal}</small>
                     </td>
                 </tr>`;
@@ -237,13 +258,45 @@ async function sendQuoteEmail(data) {
     console.log(`[EMAIL] Attempting to send quote email to: ${process.env.EMAIL_TO}`);
     console.log(`[EMAIL] From: ${process.env.EMAIL_FROM}`);
 
-    const result = await resend.emails.send({
+    // Extract base64 logos from customizations as email attachments
+    const customizations = data.customizations || [];
+    const logoAttachments = [];
+    for (const c of customizations) {
+      if (!c.logo) continue;
+
+      if (c.logo.startsWith('data:')) {
+        // BASE64 LOGO — convert to attachment
+        const matches = c.logo.match(/data:([^;]+);base64,(.+)/);
+        if (matches) {
+          const mimeType = matches[1];
+          const ext = mimeType === 'image/png' ? 'png' : 'jpg';
+          const posSlug = (c.position || 'unknown').replace(/\s+/g, '-');
+          logoAttachments.push({
+            filename: `logo-${posSlug}.${ext}`,
+            content: Buffer.from(matches[2], 'base64').toString('base64'),
+            contentType: mimeType,
+          });
+          console.log(`[EMAIL] Extracted base64 logo for position: ${c.position}`);
+        }
+      }
+      // URL logos don't need attachment — they render inline via <img src="URL">
+    }
+
+    const emailOptions = {
       from: process.env.EMAIL_FROM,
       to: process.env.EMAIL_TO,
       replyTo: data.customer?.email,
       subject: `New Quote Request - ${data.customer?.fullName || 'Customer'}`,
       html,
-    });
+    };
+
+    // Add attachments if any base64 logos were found
+    if (logoAttachments.length > 0) {
+      emailOptions.attachments = logoAttachments;
+      console.log(`[EMAIL] Adding ${logoAttachments.length} logo attachment(s)`);
+    }
+
+    const result = await resend.emails.send(emailOptions);
 
     // Resend API returns { data: { id: '...' } } or { id: '...' } depending on version
     const emailId = result?.data?.id || result?.id;
