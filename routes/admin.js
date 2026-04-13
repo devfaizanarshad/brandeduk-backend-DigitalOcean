@@ -3,9 +3,20 @@ const router = express.Router();
 const { queryWithTimeout } = require('../config/database');
 const { broadcastCacheInvalidation } = require('../services/cacheSync');
 const { refreshMaterializedViews } = require('../utils/refreshViews');
+const { extractQuoteNotes } = require('../utils/quoteNotes');
 
 function isSafeIdentifier(name) {
   return typeof name === 'string' && /^[a-zA-Z0-9_]+$/.test(name);
+}
+
+function withQuoteNotes(row) {
+  const { notes, notesNodes } = extractQuoteNotes(row?.quote_data || {});
+
+  return {
+    ...row,
+    notes,
+    notesNodes,
+  };
 }
 
 /**
@@ -1902,7 +1913,12 @@ router.get('/quotes', async (req, res) => {
     }
 
     if (q) {
-      conditions.push(`(customer_name ILIKE $${paramIndex} OR customer_email ILIKE $${paramIndex} OR quote_id ILIKE $${paramIndex})`);
+      conditions.push(`(
+        customer_name ILIKE $${paramIndex}
+        OR customer_email ILIKE $${paramIndex}
+        OR quote_id ILIKE $${paramIndex}
+        OR COALESCE(quote_data->>'notes', quote_data->>'note', quote_data#>>'{customer,notes}', '') ILIKE $${paramIndex}
+      )`);
       params.push(`%${q}%`);
       paramIndex++;
     }
@@ -1945,7 +1961,7 @@ router.get('/quotes', async (req, res) => {
     ]);
 
     res.json({
-      items: result.rows,
+      items: result.rows.map(withQuoteNotes),
       total: parseInt(countResult.rows[0]?.total || 0),
       limit: limitNum,
       offset: offsetNum
@@ -1975,7 +1991,7 @@ router.get('/quotes/:id', async (req, res) => {
       return res.status(404).json({ error: 'Not found', message: 'Quote request not found' });
     }
 
-    res.json(result.rows[0]);
+    res.json(withQuoteNotes(result.rows[0]));
   } catch (error) {
     console.error('[ADMIN] Failed to get quote details:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });

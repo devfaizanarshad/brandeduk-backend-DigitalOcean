@@ -4460,8 +4460,8 @@ paths:
               properties:
                 quoteData:
                   type: string
-                  description: JSON string containing all quote data (customer, basket, customizations, summary, timestamp)
-                  example: '{"customer":{"fullName":"John Doe","email":"john@example.com","phone":"+44 20 1234 5678","company":"Acme Corp","address":"123 Main St"},"basket":[{"name":"Product Name","code":"PROD-123","color":"Navy","quantity":50,"sizes":{"S":10,"M":20,"L":20},"unitPrice":10.00,"itemTotal":500.00}],"customizations":[{"position":"Left Breast","method":"Embroidery","type":"logo","hasLogo":true,"unitPrice":5.00,"lineTotal":250.00,"quantity":50}],"summary":{"totalQuantity":50,"totalItems":1,"garmentCost":500.00,"customizationCost":250.00,"digitizingFee":25.00,"subtotal":775.00,"vatRate":0.20,"vatAmount":155.00,"totalExVat":775.00,"totalIncVat":930.00,"vatMode":"inc","displayTotal":930.00},"timestamp":"2026-01-15T10:30:00.000Z"}'
+                  description: JSON string containing all quote data (customer, basket, customizations, summary, notes, timestamp)
+                  example: '{"customer":{"fullName":"John Doe","email":"john@example.com","phone":"+44 20 1234 5678","company":"Acme Corp","address":"123 Main St"},"basket":[{"name":"Product Name","code":"PROD-123","color":"Navy","quantity":50,"sizes":{"S":10,"M":20,"L":20},"unitPrice":10.00,"itemTotal":500.00}],"customizations":[{"position":"Left Breast","method":"Embroidery","type":"logo","hasLogo":true,"unitPrice":5.00,"lineTotal":250.00,"quantity":50}],"summary":{"totalQuantity":50,"totalItems":1,"garmentCost":500.00,"customizationCost":250.00,"digitizingFee":25.00,"subtotal":775.00,"vatRate":0.20,"vatAmount":155.00,"totalExVat":775.00,"totalIncVat":930.00,"vatMode":"inc","displayTotal":930.00},"notes":"Please keep branding subtle and match the logo colors.","timestamp":"2026-01-15T10:30:00.000Z"}'
                 logo_left-breast:
                   type: string
                   format: binary
@@ -4533,6 +4533,7 @@ paths:
                   unitPrice: 5.00
                   lineTotal: 250.00
                   quantity: 50
+              notes: "Please keep branding subtle and match the logo colors."
               timestamp: "2026-01-15T10:30:00.000Z"
       responses:
         '200':
@@ -4945,6 +4946,22 @@ components:
               quantity:
                 type: integer
                 example: 50
+        notes:
+          type: string
+          nullable: true
+          description: Plain-text customer notes to store, show in admin, and include in the quote email.
+          example: "Please keep branding subtle and match the logo colors."
+        notesNodes:
+          type: array
+          nullable: true
+          description: Optional rich-text nodes from the frontend editor. The backend will preserve these and derive plain-text notes for email/admin when needed.
+          items:
+            type: object
+            additionalProperties: true
+          example:
+            - type: paragraph
+              children:
+                - text: "Please keep branding subtle and match the logo colors."
         timestamp:
           type: string
           format: date-time

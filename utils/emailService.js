@@ -1,5 +1,6 @@
 // services/emailService.js
 const { Resend } = require("resend");
+const { extractQuoteNotes } = require('./quoteNotes');
 
 if (!process.env.RESEND_API_KEY) {
   throw new Error("❌ RESEND_API_KEY is missing in environment variables");
@@ -34,9 +35,10 @@ function generateQuoteEmailHTML(data) {
   const basket = data.basket || [];
   const customizations = data.customizations || [];
   const product = data.product || {}; // Legacy fallback
+  const { notes } = extractQuoteNotes(data);
 
   // Get customer details (support both fullName and firstName/lastName formats)
-  const customerName = customer.fullName || 
+  const customerName = customer.fullName ||
     `${customer.firstName || ''} ${customer.lastName || ''}`.trim() || 'Customer';
   const customerEmail = customer.email || '';
   const customerPhone = customer.phone || '';
@@ -63,8 +65,8 @@ function generateQuoteEmailHTML(data) {
             sizesArray.push(`${escapeHtml(size)}: ${qty}`);
           }
         });
-        sizesText = sizesArray.length 
-          ? sizesArray.join(', ') 
+        sizesText = sizesArray.length
+          ? sizesArray.join(', ')
           : (item.sizesSummary ? escapeHtml(item.sizesSummary) : '');
       } else {
         sizesText = item.sizesSummary ? escapeHtml(item.sizesSummary) : '';
@@ -76,11 +78,11 @@ function generateQuoteEmailHTML(data) {
                 <table>
                     <tr><td class="label">Color:</td><td class="value">${itemColor}</td></tr>
                     <tr><td class="label">Total Quantity:</td><td class="value"><strong>${itemQty} units</strong></td></tr>`;
-      
+
       if (sizesText) {
         basketHTML += `<tr><td class="label">Sizes:</td><td class="value sizes-detail">${sizesText}</td></tr>`;
       }
-      
+
       basketHTML += `
                     <tr><td class="label">Unit Price:</td><td class="value">£${unitPrice}</td></tr>
                     <tr><td class="label">Item Total:</td><td class="value"><strong>£${itemTotal}</strong></td></tr>
@@ -207,6 +209,13 @@ function generateQuoteEmailHTML(data) {
       </div>
     </div>
 
+    ${notes ? `
+    <div class="section">
+      <h2>Notes</h2>
+      <p style="white-space: pre-wrap; margin: 0;">${escapeHtml(notes)}</p>
+    </div>
+    ` : ''}
+
     <div class="section">
       <h2>📅 Request Date</h2>
       <p>${formattedDate}</p>
@@ -238,7 +247,7 @@ async function sendQuoteEmail(data) {
 
     // Resend API returns { data: { id: '...' } } or { id: '...' } depending on version
     const emailId = result?.data?.id || result?.id;
-    
+
     if (emailId) {
       console.log("✅ Email sent via Resend. ID:", emailId);
       console.log("[EMAIL] Full response:", JSON.stringify(result, null, 2));
@@ -382,7 +391,7 @@ async function sendContactEmail(data) {
     const html = generateContactEmailHTML(data);
 
     console.log(html);
-    
+
 
     console.log(`[EMAIL] Attempting to send contact email to: ${process.env.EMAIL_TO}`);
     console.log(`[EMAIL] From: ${process.env.EMAIL_FROM}`);
@@ -395,15 +404,15 @@ async function sendContactEmail(data) {
       html,
     });
 
-    console.log("Result" , result);
-    
+    console.log("Result", result);
+
 
     // Resend API returns { data: { id: '...' } } or { id: '...' } depending on version
     const emailId = result?.data?.id || result?.id;
 
     console.log('Email Id', emailId);
-    
-    
+
+
     if (emailId) {
       console.log("✅ Contact email sent via Resend. ID:", emailId);
       console.log("[EMAIL] Full response:", JSON.stringify(result, null, 2));
@@ -429,42 +438,49 @@ async function sendContactEmail(data) {
 /* =========================
    QUOTE EMAIL WITH ATTACHMENTS
 ========================= */
-function generateQuoteWithLogosEmailHTML(data, logoUrls = {}) {
+function generateQuoteWithLogosEmailHTML(data, logoAssets = {}) {
   // Use the existing quote HTML generator
   let html = generateQuoteEmailHTML(data);
-  
-  // If there are logo URLs, add a section for them
-  if (Object.keys(logoUrls).length > 0) {
+
+  // If there are logo assets, add a section for them
+  if (Object.keys(logoAssets).length > 0) {
     const logosSection = `
     <div class="section">
       <h2>🖼️ Uploaded Logos</h2>
       <table>
-        ${Object.entries(logoUrls).map(([position, url]) => `
+        ${Object.entries(logoAssets).map(([position, asset]) => {
+          const url = asset?.url || '';
+          const contentId = asset?.contentId || '';
+          const imageSrc = contentId ? `cid:${contentId}` : url;
+          const canPreview = !!imageSrc;
+
+          return `
           <tr>
             <td class="label">${escapeHtml(position.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()))}:</td>
             <td class="value">
-              <a href="${escapeHtml(url)}" target="_blank" style="color: #7c3aed;">View Logo</a>
-              ${url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? `<br><img src="${escapeHtml(url)}" alt="Logo" style="max-width: 150px; max-height: 100px; margin-top: 8px; border: 1px solid #e5e7eb; border-radius: 4px;">` : ''}
+              ${url ? `<a href="${escapeHtml(url)}" target="_blank" style="color: #7c3aed;">View Logo</a>` : 'Attached to email'}
+              ${canPreview ? `<br><img src="${escapeHtml(imageSrc)}" alt="Logo" style="max-width: 150px; max-height: 100px; margin-top: 8px; border: 1px solid #e5e7eb; border-radius: 4px;">` : ''}
             </td>
           </tr>
-        `).join('')}
+        `;
+        }).join('')}
       </table>
     </div>
     `;
-    
+
     // Insert logos section before the request date section
     html = html.replace(
       /<div class="section">\s*<h2>📅 Request Date<\/h2>/,
       `${logosSection}\n    <div class="section">\n      <h2>📅 Request Date</h2>`
     );
   }
-  
+
   return html;
 }
 
-async function sendQuoteEmailWithAttachments(data, attachments = [], logoUrls = {}) {
+async function sendQuoteEmailWithAttachments(data, attachments = [], logoAssets = {}) {
   try {
-    const html = generateQuoteWithLogosEmailHTML(data, logoUrls);
+    const html = generateQuoteWithLogosEmailHTML(data, logoAssets);
 
     console.log(`[EMAIL] Attempting to send quote email with ${attachments.length} attachment(s) to: ${process.env.EMAIL_TO}`);
     console.log(`[EMAIL] From: ${process.env.EMAIL_FROM}`);
@@ -481,18 +497,20 @@ async function sendQuoteEmailWithAttachments(data, attachments = [], logoUrls = 
     if (attachments.length > 0) {
       emailOptions.attachments = attachments.map(att => ({
         filename: att.filename,
-        content: att.content, // Buffer or base64 string
+        content: Buffer.isBuffer(att.content) ? att.content.toString('base64') : att.content,
+        contentType: att.contentType,
+        contentId: att.contentId,
       }));
     }
 
     const result = await resend.emails.send(emailOptions);
 
     console.log(result);
-    
+
 
     // Resend API returns { data: { id: '...' } } or { id: '...' } depending on version
     const emailId = result?.data?.id || result?.id;
-    
+
     if (emailId) {
       console.log("✅ Quote email with attachments sent via Resend. ID:", emailId);
       console.log("[EMAIL] Full response:", JSON.stringify(result, null, 2));
