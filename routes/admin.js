@@ -4,6 +4,12 @@ const { queryWithTimeout } = require('../config/database');
 const { broadcastCacheInvalidation } = require('../services/cacheSync');
 const { refreshMaterializedViews } = require('../utils/refreshViews');
 const { extractQuoteNotes } = require('../utils/quoteNotes');
+const {
+  bulkSetSiteProducts,
+  listSiteProducts,
+  orderSiteProducts,
+  removeSiteProduct,
+} = require('../services/siteProductService');
 
 function isSafeIdentifier(name) {
   return typeof name === 'string' && /^[a-zA-Z0-9_]+$/.test(name);
@@ -291,6 +297,118 @@ router.get('/products/featured', async (req, res) => {
   } catch (error) {
     console.error('[ADMIN] Failed to list featured products:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/sites/:siteSlug/products
+ * List products assigned to a secondary site, including inactive rows for admin review.
+ */
+router.get('/sites/:siteSlug/products', async (req, res) => {
+  try {
+    const { siteSlug } = req.params;
+    const { active, limit = 100, offset = 0 } = req.query;
+
+    const result = await listSiteProducts(siteSlug, {
+      activeOnly: false,
+      active,
+      limit,
+      offset,
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('[ADMIN] Failed to list site products:', error.message);
+    res.status(error.status || 500).json({
+      error: error.status ? 'Bad request' : 'Internal server error',
+      message: error.message,
+    });
+  }
+});
+
+/**
+ * PUT /api/admin/sites/:siteSlug/products/bulk
+ * Mark or unmark multiple style codes for a secondary site.
+ * Body: { style_codes: ["ABC123"], active?: boolean }
+ */
+router.put('/sites/:siteSlug/products/bulk', async (req, res) => {
+  try {
+    const { siteSlug } = req.params;
+    const { style_codes, active = true } = req.body || {};
+
+    const result = await bulkSetSiteProducts(siteSlug, style_codes, active);
+    await broadcastCacheInvalidation({ refreshViews: false, reason: 'admin_site_products_bulk' });
+
+    res.json({
+      success: true,
+      message: `Updated ${result.updated_styles.length} site product(s)`,
+      ...result,
+    });
+  } catch (error) {
+    console.error('[ADMIN] Failed to bulk update site products:', error.message);
+    res.status(error.status || 500).json({
+      error: error.status ? 'Bad request' : 'Internal server error',
+      message: error.message,
+    });
+  }
+});
+
+/**
+ * PUT /api/admin/sites/:siteSlug/products/order
+ * Update ordering for secondary-site products.
+ * Body: { orders: [{ style_code: "ABC123", display_order: 1 }] }
+ */
+router.put('/sites/:siteSlug/products/order', async (req, res) => {
+  try {
+    const { siteSlug } = req.params;
+    const { orders } = req.body || {};
+
+    const result = await orderSiteProducts(siteSlug, orders);
+    await broadcastCacheInvalidation({ refreshViews: false, reason: 'admin_site_products_order' });
+
+    res.json({
+      success: true,
+      message: `Updated order for ${result.updated_orders.length} site product(s)`,
+      ...result,
+    });
+  } catch (error) {
+    console.error('[ADMIN] Failed to order site products:', error.message);
+    res.status(error.status || 500).json({
+      error: error.status ? 'Bad request' : 'Internal server error',
+      message: error.message,
+    });
+  }
+});
+
+/**
+ * DELETE /api/admin/sites/:siteSlug/products/:styleCode
+ * Remove a product from a secondary site by setting it inactive.
+ */
+router.delete('/sites/:siteSlug/products/:styleCode', async (req, res) => {
+  try {
+    const { siteSlug, styleCode } = req.params;
+    const removed = await removeSiteProduct(siteSlug, styleCode);
+
+    if (!removed) {
+      return res.status(404).json({
+        error: 'Not found',
+        message: 'Site product not found',
+      });
+    }
+
+    await broadcastCacheInvalidation({ refreshViews: false, reason: 'admin_site_products_remove' });
+
+    res.json({
+      success: true,
+      message: 'Product removed from site',
+      removed,
+    });
+  } catch (error) {
+    console.error('[ADMIN] Failed to remove site product:', error.message);
+    res.status(error.status || 500).json({
+      error: error.status ? 'Bad request' : 'Internal server error',
+      message: error.message,
+    });
   }
 });
 
