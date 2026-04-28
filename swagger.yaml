@@ -98,6 +98,8 @@ tags:
     description: Contact form submission endpoints
   - name: Quotes
     description: Quote request endpoints with file uploads
+  - name: Secondary Sites
+    description: Public and admin endpoints for curated product feeds such as Humanitiees
 
 paths:
   # ============================================================================
@@ -2149,6 +2151,233 @@ paths:
                       type: object
                   total:
                     type: integer
+        '500':
+          description: Internal server error
+
+  /api/sites/{siteSlug}/products:
+    get:
+      tags:
+        - Secondary Sites
+      summary: List public products for a secondary site
+      description: Returns active curated products for a secondary storefront such as Humanitiees.
+      operationId: listSecondarySiteProducts
+      parameters:
+        - name: siteSlug
+          in: path
+          required: true
+          schema:
+            type: string
+            example: humanitiees
+          description: Secondary site slug
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 500
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Site products returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteProductsResponse'
+        '400':
+          description: Invalid site slug
+        '500':
+          description: Internal server error
+
+  /api/sites/{siteSlug}/products/{code}:
+    get:
+      tags:
+        - Secondary Sites
+      summary: Get public product detail for a secondary site
+      description: Returns product detail only if the product is active for the requested secondary site.
+      operationId: getSecondarySiteProductDetail
+      parameters:
+        - name: siteSlug
+          in: path
+          required: true
+          schema:
+            type: string
+            example: humanitiees
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "7620B"
+          description: Product style code
+      responses:
+        '200':
+          description: Product detail returned successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '404':
+          description: Product not found for this site
+        '500':
+          description: Internal server error
+
+  /api/admin/sites/{siteSlug}/products:
+    get:
+      tags:
+        - Admin
+        - Secondary Sites
+      summary: List admin products for a secondary site
+      description: Returns products assigned to a secondary site. By default this includes active and inactive rows for admin review.
+      operationId: adminListSecondarySiteProducts
+      parameters:
+        - name: siteSlug
+          in: path
+          required: true
+          schema:
+            type: string
+            example: humanitiees
+        - name: active
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: Optional filter. Use true for active rows or false for inactive rows.
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 500
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Site products returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteProductsResponse'
+        '400':
+          description: Invalid request
+        '500':
+          description: Internal server error
+
+  /api/admin/sites/{siteSlug}/products/bulk:
+    put:
+      tags:
+        - Admin
+        - Secondary Sites
+      summary: Mark or unmark products for a secondary site
+      description: Adds style codes to a secondary site or toggles their active state.
+      operationId: adminBulkSetSecondarySiteProducts
+      parameters:
+        - name: siteSlug
+          in: path
+          required: true
+          schema:
+            type: string
+            example: humanitiees
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SiteProductsBulkRequest'
+      responses:
+        '200':
+          description: Site products updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteProductsBulkResponse'
+        '400':
+          description: Invalid request
+        '500':
+          description: Internal server error
+
+  /api/admin/sites/{siteSlug}/products/order:
+    put:
+      tags:
+        - Admin
+        - Secondary Sites
+      summary: Update secondary-site product order
+      description: Updates display order values for products already assigned to a secondary site.
+      operationId: adminOrderSecondarySiteProducts
+      parameters:
+        - name: siteSlug
+          in: path
+          required: true
+          schema:
+            type: string
+            example: humanitiees
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SiteProductsOrderRequest'
+      responses:
+        '200':
+          description: Site product order updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteProductsOrderResponse'
+        '400':
+          description: Invalid request
+        '500':
+          description: Internal server error
+
+  /api/admin/sites/{siteSlug}/products/{styleCode}:
+    delete:
+      tags:
+        - Admin
+        - Secondary Sites
+      summary: Remove product from a secondary site
+      description: Sets the site product row inactive. The row remains visible to admin when listing without an active filter.
+      operationId: adminRemoveSecondarySiteProduct
+      parameters:
+        - name: siteSlug
+          in: path
+          required: true
+          schema:
+            type: string
+            example: humanitiees
+        - name: styleCode
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "7620B"
+      responses:
+        '200':
+          description: Product removed from site
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  removed:
+                    type: object
+                    properties:
+                      style_code:
+                        type: string
+                      active:
+                        type: boolean
+        '404':
+          description: Site product not found
         '500':
           description: Internal server error
 
@@ -4660,6 +4889,183 @@ components:
           type: integer
         total:
           type: integer
+
+    SiteProduct:
+      type: object
+      description: Style-level product assigned to a secondary site such as Humanitiees
+      properties:
+        id:
+          type: integer
+          example: 1
+        site_slug:
+          type: string
+          example: humanitiees
+        siteSlug:
+          type: string
+          example: humanitiees
+        code:
+          type: string
+          example: "7620B"
+        style_code:
+          type: string
+          example: "7620B"
+        name:
+          type: string
+          example: "Kids raglan sleeve sweatshirt"
+        brand:
+          type: string
+          example: "Russell"
+        product_type:
+          type: string
+          example: "Sweatshirts"
+        productType:
+          type: string
+          example: "Sweatshirts"
+        supplier:
+          type: string
+          example: ralawise
+        price:
+          type: number
+          nullable: true
+          example: 14.89
+        image:
+          type: string
+          nullable: true
+        colourCount:
+          type: integer
+          example: 6
+        sizeCount:
+          type: integer
+          example: 5
+        display_order:
+          type: integer
+          example: 1
+        displayOrder:
+          type: integer
+          example: 1
+        active:
+          type: boolean
+          example: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    SiteProductsResponse:
+      type: object
+      properties:
+        site_slug:
+          type: string
+          example: humanitiees
+        siteSlug:
+          type: string
+          example: humanitiees
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SiteProduct'
+        total:
+          type: integer
+          example: 10
+        limit:
+          type: integer
+          example: 100
+        offset:
+          type: integer
+          example: 0
+
+    SiteProductsBulkRequest:
+      type: object
+      required:
+        - style_codes
+      properties:
+        style_codes:
+          type: array
+          items:
+            type: string
+          example: ["7620B", "GD001"]
+        active:
+          type: boolean
+          default: true
+          example: true
+
+    SiteProductsBulkResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Updated 2 site product(s)"
+        site_slug:
+          type: string
+          example: humanitiees
+        siteSlug:
+          type: string
+          example: humanitiees
+        active:
+          type: boolean
+          example: true
+        updated_styles:
+          type: array
+          items:
+            type: string
+          example: ["7620B", "GD001"]
+        missing_styles:
+          type: array
+          items:
+            type: string
+          example: []
+
+    SiteProductsOrderRequest:
+      type: object
+      required:
+        - orders
+      properties:
+        orders:
+          type: array
+          items:
+            type: object
+            required:
+              - style_code
+              - display_order
+            properties:
+              style_code:
+                type: string
+                example: "7620B"
+              display_order:
+                type: integer
+                example: 1
+
+    SiteProductsOrderResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Updated order for 2 site product(s)"
+        site_slug:
+          type: string
+          example: humanitiees
+        siteSlug:
+          type: string
+          example: humanitiees
+        updated_orders:
+          type: array
+          items:
+            type: object
+            properties:
+              style_code:
+                type: string
+                example: "7620B"
+              display_order:
+                type: integer
+                example: 1
 
     Error:
       type: object
