@@ -108,6 +108,65 @@ Get product details by style code.
 }
 ```
 
+### POST /api/quotes/stripe/payment-intent
+Create a Stripe PaymentIntent for a quote. The frontend uses the returned `clientSecret` with Stripe.js to collect payment securely.
+
+Required environment variables:
+```bash
+STRIPE_SECRET_KEY=sk_live_or_test_key_here
+STRIPE_WEBHOOK_SECRET=whsec_webhook_secret_here
+STRIPE_CURRENCY=gbp
+```
+
+Request:
+```json
+{
+  "quoteData": {
+    "customer": {
+      "fullName": "John Doe",
+      "email": "john@example.com",
+      "phone": "+44 20 1234 5678"
+    },
+    "summary": {
+      "totalIncVat": 930.00,
+      "vatAmount": 155.00
+    },
+    "basket": [
+      {
+        "name": "Product Name",
+        "code": "PROD-123",
+        "quantity": 50,
+        "unitPrice": 10.00,
+        "itemTotal": 500.00
+      }
+    ],
+    "customizations": []
+  }
+}
+```
+
+Response:
+```json
+{
+  "success": true,
+  "message": "Stripe payment intent created",
+  "data": {
+    "quoteId": "quote_pay_...",
+    "paymentIntentId": "pi_...",
+    "clientSecret": "pi_..._secret_...",
+    "amount": 93000,
+    "currency": "gbp",
+    "status": "requires_payment_method"
+  }
+}
+```
+
+### GET /api/quotes/stripe/payment-intent/:id
+Fetch the latest Stripe status for a quote PaymentIntent.
+
+### POST /api/quotes/stripe/webhook
+Stripe webhook endpoint. Add this URL in Stripe Dashboard and subscribe to `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, and `payment_intent.processing`.
+
 ## Database
 
 The API connects to PostgreSQL database `Branded_UK` and uses:

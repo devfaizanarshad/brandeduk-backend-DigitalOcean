@@ -6,6 +6,9 @@ const fs = require('fs');
 const { sendQuoteEmail, sendQuoteEmailWithAttachments } = require('../utils/emailService');
 const { extractQuoteNotes } = require('../utils/quoteNotes');
 const { queryWithTimeout } = require('../config/database');
+const stripeQuoteRoutes = require('./stripeQuotes');
+
+router.use('/stripe', stripeQuoteRoutes);
 
 // ===== MULTER CONFIGURATION =====
 const uploadsDir = path.join(__dirname, '..', 'uploads', 'logos');

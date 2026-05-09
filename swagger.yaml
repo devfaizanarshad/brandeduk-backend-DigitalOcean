@@ -25,6 +25,9 @@ info:
     ### Contact & Quotes
     - `POST /api/contact` - Submit contact form inquiry
     - `POST /api/quotes` - Submit quote request with optional logo file uploads
+    - `POST /api/quotes/stripe/payment-intent` - Create a Stripe PaymentIntent for quote checkout
+    - `GET /api/quotes/stripe/payment-intent/{id}` - Check Stripe quote payment status
+    - `POST /api/quotes/stripe/webhook` - Stripe webhook endpoint for quote payment status updates
     
     ### Filter Endpoints (Testing & Database Exploration)
     Each filter type has TWO endpoints:
@@ -97,7 +100,7 @@ tags:
   - name: Contact
     description: Contact form submission endpoints
   - name: Quotes
-    description: Quote request endpoints with file uploads
+    description: Quote request and Stripe quote payment endpoints
   - name: Secondary Sites
     description: Public and admin endpoints for curated product feeds such as Humanitiees
 
@@ -4802,6 +4805,172 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/quotes/stripe/payment-intent:
+    post:
+      tags:
+        - Quotes
+      summary: Create Stripe quote payment intent
+      description: |
+        Creates a Stripe PaymentIntent for a customer quote and returns the `clientSecret` that the frontend uses with Stripe.js.
+
+        The Stripe secret key stays on the backend. The frontend should only use the returned `clientSecret` with the Stripe publishable key.
+      operationId: createStripeQuotePaymentIntent
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional idempotency key. Recommended when retrying the same quote payment request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StripeQuotePaymentIntentRequest'
+            example:
+              quoteData:
+                customer:
+                  fullName: "John Doe"
+                  email: "john@example.com"
+                  phone: "+44 20 1234 5678"
+                summary:
+                  totalIncVat: 930.00
+                  vatAmount: 155.00
+                basket:
+                  - name: "Product Name"
+                    code: "PROD-123"
+                    quantity: 50
+                    unitPrice: 10.00
+                    itemTotal: 500.00
+                customizations: []
+      responses:
+        '201':
+          description: Stripe PaymentIntent created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StripeQuotePaymentIntentResponse'
+              example:
+                success: true
+                message: "Stripe payment intent created"
+                data:
+                  quoteId: "quote_pay_1769198120482_a1b2c3d4"
+                  paymentIntentId: "pi_3Example"
+                  clientSecret: "pi_3Example_secret_example"
+                  amount: 93000
+                  currency: "gbp"
+                  status: "requires_payment_method"
+        '400':
+          description: Invalid quote/customer/payment amount
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicSuccessResponse'
+              example:
+                success: false
+                message: "customer.email is required"
+        '500':
+          description: Stripe is not configured or server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicSuccessResponse'
+              example:
+                success: false
+                message: "Unable to create payment intent"
+
+  /api/quotes/stripe/payment-intent/{id}:
+    get:
+      tags:
+        - Quotes
+      summary: Get Stripe quote payment status
+      description: Fetches the latest status for a Stripe PaymentIntent.
+      operationId: getStripeQuotePaymentIntentStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "pi_3Example"
+          description: Stripe PaymentIntent ID returned by the create payment intent endpoint.
+      responses:
+        '200':
+          description: Current payment status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StripeQuotePaymentStatusResponse'
+              example:
+                success: true
+                data:
+                  paymentIntentId: "pi_3Example"
+                  amount: 93000
+                  currency: "gbp"
+                  status: "succeeded"
+                  quoteId: "quote_pay_1769198120482_a1b2c3d4"
+                  customerEmail: "john@example.com"
+        '400':
+          description: Invalid PaymentIntent ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicSuccessResponse'
+        '500':
+          description: Unable to fetch payment status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicSuccessResponse'
+
+  /api/quotes/stripe/webhook:
+    post:
+      tags:
+        - Quotes
+      summary: Stripe quote payment webhook
+      description: |
+        Stripe webhook endpoint for quote payment status updates.
+
+        Configure this URL in Stripe Dashboard and subscribe to:
+        - `payment_intent.succeeded`
+        - `payment_intent.payment_failed`
+        - `payment_intent.canceled`
+        - `payment_intent.processing`
+        - `payment_intent.requires_action`
+      operationId: stripeQuotePaymentWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Raw Stripe webhook event payload. Stripe signs this payload with the `stripe-signature` header.
+      responses:
+        '200':
+          description: Webhook received
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+                    example: true
+        '400':
+          description: Invalid webhook payload or signature
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: "Stripe webhook signature verification failed"
+
 components:
   schemas:
     FilterItem:
@@ -5386,6 +5555,105 @@ components:
           type: string
           description: Unique quote submission ID
           example: "quote_1769198120482_i98a3pwgg"
+
+    StripeQuotePaymentIntentRequest:
+      type: object
+      required:
+        - quoteData
+      properties:
+        quoteId:
+          type: string
+          description: Optional existing quote ID. If omitted, the backend generates one.
+          example: "quote_pay_1769198120482_a1b2c3d4"
+        currency:
+          type: string
+          description: Optional ISO currency code. Defaults to backend `STRIPE_CURRENCY` or `gbp`.
+          example: "gbp"
+        amount:
+          type: number
+          description: Optional explicit total amount in major currency units. Usually omit this and let the backend use quoteData.summary.
+          example: 930.00
+        quoteData:
+          $ref: '#/components/schemas/QuoteRequest'
+
+    StripeQuotePaymentIntentData:
+      type: object
+      properties:
+        quoteId:
+          type: string
+          example: "quote_pay_1769198120482_a1b2c3d4"
+        paymentIntentId:
+          type: string
+          example: "pi_3Example"
+        clientSecret:
+          type: string
+          description: Safe frontend value used with Stripe.js to confirm the payment.
+          example: "pi_3Example_secret_example"
+        amount:
+          type: integer
+          description: Amount in minor currency units, e.g. pence for GBP.
+          example: 93000
+        currency:
+          type: string
+          example: "gbp"
+        status:
+          type: string
+          example: "requires_payment_method"
+
+    StripeQuotePaymentIntentResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Stripe payment intent created"
+        data:
+          $ref: '#/components/schemas/StripeQuotePaymentIntentData'
+
+    StripeQuotePaymentStatusData:
+      type: object
+      properties:
+        paymentIntentId:
+          type: string
+          example: "pi_3Example"
+        amount:
+          type: integer
+          example: 93000
+        currency:
+          type: string
+          example: "gbp"
+        status:
+          type: string
+          example: "succeeded"
+        quoteId:
+          type: string
+          nullable: true
+          example: "quote_pay_1769198120482_a1b2c3d4"
+        customerEmail:
+          type: string
+          nullable: true
+          example: "john@example.com"
+
+    StripeQuotePaymentStatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/StripeQuotePaymentStatusData'
+
+    BasicSuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: "Unable to complete request"
 
     DisplayOrderEntry:
       type: object
