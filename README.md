@@ -167,6 +167,40 @@ Fetch the latest Stripe status for a quote PaymentIntent.
 ### POST /api/quotes/stripe/webhook
 Stripe webhook endpoint. Add this URL in Stripe Dashboard and subscribe to `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, and `payment_intent.processing`.
 
+### GET /api/vecteezy/search
+Search Vecteezy graphics through the backend. The Vecteezy API key stays private on the server and the frontend receives preview metadata only.
+
+Required environment variables:
+```bash
+VECTEEZY_API_KEY=your_vecteezy_api_key
+VECTEEZY_ACCOUNT_ID=your_vecteezy_account_id
+VECTEEZY_DEFAULT_CONTENT_TYPE=vector
+```
+
+Example:
+```txt
+GET /api/vecteezy/search?q=lion%20logo&contentType=vector&page=1&perPage=24&familyFriendly=true
+```
+
+Response:
+```json
+{
+  "success": true,
+  "page": 1,
+  "perPage": 24,
+  "items": [
+    {
+      "id": "123456",
+      "title": "Lion Logo Vector",
+      "contentType": "vector",
+      "thumbnailUrl": "https://...",
+      "previewUrl": "https://...",
+      "source": "vecteezy"
+    }
+  ]
+}
+```
+
 ## Database
 
 The API connects to PostgreSQL database `Branded_UK` and uses:

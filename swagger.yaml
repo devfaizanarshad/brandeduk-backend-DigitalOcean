@@ -28,6 +28,7 @@ info:
     - `POST /api/quotes/stripe/payment-intent` - Create a Stripe PaymentIntent for quote checkout
     - `GET /api/quotes/stripe/payment-intent/{id}` - Check Stripe quote payment status
     - `POST /api/quotes/stripe/webhook` - Stripe webhook endpoint for quote payment status updates
+    - `GET /api/vecteezy/search` - Search Vecteezy graphics for preview and selection
     
     ### Filter Endpoints (Testing & Database Exploration)
     Each filter type has TWO endpoints:
@@ -101,6 +102,8 @@ tags:
     description: Contact form submission endpoints
   - name: Quotes
     description: Quote request and Stripe quote payment endpoints
+  - name: Vecteezy
+    description: Vecteezy search and graphic selection endpoints
   - name: Secondary Sites
     description: Public and admin endpoints for curated product feeds such as Humanitiees
 
@@ -4971,6 +4974,173 @@ paths:
                     type: string
                     example: "Stripe webhook signature verification failed"
 
+  /api/vecteezy/search:
+    get:
+      tags:
+        - Vecteezy
+      summary: Search Vecteezy graphics
+      description: |
+        Searches Vecteezy through the backend so the Vecteezy API key remains private.
+
+        This endpoint returns frontend-safe preview metadata only. It does not expose Vecteezy download URLs.
+      operationId: searchVecteezyResources
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "lion logo"
+          description: Search term. Alias of Vecteezy `term`.
+        - name: contentType
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [photo, png, psd, svg, vector, video]
+            default: vector
+          description: Vecteezy content type.
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: perPage
+          in: query
+          schema:
+            type: integer
+            default: 24
+            maximum: 48
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [relevance, newest]
+        - name: licenseType
+          in: query
+          schema:
+            type: string
+            enum: [commercial, editorial]
+        - name: familyFriendly
+          in: query
+          schema:
+            type: boolean
+            default: true
+        - name: printFriendly
+          in: query
+          schema:
+            type: boolean
+          description: Vecteezy print-friendly filter. Mainly applicable to SVG resources.
+        - name: color
+          in: query
+          schema:
+            type: string
+            example: "#FF0000"
+        - name: orientation
+          in: query
+          schema:
+            type: string
+            enum: [horizontal, vertical, square, panoramic]
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VecteezySearchResponse'
+        '400':
+          description: Invalid search query
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicSuccessResponse'
+        '500':
+          description: Vecteezy is not configured or upstream request failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicSuccessResponse'
+
+  /api/vecteezy/resources/{id}:
+    get:
+      tags:
+        - Vecteezy
+      summary: Get Vecteezy resource details
+      operationId: getVecteezyResource
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Numeric Vecteezy resource ID.
+      responses:
+        '200':
+          description: Resource metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VecteezyResourceResponse'
+        '400':
+          description: Invalid resource ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicSuccessResponse'
+
+  /api/vecteezy/resources/{id}/similar:
+    get:
+      tags:
+        - Vecteezy
+      summary: Get visually similar Vecteezy resources
+      operationId: getSimilarVecteezyResources
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: perPage
+          in: query
+          schema:
+            type: integer
+            default: 24
+            maximum: 48
+      responses:
+        '200':
+          description: Similar resources
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VecteezySearchResponse'
+
+  /api/vecteezy/account/info:
+    get:
+      tags:
+        - Vecteezy
+      summary: Get Vecteezy account quota info
+      description: Backend/admin helper endpoint for checking account quotas.
+      operationId: getVecteezyAccountInfo
+      parameters:
+        - name: months
+          in: query
+          schema:
+            type: integer
+            default: 1
+            maximum: 6
+      responses:
+        '200':
+          description: Account info from Vecteezy
+          content:
+            application/json:
+              schema:
+                type: object
+
 components:
   schemas:
     FilterItem:
@@ -5654,6 +5824,95 @@ components:
         message:
           type: string
           example: "Unable to complete request"
+
+    VecteezyResource:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "123456"
+        title:
+          type: string
+          example: "Lion Logo Vector"
+        contentType:
+          type: string
+          example: "vector"
+        licenseType:
+          type: string
+          nullable: true
+          example: "commercial"
+        thumbnailUrl:
+          type: string
+          nullable: true
+          example: "https://example.com/thumb.jpg"
+        previewUrl:
+          type: string
+          nullable: true
+          example: "https://example.com/preview.jpg"
+        width:
+          type: integer
+          nullable: true
+          example: 1200
+        height:
+          type: integer
+          nullable: true
+          example: 1200
+        url:
+          type: string
+          nullable: true
+          example: "https://www.vecteezy.com/vector-art/123456-lion-logo-vector"
+        source:
+          type: string
+          example: "vecteezy"
+
+    VecteezySearchResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        page:
+          type: integer
+          example: 1
+        perPage:
+          type: integer
+          example: 24
+        lastPage:
+          type: integer
+          nullable: true
+          example: 10
+        totalResources:
+          type: integer
+          nullable: true
+          example: 240
+        query:
+          type: object
+          properties:
+            term:
+              type: string
+              example: "lion logo"
+            contentType:
+              type: string
+              example: "vector"
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/VecteezyResource'
+        quota:
+          type: object
+          nullable: true
+
+    VecteezyResourceResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        item:
+          $ref: '#/components/schemas/VecteezyResource'
+        quota:
+          type: object
+          nullable: true
 
     DisplayOrderEntry:
       type: object
