@@ -29,6 +29,14 @@ function formatNumber(num, decimals = 2) {
   return parseFloat(num).toFixed(decimals);
 }
 
+function formatCurrencyFromMinorUnits(amount, currency = 'gbp') {
+  const numericAmount = Number(amount || 0) / 100;
+  return new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: String(currency || 'gbp').toUpperCase(),
+  }).format(numericAmount);
+}
+
 function generateQuoteEmailHTML(data) {
   const customer = data.customer || {};
   const summary = data.summary || {};
@@ -322,6 +330,183 @@ async function sendQuoteEmail(data) {
   }
 }
 
+function buildPaymentSummaryRows(quoteData = {}) {
+  const summary = quoteData.summary || {};
+  const basket = Array.isArray(quoteData.basket) ? quoteData.basket : [];
+  const customizations = Array.isArray(quoteData.customizations) ? quoteData.customizations : [];
+
+  return {
+    totalQuantity: summary.totalQuantity || basket.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0),
+    totalItems: summary.totalItems || basket.length,
+    displayTotal: summary.displayTotal || summary.totalIncVat || summary.total || null,
+    basket,
+    customizations,
+  };
+}
+
+function generatePaymentSuccessAdminHTML(data) {
+  const quoteData = data.quoteData || {};
+  const customer = quoteData.customer || {};
+  const summary = buildPaymentSummaryRows(quoteData);
+  const paidAt = data.paidAt ? new Date(data.paidAt) : new Date();
+  const formattedPaidAt = paidAt.toLocaleString('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).replace(',', '');
+
+  const basketRows = summary.basket.length
+    ? summary.basket.map((item, index) => `
+      <tr>
+        <td>${index + 1}</td>
+        <td>${escapeHtml(item.name || 'Product')}</td>
+        <td>${escapeHtml(item.code || 'N/A')}</td>
+        <td>${escapeHtml(item.color || 'N/A')}</td>
+        <td>${escapeHtml(item.quantity || 0)}</td>
+        <td>${item.itemTotal != null ? `£${formatNumber(item.itemTotal)}` : 'N/A'}</td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="6">No basket items found in quote data.</td></tr>';
+
+  const customizationRows = summary.customizations.length
+    ? summary.customizations.map((item) => `
+      <tr>
+        <td>${escapeHtml(item.position || 'N/A')}</td>
+        <td>${escapeHtml(item.method || 'N/A')}</td>
+        <td>${escapeHtml(item.type || 'N/A')}</td>
+        <td>${escapeHtml(item.quantity || 0)}</td>
+        <td>${item.lineTotal != null ? `£${formatNumber(item.lineTotal)}` : 'N/A'}</td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="5">No customizations found in quote data.</td></tr>';
+
+  return `
+  <html>
+  <head>
+    <style>
+      body { font-family: Arial, sans-serif; line-height: 1.6; color: #111827; }
+      .header { background: #059669; color: white; padding: 20px; border-radius: 8px 8px 0 0; }
+      .section { background: #f9fafb; padding: 18px; margin: 14px 0; border-radius: 8px; border-left: 4px solid #059669; }
+      .label { font-weight: bold; color: #374151; width: 170px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+      th, td { padding: 9px; border-bottom: 1px solid #e5e7eb; text-align: left; vertical-align: top; }
+      th { background: #ecfdf5; color: #065f46; }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1>Payment Received</h1>
+      <p>A customer payment has been confirmed by Stripe.</p>
+    </div>
+
+    <div class="section">
+      <h2>Payment Details</h2>
+      <table>
+        <tr><td class="label">Quote ID:</td><td>${escapeHtml(data.quoteId)}</td></tr>
+        <tr><td class="label">Payment Intent:</td><td>${escapeHtml(data.paymentIntentId)}</td></tr>
+        <tr><td class="label">Amount Paid:</td><td><strong>${escapeHtml(data.amountFormatted)}</strong></td></tr>
+        <tr><td class="label">Paid At:</td><td>${escapeHtml(formattedPaidAt)}</td></tr>
+      </table>
+    </div>
+
+    <div class="section">
+      <h2>Customer</h2>
+      <table>
+        <tr><td class="label">Name:</td><td>${escapeHtml(data.customerName || customer.fullName || customer.name || 'N/A')}</td></tr>
+        <tr><td class="label">Email:</td><td>${escapeHtml(data.customerEmail || customer.email || 'N/A')}</td></tr>
+        ${customer.phone ? `<tr><td class="label">Phone:</td><td>${escapeHtml(customer.phone)}</td></tr>` : ''}
+        ${customer.company ? `<tr><td class="label">Company:</td><td>${escapeHtml(customer.company)}</td></tr>` : ''}
+      </table>
+    </div>
+
+    <div class="section">
+      <h2>Quote Summary</h2>
+      <table>
+        <tr><td class="label">Total Items:</td><td>${escapeHtml(summary.totalItems)}</td></tr>
+        <tr><td class="label">Total Quantity:</td><td>${escapeHtml(summary.totalQuantity)}</td></tr>
+        <tr><td class="label">Quote Total:</td><td>${summary.displayTotal != null ? `£${formatNumber(summary.displayTotal)}` : 'N/A'}</td></tr>
+      </table>
+    </div>
+
+    <div class="section">
+      <h2>Basket</h2>
+      <table>
+        <tr><th>#</th><th>Product</th><th>Code</th><th>Color</th><th>Qty</th><th>Total</th></tr>
+        ${basketRows}
+      </table>
+    </div>
+
+    <div class="section">
+      <h2>Customizations</h2>
+      <table>
+        <tr><th>Position</th><th>Method</th><th>Type</th><th>Qty</th><th>Total</th></tr>
+        ${customizationRows}
+      </table>
+    </div>
+  </body>
+  </html>
+  `;
+}
+
+function generatePaymentSuccessCustomerHTML(data) {
+  return `
+  <html>
+  <body style="font-family: Arial, sans-serif; color: #111827; line-height: 1.6;">
+    <div style="background:#059669;color:white;padding:20px;border-radius:8px 8px 0 0;">
+      <h1 style="margin:0;">Payment received</h1>
+    </div>
+    <div style="padding:20px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px;">
+      <p>Hi ${escapeHtml(data.customerName || 'there')},</p>
+      <p>Thanks, we have received your payment for your Branded UK quote.</p>
+      <p><strong>Quote ID:</strong> ${escapeHtml(data.quoteId)}</p>
+      <p><strong>Amount paid:</strong> ${escapeHtml(data.amountFormatted)}</p>
+      <p>Our team will review the details and continue processing your order.</p>
+      <p style="color:#6b7280;font-size:12px;">Payment reference: ${escapeHtml(data.paymentIntentId)}</p>
+    </div>
+  </body>
+  </html>
+  `;
+}
+
+async function sendPaymentSuccessEmail(data) {
+  const adminTo = process.env.PAYMENT_EMAIL_TO || process.env.EMAIL_TO;
+  const from = process.env.EMAIL_FROM;
+  const sendCustomerEmail = process.env.PAYMENT_SEND_CUSTOMER_EMAIL !== 'false';
+  const customerEmail = data.customerEmail || data.quoteData?.customer?.email || null;
+  const amountFormatted = formatCurrencyFromMinorUnits(data.amount, data.currency);
+  const emailData = { ...data, amountFormatted, customerEmail };
+  const results = { admin: null, customer: null };
+
+  if (!adminTo) {
+    throw new Error('PAYMENT_EMAIL_TO or EMAIL_TO is required for payment notifications');
+  }
+
+  const adminResult = await resend.emails.send({
+    from,
+    to: adminTo,
+    replyTo: customerEmail || undefined,
+    subject: `Payment Received - ${data.quoteId}`,
+    html: generatePaymentSuccessAdminHTML(emailData),
+  });
+  results.admin = adminResult?.data?.id || adminResult?.id || null;
+
+  if (sendCustomerEmail && customerEmail) {
+    const customerResult = await resend.emails.send({
+      from,
+      to: customerEmail,
+      subject: `Payment received - Branded UK quote ${data.quoteId}`,
+      html: generatePaymentSuccessCustomerHTML(emailData),
+    });
+    results.customer = customerResult?.data?.id || customerResult?.id || null;
+  }
+
+  return { success: true, ...results };
+}
+
 /* =========================
    CONTACT FORM EMAIL
 ========================= */
@@ -584,4 +769,4 @@ async function sendQuoteEmailWithAttachments(data, attachments = [], logoAssets 
   }
 }
 
-module.exports = { sendQuoteEmail, sendContactEmail, sendQuoteEmailWithAttachments };
+module.exports = { sendQuoteEmail, sendContactEmail, sendQuoteEmailWithAttachments, sendPaymentSuccessEmail };

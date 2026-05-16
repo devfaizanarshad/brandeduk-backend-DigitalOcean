@@ -179,6 +179,8 @@ STRIPE_WEBHOOK_SECRET=whsec_webhook_secret_here
 STRIPE_CHECKOUT_SUCCESS_URL=https://your-frontend.com/payment/success
 STRIPE_CHECKOUT_CANCEL_URL=https://your-frontend.com/payment/cancel
 STRIPE_CURRENCY=gbp
+PAYMENT_EMAIL_TO=payments@your-domain.com
+PAYMENT_SEND_CUSTOMER_EMAIL=true
 ```
 
 Example:

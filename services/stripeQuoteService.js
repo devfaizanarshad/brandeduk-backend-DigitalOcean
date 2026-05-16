@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const https = require('https');
 const { queryWithTimeout } = require('../config/database');
+const { sendPaymentSuccessEmail } = require('../utils/emailService');
 
 const DEFAULT_CURRENCY = (process.env.STRIPE_CURRENCY || 'gbp').toLowerCase();
 const MIN_PAYMENT_AMOUNT = parseInt(process.env.STRIPE_MIN_AMOUNT || '50', 10);
@@ -249,10 +250,22 @@ async function ensureStripePaymentsTable() {
       status VARCHAR(80) NOT NULL,
       quote_data JSONB NOT NULL DEFAULT '{}'::jsonb,
       last_webhook_event_id VARCHAR(120),
+      payment_email_sent_at TIMESTAMP WITHOUT TIME ZONE,
+      payment_email_last_error TEXT,
       created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
       paid_at TIMESTAMP WITHOUT TIME ZONE
     )
+  `, [], 10000);
+
+  await queryWithTimeout(`
+    ALTER TABLE stripe_quote_payments
+    ADD COLUMN IF NOT EXISTS payment_email_sent_at TIMESTAMP WITHOUT TIME ZONE
+  `, [], 10000);
+
+  await queryWithTimeout(`
+    ALTER TABLE stripe_quote_payments
+    ADD COLUMN IF NOT EXISTS payment_email_last_error TEXT
   `, [], 10000);
 
   stripePaymentsTableReady = true;
@@ -485,6 +498,67 @@ async function updatePaymentFromWebhook(event) {
     paymentIntent.id,
     paymentIntent.id,
   ], 10000);
+
+  if (paymentIntent.status === 'succeeded') {
+    await sendPaymentSuccessNotification(paymentIntent);
+  }
+}
+
+async function sendPaymentSuccessNotification(paymentIntent) {
+  const quoteId = paymentIntent.metadata?.quote_id;
+  if (!quoteId) return;
+
+  const result = await queryWithTimeout(`
+    SELECT
+      quote_id,
+      stripe_payment_intent_id,
+      customer_name,
+      customer_email,
+      amount,
+      currency,
+      status,
+      quote_data,
+      paid_at,
+      payment_email_sent_at
+    FROM stripe_quote_payments
+    WHERE quote_id = $1 OR stripe_payment_intent_id = $2
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `, [quoteId, paymentIntent.id], 10000);
+
+  const row = result.rows[0];
+  if (row?.payment_email_sent_at) return;
+
+  try {
+    await sendPaymentSuccessEmail({
+      quoteId,
+      paymentIntentId: paymentIntent.id,
+      amount: paymentIntent.amount,
+      currency: paymentIntent.currency,
+      customerName: row?.customer_name || paymentIntent.metadata?.customer_name || null,
+      customerEmail: row?.customer_email || paymentIntent.receipt_email || paymentIntent.metadata?.customer_email || null,
+      paidAt: row?.paid_at || new Date().toISOString(),
+      quoteData: row?.quote_data || {},
+    });
+
+    await queryWithTimeout(`
+      UPDATE stripe_quote_payments
+      SET
+        payment_email_sent_at = CURRENT_TIMESTAMP,
+        payment_email_last_error = NULL,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE quote_id = $1 OR stripe_payment_intent_id = $2
+    `, [quoteId, paymentIntent.id], 10000);
+  } catch (error) {
+    console.error('[STRIPE] Failed to send payment success email:', error.message);
+    await queryWithTimeout(`
+      UPDATE stripe_quote_payments
+      SET
+        payment_email_last_error = $3,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE quote_id = $1 OR stripe_payment_intent_id = $2
+    `, [quoteId, paymentIntent.id, error.message], 10000);
+  }
 }
 
 async function getPaymentStatus(paymentIntentId) {
