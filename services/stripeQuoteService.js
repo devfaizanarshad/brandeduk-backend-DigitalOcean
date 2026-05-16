@@ -6,6 +6,8 @@ const DEFAULT_CURRENCY = (process.env.STRIPE_CURRENCY || 'gbp').toLowerCase();
 const MIN_PAYMENT_AMOUNT = parseInt(process.env.STRIPE_MIN_AMOUNT || '50', 10);
 const MAX_PAYMENT_AMOUNT = parseInt(process.env.STRIPE_MAX_AMOUNT || '100000000', 10);
 const WEBHOOK_TOLERANCE_SECONDS = parseInt(process.env.STRIPE_WEBHOOK_TOLERANCE_SECONDS || '300', 10);
+const CHECKOUT_SUCCESS_URL = process.env.STRIPE_CHECKOUT_SUCCESS_URL || process.env.CHECKOUT_SUCCESS_URL;
+const CHECKOUT_CANCEL_URL = process.env.STRIPE_CHECKOUT_CANCEL_URL || process.env.CHECKOUT_CANCEL_URL;
 
 let stripePaymentsTableReady = false;
 
@@ -114,6 +116,19 @@ function validatePaymentInput(body) {
     email,
     fullName,
   };
+}
+
+function getCheckoutUrls() {
+  const successUrl = normalizeString(CHECKOUT_SUCCESS_URL);
+  const cancelUrl = normalizeString(CHECKOUT_CANCEL_URL);
+
+  if (!successUrl || !cancelUrl) {
+    const error = new Error('Stripe Checkout success/cancel URLs are not configured');
+    error.status = 500;
+    throw error;
+  }
+
+  return { successUrl, cancelUrl };
 }
 
 function createQuoteId() {
@@ -311,6 +326,84 @@ async function createQuotePaymentIntent(body, idempotencyKey) {
   };
 }
 
+async function createQuoteCheckoutSession(body, idempotencyKey) {
+  const paymentInput = validatePaymentInput(body);
+  const { successUrl, cancelUrl } = getCheckoutUrls();
+  const quoteId = normalizeString(body.quoteId) || createQuoteId();
+  const metadata = buildMetadata({ quoteId, ...paymentInput });
+
+  const basket = Array.isArray(paymentInput.quoteData?.basket) ? paymentInput.quoteData.basket : [];
+  const productName = basket.length === 1
+    ? (normalizeString(basket[0]?.name) || 'Branded UK Quote')
+    : `Branded UK Quote (${basket.length} items)`;
+
+  // Create Stripe Checkout Session
+  // Note: We put metadata on the resulting PaymentIntent via payment_intent_data[metadata]
+  // so our existing webhook handler can correlate by quote_id.
+  const session = await stripeRequest('/checkout/sessions', {
+    mode: 'payment',
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    customer_email: paymentInput.email,
+    'line_items[0][quantity]': 1,
+    'line_items[0][price_data][currency]': paymentInput.currency,
+    'line_items[0][price_data][unit_amount]': paymentInput.amount,
+    'line_items[0][price_data][product_data][name]': productName,
+    'payment_intent_data[receipt_email]': paymentInput.email,
+    ...Object.fromEntries(Object.entries(metadata).map(([k, v]) => [`payment_intent_data[metadata][${k}]`, v])),
+  }, {
+    idempotencyKey: idempotencyKey || quoteId,
+  });
+
+  // Save a record early (status may be "requires_payment_method" etc. once PaymentIntent exists).
+  // Checkout Session may not immediately include payment_intent; webhook will finalize.
+  try {
+    await ensureStripePaymentsTable();
+    await queryWithTimeout(`
+      INSERT INTO stripe_quote_payments (
+        quote_id,
+        stripe_payment_intent_id,
+        customer_name,
+        customer_email,
+        amount,
+        currency,
+        status,
+        quote_data
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+      ON CONFLICT (quote_id) DO UPDATE SET
+        customer_name = EXCLUDED.customer_name,
+        customer_email = EXCLUDED.customer_email,
+        amount = EXCLUDED.amount,
+        currency = EXCLUDED.currency,
+        status = EXCLUDED.status,
+        quote_data = EXCLUDED.quote_data,
+        updated_at = CURRENT_TIMESTAMP
+    `, [
+      quoteId,
+      // placeholder until we get the PI from webhook; keep unique-ish to avoid null constraint
+      // Stripe PaymentIntent id will overwrite later via webhook update (matched by quote_id).
+      normalizeString(session.payment_intent) || `pending_session_${session.id}`,
+      paymentInput.fullName || null,
+      paymentInput.email,
+      paymentInput.amount,
+      paymentInput.currency,
+      normalizeString(session.status) || 'created',
+      JSON.stringify(paymentInput.quoteData),
+    ], 10000);
+  } catch (error) {
+    console.error('[STRIPE] Failed to save checkout session record:', error.message);
+  }
+
+  return {
+    quoteId,
+    checkoutSessionId: session.id,
+    checkoutUrl: session.url,
+    amount: paymentInput.amount,
+    currency: paymentInput.currency,
+  };
+}
+
 function parseStripeSignature(signatureHeader) {
   return String(signatureHeader || '')
     .split(',')
@@ -379,6 +472,7 @@ async function updatePaymentFromWebhook(event) {
   await queryWithTimeout(`
     UPDATE stripe_quote_payments
     SET
+      stripe_payment_intent_id = $5,
       status = $1,
       last_webhook_event_id = $2,
       updated_at = CURRENT_TIMESTAMP,
@@ -388,6 +482,7 @@ async function updatePaymentFromWebhook(event) {
     paymentIntent.status,
     event.id || null,
     quoteId,
+    paymentIntent.id,
     paymentIntent.id,
   ], 10000);
 }
@@ -414,6 +509,7 @@ async function getPaymentStatus(paymentIntentId) {
 }
 
 module.exports = {
+  createQuoteCheckoutSession,
   createQuotePaymentIntent,
   getPaymentStatus,
   updatePaymentFromWebhook,

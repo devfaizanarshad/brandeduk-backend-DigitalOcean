@@ -1,5 +1,6 @@
 const express = require('express');
 const {
+  createQuoteCheckoutSession,
   createQuotePaymentIntent,
   getPaymentStatus,
   updatePaymentFromWebhook,
@@ -29,6 +30,31 @@ router.post('/payment-intent', async (req, res) => {
     return res.status(error.status || 500).json({
       success: false,
       message: error.status && error.status < 500 ? error.message : 'Unable to create payment intent',
+    });
+  }
+});
+
+/**
+ * POST /api/quotes/stripe/checkout-session
+ * Creates a Stripe Checkout Session URL for redirect-based payment.
+ */
+router.post('/checkout-session', async (req, res) => {
+  try {
+    const result = await createQuoteCheckoutSession(
+      req.body || {},
+      req.get('Idempotency-Key')
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: 'Stripe checkout session created',
+      data: result,
+    });
+  } catch (error) {
+    console.error('[STRIPE] Failed to create checkout session:', error.message);
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status && error.status < 500 ? error.message : 'Unable to create checkout session',
     });
   }
 });

@@ -167,6 +167,39 @@ Fetch the latest Stripe status for a quote PaymentIntent.
 ### POST /api/quotes/stripe/webhook
 Stripe webhook endpoint. Add this URL in Stripe Dashboard and subscribe to `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, and `payment_intent.processing`.
 
+### POST /api/quotes/stripe/checkout-session (Recommended)
+Creates a Stripe Checkout Session and returns a `checkoutUrl` so the frontend can redirect the customer to Stripe hosted checkout.
+
+This is the simplest + smoothest flow for plain HTML/JS frontends and does not require Stripe publishable key on the frontend.
+
+Required environment variables:
+```bash
+STRIPE_SECRET_KEY=sk_live_or_test_key_here
+STRIPE_WEBHOOK_SECRET=whsec_webhook_secret_here
+STRIPE_CHECKOUT_SUCCESS_URL=https://your-frontend.com/payment/success
+STRIPE_CHECKOUT_CANCEL_URL=https://your-frontend.com/payment/cancel
+STRIPE_CURRENCY=gbp
+```
+
+Example:
+```txt
+POST /api/quotes/stripe/checkout-session
+```
+
+Response includes:
+```json
+{
+  "success": true,
+  "data": {
+    "quoteId": "quote_pay_...",
+    "checkoutSessionId": "cs_...",
+    "checkoutUrl": "https://checkout.stripe.com/c/pay/...",
+    "amount": 93000,
+    "currency": "gbp"
+  }
+}
+```
+
 ### GET /api/vecteezy/search
 Search Vecteezy graphics through the backend. The Vecteezy API key stays private on the server and the frontend receives preview metadata only.
 

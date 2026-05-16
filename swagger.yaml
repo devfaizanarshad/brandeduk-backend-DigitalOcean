@@ -26,6 +26,7 @@ info:
     - `POST /api/contact` - Submit contact form inquiry
     - `POST /api/quotes` - Submit quote request with optional logo file uploads
     - `POST /api/quotes/stripe/payment-intent` - Create a Stripe PaymentIntent for quote checkout
+    - `POST /api/quotes/stripe/checkout-session` - Create a Stripe Checkout Session (redirect-based payment)
     - `GET /api/quotes/stripe/payment-intent/{id}` - Check Stripe quote payment status
     - `POST /api/quotes/stripe/webhook` - Stripe webhook endpoint for quote payment status updates
     - `GET /api/vecteezy/search` - Search Vecteezy graphics for preview and selection
@@ -4883,6 +4884,49 @@ paths:
                 success: false
                 message: "Unable to create payment intent"
 
+  /api/quotes/stripe/checkout-session:
+    post:
+      tags:
+        - Quotes
+      summary: Create Stripe Checkout Session (redirect)
+      description: |
+        Creates a Stripe Checkout Session and returns a `checkoutUrl` to redirect the customer to Stripe hosted checkout.
+
+        This flow does not require a Stripe publishable key on the frontend.
+      operationId: createStripeQuoteCheckoutSession
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional idempotency key. Recommended when retrying the same checkout request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StripeQuotePaymentIntentRequest'
+      responses:
+        '201':
+          description: Stripe Checkout Session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StripeQuoteCheckoutSessionResponse'
+        '400':
+          description: Invalid quote/customer/payment amount
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicSuccessResponse'
+        '500':
+          description: Stripe is not configured or server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicSuccessResponse'
+
   /api/quotes/stripe/payment-intent/{id}:
     get:
       tags:
@@ -5781,6 +5825,39 @@ components:
           example: "Stripe payment intent created"
         data:
           $ref: '#/components/schemas/StripeQuotePaymentIntentData'
+
+    StripeQuoteCheckoutSessionData:
+      type: object
+      properties:
+        quoteId:
+          type: string
+          example: "quote_pay_1769198120482_a1b2c3d4"
+        checkoutSessionId:
+          type: string
+          example: "cs_test_123"
+        checkoutUrl:
+          type: string
+          description: Redirect the browser to this URL to complete payment on Stripe Checkout.
+          example: "https://checkout.stripe.com/c/pay/cs_test_..."
+        amount:
+          type: integer
+          description: Amount in minor currency units.
+          example: 93000
+        currency:
+          type: string
+          example: "gbp"
+
+    StripeQuoteCheckoutSessionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Stripe checkout session created"
+        data:
+          $ref: '#/components/schemas/StripeQuoteCheckoutSessionData'
 
     StripeQuotePaymentStatusData:
       type: object
