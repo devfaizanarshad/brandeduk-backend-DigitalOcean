@@ -21,12 +21,30 @@ const storage = multer.diskStorage({
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
+    const ext = getImageExtension(file);
     const positionSlug = file.fieldname.replace('logo_', '');
     const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     cb(null, `logo-${positionSlug}-${uniqueSuffix}${ext}`);
   }
 });
+
+const IMAGE_EXTENSIONS_BY_MIME = {
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/png': '.png',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+};
+
+const getImageExtension = (file = {}) => {
+  return IMAGE_EXTENSIONS_BY_MIME[file.mimetype] || path.extname(file.originalname || '').toLowerCase() || '.jpg';
+};
+
+const getAttachmentFilename = (file = {}, fallback = 'logo') => {
+  const parsed = path.parse(file.originalname || fallback);
+  const ext = getImageExtension(file);
+  return `${parsed.name || fallback}${ext}`;
+};
 
 const fileFilter = (req, file, cb) => {
   if (!file || !file.originalname || file.size === 0) return cb(null, false);
@@ -56,7 +74,10 @@ const cleanupFiles = (files) => {
 };
 
 const buildLogoUrl = (req, filename) => {
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
+  const configuredBaseUrl = process.env.API_PUBLIC_URL || process.env.API_BASE_URL;
+  const forwardedProto = (req.get('x-forwarded-proto') || '').split(',')[0].trim();
+  const protocol = forwardedProto || req.protocol;
+  const baseUrl = configuredBaseUrl || `${protocol}://${req.get('host')}`;
   return `${baseUrl}/uploads/logos/${encodeURIComponent(filename)}`;
 };
 
@@ -173,10 +194,9 @@ router.post('/', upload.any(), async (req, res) => {
         };
         try {
           logoAttachments.push({
-            filename: file.originalname,
+            filename: getAttachmentFilename(file, `logo-${positionSlug}`),
             content: fs.readFileSync(file.path),
             contentType: file.mimetype,
-            contentId,
             url: logoFiles[positionSlug].url,
           });
         } catch (e) {}

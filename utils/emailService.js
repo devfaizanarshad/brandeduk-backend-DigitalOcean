@@ -725,8 +725,7 @@ function generateQuoteWithLogosEmailHTML(data, logoAssets = {}) {
       <table>
         ${Object.entries(logoAssets).map(([position, asset]) => {
           const url = asset?.url || '';
-          const contentId = asset?.contentId || '';
-          const imageSrc = contentId ? `cid:${contentId}` : url;
+          const imageSrc = url;
           const canPreview = !!imageSrc;
 
           return `
@@ -774,7 +773,6 @@ async function sendQuoteEmailWithAttachments(data, attachments = [], logoAssets 
         filename: att.filename,
         content: Buffer.isBuffer(att.content) ? att.content.toString('base64') : att.content,
         contentType: att.contentType,
-        contentId: att.contentId,
       }));
     }
 
