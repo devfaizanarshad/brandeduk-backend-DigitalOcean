@@ -9,6 +9,30 @@ const {
 
 const router = express.Router();
 
+const handleStripeWebhook = async (req, res) => {
+  try {
+    const event = verifyWebhookPayload(req.body, req.get('stripe-signature'));
+
+    if (
+      event.type === 'payment_intent.succeeded'
+      || event.type === 'payment_intent.payment_failed'
+      || event.type === 'payment_intent.canceled'
+      || event.type === 'payment_intent.processing'
+      || event.type === 'payment_intent.requires_action'
+    ) {
+      await updatePaymentFromWebhook(event);
+    }
+
+    return res.json({ received: true });
+  } catch (error) {
+    console.error('[STRIPE] Webhook error:', error.message);
+    return res.status(error.status || 400).json({
+      received: false,
+      message: error.message,
+    });
+  }
+};
+
 /**
  * POST /api/quotes/stripe/payment-intent
  * Creates a Stripe PaymentIntent for a quote and returns the client secret.
@@ -80,28 +104,7 @@ router.get('/payment-intent/:id', async (req, res) => {
  * POST /api/quotes/stripe/webhook
  * Receives Stripe webhook events. Requires raw body middleware in server.js.
  */
-router.post('/webhook', async (req, res) => {
-  try {
-    const event = verifyWebhookPayload(req.body, req.get('stripe-signature'));
-
-    if (
-      event.type === 'payment_intent.succeeded'
-      || event.type === 'payment_intent.payment_failed'
-      || event.type === 'payment_intent.canceled'
-      || event.type === 'payment_intent.processing'
-      || event.type === 'payment_intent.requires_action'
-    ) {
-      await updatePaymentFromWebhook(event);
-    }
-
-    return res.json({ received: true });
-  } catch (error) {
-    console.error('[STRIPE] Webhook error:', error.message);
-    return res.status(error.status || 400).json({
-      received: false,
-      message: error.message,
-    });
-  }
-});
+router.post('/webhook', handleStripeWebhook);
 
 module.exports = router;
+module.exports.handleStripeWebhook = handleStripeWebhook;

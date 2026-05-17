@@ -16,6 +16,7 @@ const displayOrderRoutes = require('./routes/displayOrder');
 const adminRoutes = require('./routes/admin');
 const sitesRoutes = require('./routes/sites');
 const vecteezyRoutes = require('./routes/vecteezy');
+const { handleStripeWebhook } = require('./routes/stripeQuotes');
 
 // Load Swagger documentation
 const swaggerDocument = YAML.load(path.join(__dirname, 'swagger.yaml'));
@@ -37,7 +38,8 @@ app.use(cors({
   optionsSuccessStatus: 200,
 }));
 
-app.use('/api/quotes/stripe/webhook', express.raw({ type: 'application/json' }));
+app.use(['/api/quotes/stripe/webhook', '/webhook'], express.raw({ type: 'application/json' }));
+app.post('/webhook', handleStripeWebhook);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {

@@ -486,11 +486,11 @@ async function updatePaymentFromWebhook(event) {
     UPDATE stripe_quote_payments
     SET
       stripe_payment_intent_id = $5,
-      status = $1,
+      status = $1::varchar,
       last_webhook_event_id = $2,
       updated_at = CURRENT_TIMESTAMP,
-      paid_at = CASE WHEN $1 = 'succeeded' THEN CURRENT_TIMESTAMP ELSE paid_at END
-    WHERE quote_id = $3 OR stripe_payment_intent_id = $4
+      paid_at = CASE WHEN $1::varchar = 'succeeded'::varchar THEN CURRENT_TIMESTAMP ELSE paid_at END
+    WHERE quote_id = $3::text OR stripe_payment_intent_id = $4::text
   `, [
     paymentIntent.status,
     event.id || null,
@@ -521,7 +521,7 @@ async function sendPaymentSuccessNotification(paymentIntent) {
       paid_at,
       payment_email_sent_at
     FROM stripe_quote_payments
-    WHERE quote_id = $1 OR stripe_payment_intent_id = $2
+    WHERE quote_id = $1::text OR stripe_payment_intent_id = $2::text
     ORDER BY updated_at DESC
     LIMIT 1
   `, [quoteId, paymentIntent.id], 10000);
@@ -547,7 +547,7 @@ async function sendPaymentSuccessNotification(paymentIntent) {
         payment_email_sent_at = CURRENT_TIMESTAMP,
         payment_email_last_error = NULL,
         updated_at = CURRENT_TIMESTAMP
-      WHERE quote_id = $1 OR stripe_payment_intent_id = $2
+      WHERE quote_id = $1::text OR stripe_payment_intent_id = $2::text
     `, [quoteId, paymentIntent.id], 10000);
   } catch (error) {
     console.error('[STRIPE] Failed to send payment success email:', error.message);
@@ -556,7 +556,7 @@ async function sendPaymentSuccessNotification(paymentIntent) {
       SET
         payment_email_last_error = $3,
         updated_at = CURRENT_TIMESTAMP
-      WHERE quote_id = $1 OR stripe_payment_intent_id = $2
+      WHERE quote_id = $1::text OR stripe_payment_intent_id = $2::text
     `, [quoteId, paymentIntent.id, error.message], 10000);
   }
 }

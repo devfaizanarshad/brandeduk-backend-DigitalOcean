@@ -344,6 +344,36 @@ function buildPaymentSummaryRows(quoteData = {}) {
   };
 }
 
+function buildPaymentProductSummary(quoteData = {}) {
+  const basket = Array.isArray(quoteData.basket) ? quoteData.basket : [];
+
+  if (!basket.length) {
+    return {
+      title: quoteData.product?.name || 'your Branded UK order',
+      rows: [],
+    };
+  }
+
+  const rows = basket.map((item) => {
+    const quantity = Number(item.quantity) || 0;
+    const name = item.name || 'Product';
+    const code = item.code ? ` (${item.code})` : '';
+    const color = item.color ? ` - ${item.color}` : '';
+
+    return {
+      name,
+      quantity,
+      label: `${name}${code}${color}${quantity ? ` x ${quantity}` : ''}`,
+    };
+  });
+
+  const title = rows.length === 1
+    ? rows[0].name
+    : `${rows[0].name} + ${rows.length - 1} more ${rows.length === 2 ? 'item' : 'items'}`;
+
+  return { title, rows };
+}
+
 function generatePaymentSuccessAdminHTML(data) {
   const quoteData = data.quoteData || {};
   const customer = quoteData.customer || {};
@@ -453,6 +483,11 @@ function generatePaymentSuccessAdminHTML(data) {
 }
 
 function generatePaymentSuccessCustomerHTML(data) {
+  const productSummary = buildPaymentProductSummary(data.quoteData || {});
+  const productRows = productSummary.rows.length
+    ? productSummary.rows.map((item) => `<li>${escapeHtml(item.label)}</li>`).join('')
+    : `<li>${escapeHtml(productSummary.title)}</li>`;
+
   return `
   <html>
   <body style="font-family: Arial, sans-serif; color: #111827; line-height: 1.6;">
@@ -461,10 +496,12 @@ function generatePaymentSuccessCustomerHTML(data) {
     </div>
     <div style="padding:20px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px;">
       <p>Hi ${escapeHtml(data.customerName || 'there')},</p>
-      <p>Thanks, we have received your payment for your Branded UK quote.</p>
-      <p><strong>Quote ID:</strong> ${escapeHtml(data.quoteId)}</p>
+      <p>Thanks, we have received your payment for <strong>${escapeHtml(productSummary.title)}</strong>.</p>
+      <p><strong>What you paid for:</strong></p>
+      <ul style="padding-left:20px;margin-top:6px;">${productRows}</ul>
       <p><strong>Amount paid:</strong> ${escapeHtml(data.amountFormatted)}</p>
       <p>Our team will review the details and continue processing your order.</p>
+      <p style="color:#6b7280;font-size:12px;">Quote ID: ${escapeHtml(data.quoteId)}</p>
       <p style="color:#6b7280;font-size:12px;">Payment reference: ${escapeHtml(data.paymentIntentId)}</p>
     </div>
   </body>
@@ -495,10 +532,11 @@ async function sendPaymentSuccessEmail(data) {
   results.admin = adminResult?.data?.id || adminResult?.id || null;
 
   if (sendCustomerEmail && customerEmail) {
+    const productSummary = buildPaymentProductSummary(data.quoteData || {});
     const customerResult = await resend.emails.send({
       from,
       to: customerEmail,
-      subject: `Payment received - Branded UK quote ${data.quoteId}`,
+      subject: `Payment received for ${productSummary.title}`,
       html: generatePaymentSuccessCustomerHTML(emailData),
     });
     results.customer = customerResult?.data?.id || customerResult?.id || null;
