@@ -358,6 +358,7 @@ async function createQuoteCheckoutSession(body, idempotencyKey) {
     success_url: successUrl,
     cancel_url: cancelUrl,
     customer_email: paymentInput.email,
+    'payment_method_types[0]': 'card',
     'line_items[0][quantity]': 1,
     'line_items[0][price_data][currency]': paymentInput.currency,
     'line_items[0][price_data][unit_amount]': paymentInput.amount,
