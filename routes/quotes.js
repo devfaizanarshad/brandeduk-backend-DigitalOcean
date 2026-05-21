@@ -65,6 +65,7 @@ const upload = multer({
 });
 
 const MAX_TOTAL_ATTACHMENT_BYTES = 28 * 1024 * 1024;
+const shouldAttachQuoteLogos = String(process.env.QUOTE_EMAIL_ATTACH_LOGOS || '').toLowerCase() === 'true';
 
 const cleanupFiles = (files) => {
   if (!files || !Array.isArray(files)) return;
@@ -192,14 +193,16 @@ router.post('/', upload.any(), async (req, res) => {
           url: buildLogoUrl(req, file.filename),
           contentId,
         };
-        try {
-          logoAttachments.push({
-            filename: getAttachmentFilename(file, `logo-${positionSlug}`),
-            content: fs.readFileSync(file.path),
-            contentType: file.mimetype,
-            url: logoFiles[positionSlug].url,
-          });
-        } catch (e) {}
+        if (shouldAttachQuoteLogos) {
+          try {
+            logoAttachments.push({
+              filename: getAttachmentFilename(file, `logo-${positionSlug}`),
+              content: fs.readFileSync(file.path),
+              contentType: file.mimetype,
+              url: logoFiles[positionSlug].url,
+            });
+          } catch (e) {}
+        }
       }
     });
 
@@ -231,8 +234,17 @@ router.post('/', upload.any(), async (req, res) => {
     // Send email
     let emailResult;
     try {
-      if (logoAttachments.length > 0) {
-        emailResult = await sendQuoteEmailWithAttachments(emailData, logoAttachments, logoFiles);
+      if (Object.keys(logoFiles).length > 0) {
+        if (shouldAttachQuoteLogos && logoAttachments.length > 0) {
+          console.log(`[EMAIL] Quote logo attachments enabled (${logoAttachments.length} file(s))`);
+        } else {
+          console.log('[EMAIL] Quote logo attachments disabled; sending logo links only');
+        }
+        emailResult = await sendQuoteEmailWithAttachments(
+          emailData,
+          shouldAttachQuoteLogos ? logoAttachments : [],
+          logoFiles
+        );
       } else {
         emailResult = await sendQuoteEmail(emailData);
       }

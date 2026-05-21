@@ -16,6 +16,12 @@ const displayOrderRoutes = require('./routes/displayOrder');
 const adminRoutes = require('./routes/admin');
 const sitesRoutes = require('./routes/sites');
 const vecteezyRoutes = require('./routes/vecteezy');
+const authRoutes = require('./routes/auth');
+const addressesRoutes = require('./routes/addresses');
+const checkoutRoutes = require('./routes/checkout');
+const ordersRoutes = require('./routes/orders');
+const paymentRoutes = require('./routes/payment');
+const profileRoutes = require('./routes/profile');
 const { handleStripeWebhook } = require('./routes/stripeQuotes');
 
 // Load Swagger documentation
@@ -38,7 +44,7 @@ app.use(cors({
   optionsSuccessStatus: 200,
 }));
 
-app.use(['/api/quotes/stripe/webhook', '/webhook'], express.raw({ type: 'application/json' }));
+app.use(['/api/quotes/stripe/webhook', '/api/payment/webhook', '/webhook'], express.raw({ type: 'application/json' }));
 app.post('/webhook', handleStripeWebhook);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -121,6 +127,13 @@ app.use('/api/display-order', displayOrderRoutes);
 app.use('/api/pricing', pricingRoutes);
 app.use('/api/sites', sitesRoutes);
 app.use('/api/vecteezy', vecteezyRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/auth', authRoutes);
+app.use('/api/addresses', addressesRoutes);
+app.use('/api/checkout', checkoutRoutes);
+app.use('/api/orders', ordersRoutes);
+app.use('/api/payment', paymentRoutes);
+app.use('/api/profile', profileRoutes);
 app.use('/api/admin', adminRoutes);
 
 // Swagger API Documentation

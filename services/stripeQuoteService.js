@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const https = require('https');
 const { queryWithTimeout } = require('../config/database');
+const { ensureCustomerTables } = require('./customerCheckoutService');
 const { sendPaymentSuccessEmail } = require('../utils/emailService');
 
 const DEFAULT_CURRENCY = (process.env.STRIPE_CURRENCY || 'gbp').toLowerCase();
@@ -136,11 +137,11 @@ function createQuoteId() {
   return `quote_pay_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 }
 
-function buildMetadata({ quoteId, email, fullName, quoteData }) {
+function buildMetadata({ quoteId, email, fullName, quoteData, orderNumber }) {
   const basket = Array.isArray(quoteData.basket) ? quoteData.basket : [];
   const customizations = Array.isArray(quoteData.customizations) ? quoteData.customizations : [];
 
-  return {
+  const metadata = {
     quote_id: quoteId,
     customer_email: email.slice(0, 500),
     customer_name: fullName.slice(0, 500),
@@ -148,6 +149,12 @@ function buildMetadata({ quoteId, email, fullName, quoteData }) {
     customizations: String(customizations.length),
     source: 'brandeduk_quote_api',
   };
+
+  if (orderNumber) {
+    metadata.order_number = String(orderNumber).slice(0, 80);
+  }
+
+  return metadata;
 }
 
 function parseJsonResponse(text) {
@@ -310,7 +317,8 @@ async function savePaymentRecord(paymentIntent, paymentInput) {
 async function createQuotePaymentIntent(body, idempotencyKey) {
   const paymentInput = validatePaymentInput(body);
   const quoteId = normalizeString(body.quoteId) || createQuoteId();
-  const metadata = buildMetadata({ quoteId, ...paymentInput });
+  const orderNumber = normalizeString(body.orderNumber || body.order_number || paymentInput.quoteData?.orderNumber);
+  const metadata = buildMetadata({ quoteId, orderNumber, ...paymentInput });
 
   const paymentIntent = await stripeRequest('/payment_intents', {
     amount: paymentInput.amount,
@@ -343,7 +351,8 @@ async function createQuoteCheckoutSession(body, idempotencyKey) {
   const paymentInput = validatePaymentInput(body);
   const { successUrl, cancelUrl } = getCheckoutUrls();
   const quoteId = normalizeString(body.quoteId) || createQuoteId();
-  const metadata = buildMetadata({ quoteId, ...paymentInput });
+  const orderNumber = normalizeString(body.orderNumber || body.order_number || paymentInput.quoteData?.orderNumber);
+  const metadata = buildMetadata({ quoteId, orderNumber, ...paymentInput });
 
   const basket = Array.isArray(paymentInput.quoteData?.basket) ? paymentInput.quoteData.basket : [];
   const productName = basket.length === 1
@@ -500,9 +509,40 @@ async function updatePaymentFromWebhook(event) {
     paymentIntent.id,
   ], 10000);
 
+  await syncMirroredCustomerOrder(paymentIntent);
+
   if (paymentIntent.status === 'succeeded') {
     await sendPaymentSuccessNotification(paymentIntent);
   }
+}
+
+async function syncMirroredCustomerOrder(paymentIntent) {
+  const orderNumber = normalizeString(paymentIntent.metadata?.order_number);
+  if (!orderNumber) return;
+
+  await ensureCustomerTables();
+
+  const paymentStatus = paymentIntent.status === 'succeeded'
+    ? 'paid'
+    : ['payment_failed', 'canceled', 'requires_payment_method'].includes(paymentIntent.status)
+      ? 'failed'
+      : 'pending';
+  const orderStatus = paymentStatus === 'paid'
+    ? 'confirmed'
+    : paymentStatus === 'failed'
+      ? 'failed'
+      : 'pending';
+
+  await queryWithTimeout(`
+    UPDATE customer_orders
+    SET
+      payment_status = $1,
+      order_status = $2,
+      payment_intent_id = $3,
+      transaction_id = $3,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE order_number = $4
+  `, [paymentStatus, orderStatus, paymentIntent.id, orderNumber], 10000);
 }
 
 async function sendPaymentSuccessNotification(paymentIntent) {
