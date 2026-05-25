@@ -22,6 +22,8 @@ const checkoutRoutes = require('./routes/checkout');
 const ordersRoutes = require('./routes/orders');
 const paymentRoutes = require('./routes/payment');
 const profileRoutes = require('./routes/profile');
+const customizationRoutes = require('./routes/customization');
+const adminCustomizationRoutes = require('./routes/adminCustomization');
 const { handleStripeWebhook } = require('./routes/stripeQuotes');
 
 // Load Swagger documentation
@@ -134,6 +136,8 @@ app.use('/api/checkout', checkoutRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/customization-config', customizationRoutes);
+app.use('/api/admin/customization-config', adminCustomizationRoutes);
 app.use('/api/admin', adminRoutes);
 
 // Swagger API Documentation
