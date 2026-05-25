@@ -138,6 +138,7 @@ app.use('/api/payment', paymentRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/customization-config', customizationRoutes);
 app.use('/api/admin/customization-config', adminCustomizationRoutes);
+app.use('/api/admin/customization', adminCustomizationRoutes);
 app.use('/api/admin', adminRoutes);
 
 // Swagger API Documentation

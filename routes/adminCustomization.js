@@ -57,17 +57,17 @@ function buildImageUrl(req, filename) {
   return `${baseUrl}/uploads/customization/${encodeURIComponent(filename)}`;
 }
 
-router.get('/product-types', async (req, res) => {
+async function handleListProductTypes(req, res) {
   try {
     const items = await listCustomizationProductTypes();
-    res.json({ success: true, data: { items } });
+    return res.json({ success: true, data: { items } });
   } catch (error) {
     console.error('[CUSTOMIZATION] Failed to list product types:', error.message);
-    res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: error.message });
   }
-});
+}
 
-router.get('/:productTypeSlug', async (req, res) => {
+async function handleGetConfig(req, res) {
   try {
     const config = await getCustomizationConfigByProductTypeSlug(req.params.productTypeSlug);
     if (!config) {
@@ -78,9 +78,9 @@ router.get('/:productTypeSlug', async (req, res) => {
     console.error('[CUSTOMIZATION] Failed to fetch admin configuration:', error.message);
     return res.status(error.status || 500).json({ success: false, message: error.message });
   }
-});
+}
 
-router.put('/:productTypeSlug', async (req, res) => {
+async function handleSaveConfig(req, res) {
   try {
     const config = await saveCustomizationConfig(req.params.productTypeSlug, req.body || {});
     return res.json({ success: true, data: config });
@@ -88,9 +88,9 @@ router.put('/:productTypeSlug', async (req, res) => {
     console.error('[CUSTOMIZATION] Failed to save configuration:', error.message);
     return res.status(error.status || 400).json({ success: false, message: error.message });
   }
-});
+}
 
-router.delete('/:productTypeSlug', async (req, res) => {
+async function handleDeleteConfig(req, res) {
   try {
     const result = await deleteCustomizationConfig(req.params.productTypeSlug);
     return res.json({ success: true, data: result });
@@ -98,7 +98,16 @@ router.delete('/:productTypeSlug', async (req, res) => {
     console.error('[CUSTOMIZATION] Failed to delete configuration:', error.message);
     return res.status(error.status || 400).json({ success: false, message: error.message });
   }
-});
+}
+
+router.get('/product-types', handleListProductTypes);
+router.get('/templates', handleListProductTypes);
+router.get('/templates/:productTypeSlug', handleGetConfig);
+router.put('/templates/:productTypeSlug', handleSaveConfig);
+router.delete('/templates/:productTypeSlug', handleDeleteConfig);
+router.get('/:productTypeSlug', handleGetConfig);
+router.put('/:productTypeSlug', handleSaveConfig);
+router.delete('/:productTypeSlug', handleDeleteConfig);
 
 router.post('/upload-image', upload.single('image'), async (req, res) => {
   try {
