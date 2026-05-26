@@ -4,6 +4,13 @@ const { pool, queryWithTimeout } = require('../config/database');
 const { broadcastCacheInvalidation } = require('../services/cacheSync');
 const crypto = require('crypto');
 
+function normalizeProductTypeName(row) {
+  if (row && row.slug === 'safety-vests') {
+    return { ...row, name: 'Hi Vis' };
+  }
+  return row;
+}
+
 /**
  * Helper to log to audit table
  */
@@ -230,9 +237,10 @@ router.get('/brands', async (req, res) => {
     `;
 
     const result = await queryWithTimeout(query, [], 10000);
+    const items = result.rows.map(normalizeProductTypeName);
 
     res.json({
-      items: result.rows
+      items
     });
   } catch (error) {
     console.error('[ERROR] Failed to fetch brands:', error.message);

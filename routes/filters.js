@@ -42,6 +42,13 @@ async function cacheWrap(prefix, args, fetchFn, ttl) {
   return result;
 }
 
+function normalizeProductTypeName(row) {
+  if (row && row.slug === 'safety-vests') {
+    return { ...row, name: 'Hi Vis' };
+  }
+  return row;
+}
+
 /**
  * Route-level caching middleware for all filter GET requests.
  * Caches the JSON response using the full URL (path + query string) as the key.
@@ -1965,7 +1972,8 @@ router.get('/product-types', async (req, res) => {
     `;
     const params = supplierSlugs && supplierSlugs.length > 0 ? [supplierSlugs] : [];
     const result = await queryWithTimeout(query, params, 10000);
-    res.json({ productTypes: result.rows, total: result.rows.length });
+    const productTypes = result.rows.map(normalizeProductTypeName);
+    res.json({ productTypes, total: productTypes.length });
   } catch (error) {
     console.error('[ERROR] Failed to fetch product types:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });

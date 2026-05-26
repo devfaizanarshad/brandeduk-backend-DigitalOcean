@@ -10,6 +10,13 @@ function normalizeSlug(value, fallback = '') {
     .replace(/^-+|-+$/g, '');
 }
 
+function normalizeProductTypeRow(row) {
+  if (row && row.slug === 'safety-vests') {
+    return { ...row, name: 'Hi Vis' };
+  }
+  return row;
+}
+
 function normalizeMethod(value) {
   const method = String(value || '').trim().toLowerCase();
   if (!['embroidery', 'print'].includes(method)) {
@@ -125,7 +132,7 @@ async function resolveProductTypeBySlug(productTypeSlug) {
     LIMIT 1
   `, [normalized], 10000);
 
-  return result.rows[0] || null;
+  return normalizeProductTypeRow(result.rows[0] || null);
 }
 
 async function resolveProductTypeById(productTypeId) {
@@ -138,7 +145,7 @@ async function resolveProductTypeById(productTypeId) {
     LIMIT 1
   `, [productTypeId], 10000);
 
-  return result.rows[0] || null;
+  return normalizeProductTypeRow(result.rows[0] || null);
 }
 
 function mapConfigRows(productType, rows) {
@@ -268,14 +275,17 @@ async function listCustomizationProductTypes() {
     ORDER BY pt.display_order ASC, pt.name ASC
   `, [], 10000);
 
-  return result.rows.map(row => ({
-    id: row.id,
-    name: row.name,
-    slug: row.slug,
-    displayOrder: row.display_order || 0,
-    hasCustomization: Number(row.config_count || 0) > 0,
-    positionCount: Number(row.position_count || 0),
-  }));
+  return result.rows.map(row => {
+    const normalized = normalizeProductTypeRow(row);
+    return {
+      id: normalized.id,
+      name: normalized.name,
+      slug: normalized.slug,
+      displayOrder: normalized.display_order || 0,
+      hasCustomization: Number(normalized.config_count || 0) > 0,
+      positionCount: Number(normalized.position_count || 0),
+    };
+  });
 }
 
 function normalizePositionInput(position, index) {
