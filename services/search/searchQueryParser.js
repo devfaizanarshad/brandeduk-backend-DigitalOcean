@@ -84,8 +84,9 @@ async function parseSearchQuery(rawQuery) {
 
     // Helper: classify a term against all lookups
     function classifyTerm(term, resolvedItem) {
+        const allowBrandTypeMatch = !resolvedItem || resolvedItem.type === 'product_type';
         const isBrand = lookups.brands.has(term);
-        const isType = lookups.types.has(term);
+        const isType = allowBrandTypeMatch && lookups.types.has(term);
 
         if (isBrand && isType) {
             result.brand = term;

@@ -535,9 +535,13 @@ async function getProductTypeFilteredProductsWithDetails(productTypeSlug, page, 
     INNER JOIN styles s ON psm.style_code = s.style_code
     INNER JOIN product_types pt ON s.product_type_id = pt.id
     LEFT JOIN brands b ON s.brand_id = b.id
-    WHERE LOWER(REGEXP_REPLACE(pt.name, '[^a-zA-Z0-9]', '', 'g')) = $1 AND psm.sku_status = 'Live'
+    WHERE (
+      LOWER(REGEXP_REPLACE(pt.name, '[^a-zA-Z0-9]', '', 'g')) = $1
+      OR LOWER(COALESCE(pt.slug, '')) = $2
+      OR LOWER(REGEXP_REPLACE(COALESCE(pt.slug, ''), '[^a-zA-Z0-9]', '', 'g')) = $1
+    ) AND psm.sku_status = 'Live'
     ORDER BY ${orderBy}
-    LIMIT $2 OFFSET $3
+    LIMIT $3 OFFSET $4
   `;
 
     const countQuery = `
@@ -545,12 +549,16 @@ async function getProductTypeFilteredProductsWithDetails(productTypeSlug, page, 
     FROM product_search_mv psm
     INNER JOIN styles s ON psm.style_code = s.style_code
     INNER JOIN product_types pt ON s.product_type_id = pt.id
-    WHERE LOWER(REGEXP_REPLACE(pt.name, '[^a-zA-Z0-9]', '', 'g')) = $1 AND psm.sku_status = 'Live'
+    WHERE (
+      LOWER(REGEXP_REPLACE(pt.name, '[^a-zA-Z0-9]', '', 'g')) = $1
+      OR LOWER(COALESCE(pt.slug, '')) = $2
+      OR LOWER(REGEXP_REPLACE(COALESCE(pt.slug, ''), '[^a-zA-Z0-9]', '', 'g')) = $1
+    ) AND psm.sku_status = 'Live'
   `;
 
     const [styleCodesResult, countResult] = await Promise.all([
-      queryWithTimeout(styleCodesQuery, [searchTerm, parseInt(limit), offset], 15000),
-      queryWithTimeout(countQuery, [searchTerm], 10000)
+      queryWithTimeout(styleCodesQuery, [searchTerm, String(productTypeSlug || '').trim().toLowerCase(), parseInt(limit), offset], 15000),
+      queryWithTimeout(countQuery, [searchTerm, String(productTypeSlug || '').trim().toLowerCase()], 10000)
     ]);
 
     const styleCodes = styleCodesResult.rows.map(r => r.style_code);
