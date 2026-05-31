@@ -5,6 +5,10 @@ const { broadcastCacheInvalidation } = require('../services/cacheSync');
 const { refreshMaterializedViews } = require('../utils/refreshViews');
 const { extractQuoteNotes } = require('../utils/quoteNotes');
 const {
+  generateAdjustedQuoteEmailHTML,
+  sendAdjustedQuoteEmail,
+} = require('../utils/emailService');
+const {
   bulkSetSiteProducts,
   listSiteProducts,
   orderSiteProducts,
@@ -23,6 +27,108 @@ function withQuoteNotes(row) {
     notes,
     notesNodes,
   };
+}
+
+let quoteRevisionsReady = false;
+
+async function ensureQuoteRevisionsTable() {
+  if (quoteRevisionsReady) return;
+
+  await queryWithTimeout(`
+    CREATE TABLE IF NOT EXISTS quote_revisions (
+      id SERIAL PRIMARY KEY,
+      quote_id INTEGER NOT NULL,
+      snapshot_json JSONB NOT NULL,
+      original_total NUMERIC(10,2),
+      adjusted_total NUMERIC(10,2),
+      discount_amount NUMERIC(10,2),
+      discount_percent NUMERIC(5,2),
+      sent_to_email TEXT NOT NULL,
+      email_status TEXT DEFAULT 'sent',
+      email_html TEXT,
+      sent_at TIMESTAMP,
+      sent_by TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `, [], 10000);
+
+  await queryWithTimeout(`
+    CREATE INDEX IF NOT EXISTS idx_quote_revisions_quote_id
+      ON quote_revisions (quote_id, created_at DESC)
+  `, [], 10000);
+
+  quoteRevisionsReady = true;
+}
+
+function validateAdminCanSendQuote(req) {
+  const actor = req.user || req.admin || null;
+  if (!actor) return;
+
+  const role = String(actor.role || actor.type || '').toLowerCase();
+  const roles = Array.isArray(actor.roles) ? actor.roles.map(r => String(r).toLowerCase()) : [];
+  const allowed = role === 'admin' || role === 'super_admin' || roles.includes('admin') || roles.includes('super_admin');
+
+  if (!allowed) {
+    const error = new Error('Admin permission required to send quotes');
+    error.status = 403;
+    throw error;
+  }
+}
+
+function getAdminActor(req) {
+  const actor = req.user || req.admin || {};
+  return actor.email || actor.id || actor.sub || null;
+}
+
+function numericOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function resolveQuoteCondition(id) {
+  const isNum = /^\d+$/.test(String(id));
+  return {
+    condition: isNum ? 'id = $1' : 'quote_id = $1',
+    value: id,
+  };
+}
+
+async function findQuoteRequest(id) {
+  const { condition, value } = resolveQuoteCondition(id);
+  const result = await queryWithTimeout(`SELECT * FROM quote_requests WHERE ${condition}`, [value], 10000);
+  return result.rows[0] || null;
+}
+
+function validateAdjustedQuoteSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    const error = new Error('Request body must be a quote snapshot object');
+    error.status = 400;
+    throw error;
+  }
+
+  if (!snapshot.customer || typeof snapshot.customer !== 'object') {
+    const error = new Error('customer is required');
+    error.status = 400;
+    throw error;
+  }
+
+  if (!Array.isArray(snapshot.products)) {
+    const error = new Error('products must be an array');
+    error.status = 400;
+    throw error;
+  }
+
+  if (!Array.isArray(snapshot.customizations)) {
+    const error = new Error('customizations must be an array');
+    error.status = 400;
+    throw error;
+  }
+
+  if (!snapshot.totals || typeof snapshot.totals !== 'object') {
+    const error = new Error('totals is required');
+    error.status = 400;
+    throw error;
+  }
 }
 
 /**
@@ -2087,6 +2193,205 @@ router.get('/quotes', async (req, res) => {
   } catch (error) {
     console.error('[ADMIN] Failed to list quotes:', error.message);
     res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/quotes/:id/revisions
+ * List sent quote snapshots for a quote request.
+ */
+router.get('/quotes/:id/revisions', async (req, res) => {
+  try {
+    await ensureQuoteRevisionsTable();
+
+    const quote = await findQuoteRequest(req.params.id);
+    if (!quote) {
+      return res.status(404).json({ error: 'Not found', message: 'Quote request not found' });
+    }
+
+    const result = await queryWithTimeout(`
+      SELECT id, quote_id, sent_to_email, original_total, adjusted_total,
+             discount_amount, discount_percent, email_status, sent_at, sent_by, created_at
+      FROM quote_revisions
+      WHERE quote_id = $1
+      ORDER BY created_at DESC
+    `, [quote.id], 10000);
+
+    return res.json({
+      success: true,
+      data: {
+        quoteId: quote.id,
+        quoteRef: quote.quote_id,
+        items: result.rows,
+      },
+    });
+  } catch (error) {
+    console.error('[ADMIN] Failed to list quote revisions:', error.message);
+    res.status(error.status || 500).json({ error: error.status ? 'Bad request' : 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * GET /api/admin/quotes/:id/revisions/:revisionId
+ * Return one exact sent quote snapshot.
+ */
+router.get('/quotes/:id/revisions/:revisionId', async (req, res) => {
+  try {
+    await ensureQuoteRevisionsTable();
+
+    const quote = await findQuoteRequest(req.params.id);
+    if (!quote) {
+      return res.status(404).json({ error: 'Not found', message: 'Quote request not found' });
+    }
+
+    const result = await queryWithTimeout(`
+      SELECT *
+      FROM quote_revisions
+      WHERE quote_id = $1 AND id = $2
+      LIMIT 1
+    `, [quote.id, req.params.revisionId], 10000);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Not found', message: 'Quote revision not found' });
+    }
+
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error('[ADMIN] Failed to get quote revision:', error.message);
+    res.status(error.status || 500).json({ error: error.status ? 'Bad request' : 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/quotes/:id/quote-preview
+ * Generate the customer email HTML without sending or saving a revision.
+ */
+router.post('/quotes/:id/quote-preview', async (req, res) => {
+  try {
+    validateAdminCanSendQuote(req);
+    validateAdjustedQuoteSnapshot(req.body);
+
+    const quote = await findQuoteRequest(req.params.id);
+    if (!quote) {
+      return res.status(404).json({ error: 'Not found', message: 'Quote request not found' });
+    }
+
+    const sentTo = req.body.customer?.email || quote.customer_email;
+    if (!sentTo) {
+      return res.status(400).json({ error: 'Bad request', message: 'Customer email is required' });
+    }
+
+    const html = generateAdjustedQuoteEmailHTML(req.body, quote);
+    return res.json({
+      success: true,
+      data: {
+        quoteId: quote.id,
+        quoteRef: quote.quote_id,
+        sentTo,
+        html,
+      },
+    });
+  } catch (error) {
+    console.error('[ADMIN] Failed to generate quote preview:', error.message);
+    res.status(error.status || 500).json({ error: error.status ? 'Bad request' : 'Internal server error', message: error.message });
+  }
+});
+
+/**
+ * POST /api/admin/quotes/:id/send-quote
+ * Send an adjusted quote to the customer and store an immutable revision snapshot.
+ */
+router.post('/quotes/:id/send-quote', async (req, res) => {
+  let revisionId = null;
+
+  try {
+    validateAdminCanSendQuote(req);
+    validateAdjustedQuoteSnapshot(req.body);
+    await ensureQuoteRevisionsTable();
+
+    const quote = await findQuoteRequest(req.params.id);
+    if (!quote) {
+      return res.status(404).json({ error: 'Not found', message: 'Quote request not found' });
+    }
+
+    const sentTo = req.body.customer?.email || quote.customer_email;
+    if (!sentTo) {
+      return res.status(400).json({ error: 'Bad request', message: 'Customer email is required' });
+    }
+
+    const totals = req.body.totals || {};
+    const emailHtml = generateAdjustedQuoteEmailHTML(req.body, quote);
+    const sentBy = getAdminActor(req);
+
+    const revisionResult = await queryWithTimeout(`
+      INSERT INTO quote_revisions (
+        quote_id, snapshot_json, original_total, adjusted_total, discount_amount,
+        discount_percent, sent_to_email, email_status, email_html, sent_by
+      )
+      VALUES ($1, $2::jsonb, $3, $4, $5, $6, $7, 'pending', $8, $9)
+      RETURNING id, created_at
+    `, [
+      quote.id,
+      JSON.stringify(req.body),
+      numericOrNull(totals.originalTotalIncVat),
+      numericOrNull(totals.totalIncVat),
+      numericOrNull(totals.discountAmount),
+      numericOrNull(totals.discountPercent),
+      sentTo,
+      emailHtml,
+      sentBy,
+    ], 10000);
+
+    revisionId = revisionResult.rows[0].id;
+
+    await sendAdjustedQuoteEmail({
+      to: sentTo,
+      snapshot: req.body,
+      quote,
+      html: emailHtml,
+    });
+
+    const sentAtResult = await queryWithTimeout(`
+      UPDATE quote_revisions
+      SET email_status = 'sent', sent_at = NOW()
+      WHERE id = $1
+      RETURNING sent_at
+    `, [revisionId], 10000);
+
+    const quoteStatusResult = await queryWithTimeout(`
+      UPDATE quote_requests
+      SET status = 'Quote Sent', updated_at = NOW()
+      WHERE id = $1
+      RETURNING id, quote_id, status
+    `, [quote.id], 10000);
+
+    return res.json({
+      success: true,
+      message: 'Quote sent successfully',
+      data: {
+        quoteId: quote.id,
+        quoteRef: quote.quote_id,
+        revisionId,
+        sentTo,
+        sentAt: sentAtResult.rows[0]?.sent_at,
+        status: quoteStatusResult.rows[0]?.status || 'Quote Sent',
+      },
+    });
+  } catch (error) {
+    if (revisionId) {
+      try {
+        await queryWithTimeout(`
+          UPDATE quote_revisions
+          SET email_status = 'failed'
+          WHERE id = $1
+        `, [revisionId], 10000);
+      } catch (updateError) {
+        console.error('[ADMIN] Failed to mark quote revision as failed:', updateError.message);
+      }
+    }
+
+    console.error('[ADMIN] Failed to send adjusted quote:', error.message);
+    res.status(error.status || 500).json({ success: false, message: error.message });
   }
 });
 

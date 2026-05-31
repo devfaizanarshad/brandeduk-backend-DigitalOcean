@@ -805,4 +805,195 @@ async function sendQuoteEmailWithAttachments(data, attachments = [], logoAssets 
   }
 }
 
-module.exports = { sendQuoteEmail, sendContactEmail, sendQuoteEmailWithAttachments, sendPaymentSuccessEmail };
+function formatQuoteMoney(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '&pound;0.00';
+  return `&pound;${number.toFixed(2)}`;
+}
+
+function formatQuotePercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return null;
+  return `${number % 1 === 0 ? number.toFixed(0) : number.toFixed(2)}%`;
+}
+
+function renderAdjustedAmount(originalValue, adjustedValue, discountPercent) {
+  const original = Number(originalValue);
+  const adjusted = Number(adjustedValue);
+  const hasOriginal = Number.isFinite(original);
+  const hasAdjusted = Number.isFinite(adjusted);
+  const isDiscounted = hasOriginal && hasAdjusted && adjusted < original;
+  const discount = formatQuotePercent(discountPercent);
+
+  if (!hasAdjusted && !hasOriginal) return '&pound;0.00';
+
+  return `
+    <div class="price-cell">
+      ${isDiscounted ? `<div class="old-price">${formatQuoteMoney(original)}</div>` : ''}
+      <div class="new-price">${formatQuoteMoney(hasAdjusted ? adjusted : original)}</div>
+      ${isDiscounted && discount ? `<div class="discount-badge">${discount} off</div>` : ''}
+    </div>
+  `;
+}
+
+function renderSizes(sizes) {
+  if (!sizes || typeof sizes !== 'object') return '';
+  return Object.entries(sizes)
+    .filter(([, quantity]) => Number(quantity) > 0)
+    .map(([size, quantity]) => `${escapeHtml(size)}: ${escapeHtml(quantity)}`)
+    .join(', ');
+}
+
+function generateAdjustedQuoteEmailHTML(snapshot = {}, quote = {}) {
+  const customer = snapshot.customer || {};
+  const products = Array.isArray(snapshot.products) ? snapshot.products : [];
+  const customizations = Array.isArray(snapshot.customizations) ? snapshot.customizations : [];
+  const totals = snapshot.totals || {};
+
+  const customerName = customer.name || customer.fullName || quote.customer_name || 'Customer';
+  const quoteRef = quote.quote_id || quote.id || '';
+  const discountPercent = formatQuotePercent(totals.discountPercent);
+
+  const productRows = products.length ? products.map(product => {
+    const sizeText = renderSizes(product.sizes);
+    return `
+      <tr>
+        <td>
+          <div class="item-title">${escapeHtml(product.name || 'Product')}</div>
+          <div class="muted">${escapeHtml(product.code || '')}${product.colour ? ` - ${escapeHtml(product.colour)}` : ''}</div>
+          ${sizeText ? `<div class="muted">Sizes: ${sizeText}</div>` : ''}
+        </td>
+        <td class="numeric">${escapeHtml(product.quantity || 0)}</td>
+        <td class="numeric">${formatQuoteMoney(product.unitPrice || 0)}</td>
+        <td class="numeric">${renderAdjustedAmount(product.originalLineTotal, product.adjustedLineTotal, totals.discountPercent)}</td>
+      </tr>
+    `;
+  }).join('') : `
+    <tr><td colspan="4" class="muted">No garment lines included.</td></tr>
+  `;
+
+  const customizationRows = customizations.length ? customizations.map(item => `
+    <tr>
+      <td>
+        <div class="item-title">${escapeHtml(item.position || 'Customization')}</div>
+        <div class="muted">${escapeHtml(item.method || '')}</div>
+      </td>
+      <td class="numeric">${escapeHtml(item.quantity || 0)}</td>
+      <td class="numeric">${formatQuoteMoney(item.unitPrice || 0)}</td>
+      <td class="numeric">${renderAdjustedAmount(item.originalLineTotal, item.adjustedLineTotal, totals.discountPercent)}</td>
+    </tr>
+  `).join('') : `
+    <tr><td colspan="4" class="muted">No customization lines included.</td></tr>
+  `;
+
+  return `
+  <html>
+    <head>
+      <style>
+        body { margin: 0; padding: 0; background: #f3f4f6; font-family: Arial, sans-serif; color: #111827; }
+        .wrapper { max-width: 760px; margin: 0 auto; padding: 24px; }
+        .card { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
+        .header { background: #111827; color: #ffffff; padding: 24px; }
+        .header h1 { margin: 0; font-size: 24px; }
+        .header p { margin: 8px 0 0; color: #d1d5db; }
+        .content { padding: 24px; }
+        .section { margin-bottom: 24px; }
+        .section h2 { margin: 0 0 12px; font-size: 17px; color: #111827; }
+        .details { width: 100%; border-collapse: collapse; }
+        .details td { padding: 6px 0; vertical-align: top; }
+        .label { color: #6b7280; width: 120px; }
+        .quote-table { width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; }
+        .quote-table th { background: #f9fafb; color: #374151; font-size: 12px; text-align: left; padding: 10px; border-bottom: 1px solid #e5e7eb; }
+        .quote-table td { padding: 12px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+        .quote-table tr:last-child td { border-bottom: none; }
+        .numeric { text-align: right; white-space: nowrap; }
+        .item-title { font-weight: 700; color: #111827; }
+        .muted { color: #6b7280; font-size: 13px; margin-top: 3px; }
+        .old-price { color: #9ca3af; text-decoration: line-through; font-size: 13px; }
+        .new-price { color: #111827; font-weight: 700; }
+        .discount-badge { display: inline-block; margin-top: 4px; padding: 2px 7px; border-radius: 999px; background: #dcfce7; color: #166534; font-size: 12px; font-weight: 700; }
+        .totals { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px; }
+        .total-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #e5e7eb; }
+        .total-row:last-child { border-bottom: none; font-size: 18px; font-weight: 800; color: #111827; }
+        .footer { color: #6b7280; font-size: 12px; padding: 0 24px 24px; }
+      </style>
+    </head>
+    <body>
+      <div class="wrapper">
+        <div class="card">
+          <div class="header">
+            <h1>Your BrandedUK Quote</h1>
+            <p>${quoteRef ? `Quote reference: ${escapeHtml(quoteRef)}` : 'Your adjusted quote is ready.'}</p>
+          </div>
+          <div class="content">
+            <div class="section">
+              <h2>Customer Details</h2>
+              <table class="details">
+                <tr><td class="label">Name</td><td>${escapeHtml(customerName)}</td></tr>
+                <tr><td class="label">Email</td><td>${escapeHtml(customer.email || quote.customer_email || '')}</td></tr>
+                ${customer.phone || quote.customer_phone ? `<tr><td class="label">Phone</td><td>${escapeHtml(customer.phone || quote.customer_phone)}</td></tr>` : ''}
+                ${customer.company || quote.customer_company ? `<tr><td class="label">Company</td><td>${escapeHtml(customer.company || quote.customer_company)}</td></tr>` : ''}
+                ${customer.address || quote.customer_address ? `<tr><td class="label">Address</td><td>${escapeHtml(customer.address || quote.customer_address)}</td></tr>` : ''}
+              </table>
+            </div>
+
+            <div class="section">
+              <h2>Products</h2>
+              <table class="quote-table">
+                <thead><tr><th>Item</th><th class="numeric">Qty</th><th class="numeric">Unit</th><th class="numeric">Line Total</th></tr></thead>
+                <tbody>${productRows}</tbody>
+              </table>
+            </div>
+
+            <div class="section">
+              <h2>Customizations</h2>
+              <table class="quote-table">
+                <thead><tr><th>Position</th><th class="numeric">Qty</th><th class="numeric">Unit</th><th class="numeric">Line Total</th></tr></thead>
+                <tbody>${customizationRows}</tbody>
+              </table>
+            </div>
+
+            <div class="section">
+              <h2>Quote Summary</h2>
+              <div class="totals">
+                ${Number(totals.originalSubtotal) > Number(totals.adjustedSubtotal) ? `<div class="total-row"><span>Original subtotal</span><span class="old-price">${formatQuoteMoney(totals.originalSubtotal)}</span></div>` : ''}
+                <div class="total-row"><span>Adjusted subtotal</span><span>${formatQuoteMoney(totals.adjustedSubtotal)}</span></div>
+                ${Number(totals.discountAmount) > 0 ? `<div class="total-row"><span>Discount${discountPercent ? ` (${discountPercent})` : ''}</span><span>${formatQuoteMoney(totals.discountAmount)}</span></div>` : ''}
+                <div class="total-row"><span>VAT (${formatQuotePercent(Number(totals.vatRate || 0) * 100) || '0%'})</span><span>${formatQuoteMoney(totals.vatAmount)}</span></div>
+                ${Number(totals.originalTotalIncVat) > Number(totals.totalIncVat) ? `<div class="total-row"><span>Original total inc VAT</span><span class="old-price">${formatQuoteMoney(totals.originalTotalIncVat)}</span></div>` : ''}
+                <div class="total-row"><span>Total inc VAT</span><span>${formatQuoteMoney(totals.totalIncVat)}</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="footer">This quote was prepared by BrandedUK. Prices are based on the snapshot sent in this email.</div>
+        </div>
+      </div>
+    </body>
+  </html>
+  `;
+}
+
+async function sendAdjustedQuoteEmail({ to, snapshot, quote, html }) {
+  const customerName = snapshot?.customer?.name || snapshot?.customer?.fullName || quote?.customer_name || 'Customer';
+  const quoteRef = quote?.quote_id || quote?.id || 'Quote';
+  const result = await resend.emails.send({
+    from: process.env.EMAIL_FROM,
+    to,
+    replyTo: process.env.EMAIL_TO || process.env.EMAIL_FROM,
+    subject: `Your BrandedUK Quote - ${quoteRef}`,
+    html: html || generateAdjustedQuoteEmailHTML(snapshot, quote),
+  });
+
+  const emailId = result?.data?.id || result?.id || null;
+  console.log(`[EMAIL] Adjusted quote sent to ${to} for ${customerName}. ID: ${emailId || 'n/a'}`);
+  return { success: true, id: emailId };
+}
+
+module.exports = {
+  sendQuoteEmail,
+  sendContactEmail,
+  sendQuoteEmailWithAttachments,
+  sendPaymentSuccessEmail,
+  generateAdjustedQuoteEmailHTML,
+  sendAdjustedQuoteEmail,
+};
