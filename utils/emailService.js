@@ -817,13 +817,93 @@ function formatQuotePercent(value) {
   return `${number % 1 === 0 ? number.toFixed(0) : number.toFixed(2)}%`;
 }
 
+function numberOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function roundMoney(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
+}
+
+function getOriginalLineTotal(item = {}) {
+  return numberOrNull(item.originalLineTotal)
+    ?? numberOrNull(item.itemTotal)
+    ?? numberOrNull(item.lineTotal)
+    ?? roundMoney(Number(item.quantity || 0) * Number(item.unitPrice || 0));
+}
+
+function getRawAdjustedLineTotal(item = {}) {
+  return numberOrNull(item.adjustedLineTotal)
+    ?? numberOrNull(item.adjustedTotal)
+    ?? numberOrNull(item.adjustedPrice);
+}
+
+function normalizeQuoteLines(products, customizations, totals = {}) {
+  const adjustedSubtotal = numberOrNull(totals.adjustedSubtotal);
+  const lines = [
+    ...products.map((item, index) => ({ type: 'product', index, item })),
+    ...customizations.map((item, index) => ({ type: 'customization', index, item })),
+  ].map(line => {
+    const original = getOriginalLineTotal(line.item);
+    const rawAdjusted = getRawAdjustedLineTotal(line.item);
+    const hasUsableAdjusted = rawAdjusted !== null && !(original > 0 && rawAdjusted <= 0 && adjustedSubtotal > 0);
+    return {
+      ...line,
+      original,
+      adjusted: hasUsableAdjusted ? rawAdjusted : null,
+      needsAllocation: !hasUsableAdjusted && original > 0,
+    };
+  });
+
+  const knownAdjustedTotal = lines
+    .filter(line => line.adjusted !== null)
+    .reduce((sum, line) => sum + Number(line.adjusted || 0), 0);
+  const missingLines = lines.filter(line => line.needsAllocation);
+  const missingOriginalTotal = missingLines.reduce((sum, line) => sum + Number(line.original || 0), 0);
+  let remainingAdjusted = adjustedSubtotal !== null
+    ? roundMoney(adjustedSubtotal - knownAdjustedTotal)
+    : null;
+
+  if (remainingAdjusted !== null && missingLines.length > 0) {
+    missingLines.forEach((line, index) => {
+      if (index === missingLines.length - 1) {
+        line.adjusted = roundMoney(Math.max(0, remainingAdjusted));
+      } else {
+        const share = missingOriginalTotal > 0 ? line.original / missingOriginalTotal : 1 / missingLines.length;
+        const allocated = roundMoney(Math.max(0, remainingAdjusted * share));
+        line.adjusted = allocated;
+        remainingAdjusted = roundMoney(remainingAdjusted - allocated);
+      }
+    });
+  }
+
+  lines.forEach(line => {
+    if (line.adjusted === null) line.adjusted = line.original;
+    line.discountPercent = line.original > 0 && line.adjusted < line.original
+      ? ((line.original - line.adjusted) / line.original) * 100
+      : null;
+  });
+
+  return {
+    products: products.map((item, index) => {
+      const line = lines.find(entry => entry.type === 'product' && entry.index === index);
+      return { ...item, _quoteOriginalTotal: line.original, _quoteAdjustedTotal: line.adjusted, _quoteDiscountPercent: line.discountPercent };
+    }),
+    customizations: customizations.map((item, index) => {
+      const line = lines.find(entry => entry.type === 'customization' && entry.index === index);
+      return { ...item, _quoteOriginalTotal: line.original, _quoteAdjustedTotal: line.adjusted, _quoteDiscountPercent: line.discountPercent };
+    }),
+  };
+}
+
 function renderAdjustedAmount(originalValue, adjustedValue, discountPercent) {
   const original = Number(originalValue);
   const adjusted = Number(adjustedValue);
   const hasOriginal = Number.isFinite(original);
   const hasAdjusted = Number.isFinite(adjusted);
   const isDiscounted = hasOriginal && hasAdjusted && adjusted < original;
-  const discount = formatQuotePercent(discountPercent);
+  const discount = formatQuotePercent(discountPercent || (isDiscounted ? ((original - adjusted) / original) * 100 : null));
 
   if (!hasAdjusted && !hasOriginal) return '&pound;0.00';
 
@@ -846,9 +926,12 @@ function renderSizes(sizes) {
 
 function generateAdjustedQuoteEmailHTML(snapshot = {}, quote = {}) {
   const customer = snapshot.customer || {};
-  const products = Array.isArray(snapshot.products) ? snapshot.products : [];
-  const customizations = Array.isArray(snapshot.customizations) ? snapshot.customizations : [];
+  const rawProducts = Array.isArray(snapshot.products) ? snapshot.products : [];
+  const rawCustomizations = Array.isArray(snapshot.customizations) ? snapshot.customizations : [];
   const totals = snapshot.totals || {};
+  const normalizedLines = normalizeQuoteLines(rawProducts, rawCustomizations, totals);
+  const products = normalizedLines.products;
+  const customizations = normalizedLines.customizations;
 
   const customerName = customer.name || customer.fullName || quote.customer_name || 'Customer';
   const quoteRef = quote.quote_id || quote.id || '';
@@ -865,7 +948,7 @@ function generateAdjustedQuoteEmailHTML(snapshot = {}, quote = {}) {
         </td>
         <td class="numeric">${escapeHtml(product.quantity || 0)}</td>
         <td class="numeric">${formatQuoteMoney(product.unitPrice || 0)}</td>
-        <td class="numeric">${renderAdjustedAmount(product.originalLineTotal, product.adjustedLineTotal, totals.discountPercent)}</td>
+        <td class="numeric">${renderAdjustedAmount(product._quoteOriginalTotal, product._quoteAdjustedTotal, product._quoteDiscountPercent)}</td>
       </tr>
     `;
   }).join('') : `
@@ -880,7 +963,7 @@ function generateAdjustedQuoteEmailHTML(snapshot = {}, quote = {}) {
       </td>
       <td class="numeric">${escapeHtml(item.quantity || 0)}</td>
       <td class="numeric">${formatQuoteMoney(item.unitPrice || 0)}</td>
-      <td class="numeric">${renderAdjustedAmount(item.originalLineTotal, item.adjustedLineTotal, totals.discountPercent)}</td>
+      <td class="numeric">${renderAdjustedAmount(item._quoteOriginalTotal, item._quoteAdjustedTotal, item._quoteDiscountPercent)}</td>
     </tr>
   `).join('') : `
     <tr><td colspan="4" class="muted">No customization lines included.</td></tr>
@@ -902,9 +985,9 @@ function generateAdjustedQuoteEmailHTML(snapshot = {}, quote = {}) {
         .details { width: 100%; border-collapse: collapse; }
         .details td { padding: 6px 0; vertical-align: top; }
         .label { color: #6b7280; width: 120px; }
-        .quote-table { width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; }
+        .quote-table { width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; table-layout: fixed; }
         .quote-table th { background: #f9fafb; color: #374151; font-size: 12px; text-align: left; padding: 10px; border-bottom: 1px solid #e5e7eb; }
-        .quote-table td { padding: 12px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+        .quote-table td { padding: 12px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; word-break: break-word; }
         .quote-table tr:last-child td { border-bottom: none; }
         .numeric { text-align: right; white-space: nowrap; }
         .item-title { font-weight: 700; color: #111827; }
@@ -912,10 +995,23 @@ function generateAdjustedQuoteEmailHTML(snapshot = {}, quote = {}) {
         .old-price { color: #9ca3af; text-decoration: line-through; font-size: 13px; }
         .new-price { color: #111827; font-weight: 700; }
         .discount-badge { display: inline-block; margin-top: 4px; padding: 2px 7px; border-radius: 999px; background: #dcfce7; color: #166534; font-size: 12px; font-weight: 700; }
-        .totals { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px; }
-        .total-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #e5e7eb; }
-        .total-row:last-child { border-bottom: none; font-size: 18px; font-weight: 800; color: #111827; }
+        .totals { width: 100%; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; border-collapse: separate; border-spacing: 0; }
+        .totals td { padding: 9px 14px; border-bottom: 1px solid #e5e7eb; }
+        .totals tr:last-child td { border-bottom: none; font-size: 18px; font-weight: 800; color: #111827; }
+        .total-value { text-align: right; white-space: nowrap; }
         .footer { color: #6b7280; font-size: 12px; padding: 0 24px 24px; }
+        @media only screen and (max-width: 620px) {
+          .wrapper { padding: 0 !important; }
+          .content { padding: 16px !important; }
+          .header { padding: 18px !important; }
+          .quote-table th, .quote-table td { padding: 8px 6px !important; font-size: 12px !important; }
+          .quote-table th:nth-child(2), .quote-table td:nth-child(2) { width: 42px !important; }
+          .quote-table th:nth-child(3), .quote-table td:nth-child(3) { width: 60px !important; }
+          .quote-table th:nth-child(4), .quote-table td:nth-child(4) { width: 78px !important; }
+          .numeric { white-space: normal !important; }
+          .old-price, .new-price { display: block; }
+          .discount-badge { font-size: 11px !important; padding: 2px 5px !important; }
+        }
       </style>
     </head>
     <body>
@@ -940,7 +1036,7 @@ function generateAdjustedQuoteEmailHTML(snapshot = {}, quote = {}) {
             <div class="section">
               <h2>Products</h2>
               <table class="quote-table">
-                <thead><tr><th>Item</th><th class="numeric">Qty</th><th class="numeric">Unit</th><th class="numeric">Line Total</th></tr></thead>
+                <thead><tr><th style="width:52%;">Item</th><th class="numeric" style="width:10%;">Qty</th><th class="numeric" style="width:16%;">Unit</th><th class="numeric" style="width:22%;">Line Total</th></tr></thead>
                 <tbody>${productRows}</tbody>
               </table>
             </div>
@@ -948,21 +1044,21 @@ function generateAdjustedQuoteEmailHTML(snapshot = {}, quote = {}) {
             <div class="section">
               <h2>Customizations</h2>
               <table class="quote-table">
-                <thead><tr><th>Position</th><th class="numeric">Qty</th><th class="numeric">Unit</th><th class="numeric">Line Total</th></tr></thead>
+                <thead><tr><th style="width:52%;">Position</th><th class="numeric" style="width:10%;">Qty</th><th class="numeric" style="width:16%;">Unit</th><th class="numeric" style="width:22%;">Line Total</th></tr></thead>
                 <tbody>${customizationRows}</tbody>
               </table>
             </div>
 
             <div class="section">
               <h2>Quote Summary</h2>
-              <div class="totals">
-                ${Number(totals.originalSubtotal) > Number(totals.adjustedSubtotal) ? `<div class="total-row"><span>Original subtotal</span><span class="old-price">${formatQuoteMoney(totals.originalSubtotal)}</span></div>` : ''}
-                <div class="total-row"><span>Adjusted subtotal</span><span>${formatQuoteMoney(totals.adjustedSubtotal)}</span></div>
-                ${Number(totals.discountAmount) > 0 ? `<div class="total-row"><span>Discount${discountPercent ? ` (${discountPercent})` : ''}</span><span>${formatQuoteMoney(totals.discountAmount)}</span></div>` : ''}
-                <div class="total-row"><span>VAT (${formatQuotePercent(Number(totals.vatRate || 0) * 100) || '0%'})</span><span>${formatQuoteMoney(totals.vatAmount)}</span></div>
-                ${Number(totals.originalTotalIncVat) > Number(totals.totalIncVat) ? `<div class="total-row"><span>Original total inc VAT</span><span class="old-price">${formatQuoteMoney(totals.originalTotalIncVat)}</span></div>` : ''}
-                <div class="total-row"><span>Total inc VAT</span><span>${formatQuoteMoney(totals.totalIncVat)}</span></div>
-              </div>
+              <table class="totals">
+                ${Number(totals.originalSubtotal) > Number(totals.adjustedSubtotal) ? `<tr><td>Original subtotal</td><td class="total-value old-price">${formatQuoteMoney(totals.originalSubtotal)}</td></tr>` : ''}
+                <tr><td>Adjusted subtotal</td><td class="total-value">${formatQuoteMoney(totals.adjustedSubtotal)}</td></tr>
+                ${Number(totals.discountAmount) > 0 ? `<tr><td>Discount${discountPercent ? ` (${discountPercent})` : ''}</td><td class="total-value">${formatQuoteMoney(totals.discountAmount)}</td></tr>` : ''}
+                <tr><td>VAT (${formatQuotePercent(Number(totals.vatRate || 0) * 100) || '0%'})</td><td class="total-value">${formatQuoteMoney(totals.vatAmount)}</td></tr>
+                ${Number(totals.originalTotalIncVat) > Number(totals.totalIncVat) ? `<tr><td>Original total inc VAT</td><td class="total-value old-price">${formatQuoteMoney(totals.originalTotalIncVat)}</td></tr>` : ''}
+                <tr><td>Total inc VAT</td><td class="total-value">${formatQuoteMoney(totals.totalIncVat)}</td></tr>
+              </table>
             </div>
           </div>
           <div class="footer">This quote was prepared by BrandedUK. Prices are based on the snapshot sent in this email.</div>

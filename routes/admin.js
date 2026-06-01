@@ -30,34 +30,47 @@ function withQuoteNotes(row) {
 }
 
 let quoteRevisionsReady = false;
+let quoteRevisionsSetupPromise = null;
 
 async function ensureQuoteRevisionsTable() {
   if (quoteRevisionsReady) return;
+  if (quoteRevisionsSetupPromise) {
+    await quoteRevisionsSetupPromise;
+    return;
+  }
 
-  await queryWithTimeout(`
-    CREATE TABLE IF NOT EXISTS quote_revisions (
-      id SERIAL PRIMARY KEY,
-      quote_id INTEGER NOT NULL,
-      snapshot_json JSONB NOT NULL,
-      original_total NUMERIC(10,2),
-      adjusted_total NUMERIC(10,2),
-      discount_amount NUMERIC(10,2),
-      discount_percent NUMERIC(5,2),
-      sent_to_email TEXT NOT NULL,
-      email_status TEXT DEFAULT 'sent',
-      email_html TEXT,
-      sent_at TIMESTAMP,
-      sent_by TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  `, [], 10000);
+  quoteRevisionsSetupPromise = (async () => {
+    await queryWithTimeout(`
+      CREATE TABLE IF NOT EXISTS quote_revisions (
+        id SERIAL PRIMARY KEY,
+        quote_id INTEGER NOT NULL,
+        snapshot_json JSONB NOT NULL,
+        original_total NUMERIC(10,2),
+        adjusted_total NUMERIC(10,2),
+        discount_amount NUMERIC(10,2),
+        discount_percent NUMERIC(5,2),
+        sent_to_email TEXT NOT NULL,
+        email_status TEXT DEFAULT 'sent',
+        email_html TEXT,
+        sent_at TIMESTAMP,
+        sent_by TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `, [], 30000);
 
-  await queryWithTimeout(`
-    CREATE INDEX IF NOT EXISTS idx_quote_revisions_quote_id
-      ON quote_revisions (quote_id, created_at DESC)
-  `, [], 10000);
+    await queryWithTimeout(`
+      CREATE INDEX IF NOT EXISTS idx_quote_revisions_quote_id
+        ON quote_revisions (quote_id, created_at DESC)
+    `, [], 30000);
 
-  quoteRevisionsReady = true;
+    quoteRevisionsReady = true;
+  })();
+
+  try {
+    await quoteRevisionsSetupPromise;
+  } finally {
+    quoteRevisionsSetupPromise = null;
+  }
 }
 
 function validateAdminCanSendQuote(req) {
@@ -96,6 +109,16 @@ function resolveQuoteCondition(id) {
 async function findQuoteRequest(id) {
   const { condition, value } = resolveQuoteCondition(id);
   const result = await queryWithTimeout(`SELECT * FROM quote_requests WHERE ${condition}`, [value], 10000);
+  return result.rows[0] || null;
+}
+
+async function findQuoteRequestSummary(id) {
+  const { condition, value } = resolveQuoteCondition(id);
+  const result = await queryWithTimeout(`
+    SELECT id, quote_id, customer_name, customer_email, customer_phone, customer_company, customer_address, status
+    FROM quote_requests
+    WHERE ${condition}
+  `, [value], 10000);
   return result.rows[0] || null;
 }
 
@@ -2204,7 +2227,7 @@ router.get('/quotes/:id/revisions', async (req, res) => {
   try {
     await ensureQuoteRevisionsTable();
 
-    const quote = await findQuoteRequest(req.params.id);
+    const quote = await findQuoteRequestSummary(req.params.id);
     if (!quote) {
       return res.status(404).json({ error: 'Not found', message: 'Quote request not found' });
     }
@@ -2239,7 +2262,7 @@ router.get('/quotes/:id/revisions/:revisionId', async (req, res) => {
   try {
     await ensureQuoteRevisionsTable();
 
-    const quote = await findQuoteRequest(req.params.id);
+    const quote = await findQuoteRequestSummary(req.params.id);
     if (!quote) {
       return res.status(404).json({ error: 'Not found', message: 'Quote request not found' });
     }
