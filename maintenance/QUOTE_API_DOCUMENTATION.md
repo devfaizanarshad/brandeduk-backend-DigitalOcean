@@ -29,14 +29,18 @@ revisions.
 Set a route template for the button in the initial admin quote notification:
 
 ```env
-ADMIN_QUOTE_URL_TEMPLATE=http://localhost:5173/quotes/{quoteId}
+ADMIN_QUOTE_URL_TEMPLATE=http://localhost:5173/orders/{quoteId}
 ```
 
 Production example:
 
 ```env
-ADMIN_QUOTE_URL_TEMPLATE=https://admin.brandeduk.com/quotes/{quoteId}
+ADMIN_QUOTE_URL_TEMPLATE=https://admin.brandeduk.com/orders/{quoteId}
 ```
+
+If this variable is omitted, the backend defaults to
+`https://admin.brandeduk.com/orders/{quoteId}` in production and
+`http://localhost:5173/orders/{quoteId}` in development.
 
 The admin frontend route should be protected. If the admin is already signed
 in, open that exact quote. Otherwise, redirect to login while preserving the

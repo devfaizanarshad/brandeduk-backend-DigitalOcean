@@ -49,7 +49,14 @@ function buildAdminQuoteUrl(quoteId) {
   }
 
   const adminPanelUrl = String(process.env.ADMIN_PANEL_URL || '').trim().replace(/\/+$/, '');
-  return adminPanelUrl ? `${adminPanelUrl}/quotes/${encodedQuoteId}` : '';
+  if (adminPanelUrl) {
+    return `${adminPanelUrl}/orders/${encodedQuoteId}`;
+  }
+
+  const defaultAdminPanelUrl = process.env.NODE_ENV === 'production'
+    ? 'https://admin.brandeduk.com'
+    : 'http://localhost:5173';
+  return `${defaultAdminPanelUrl}/orders/${encodedQuoteId}`;
 }
 
 function generateQuoteEmailHTML(data) {
