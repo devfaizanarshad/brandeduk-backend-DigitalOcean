@@ -154,6 +154,38 @@ function validateAdjustedQuoteSnapshot(snapshot) {
   }
 }
 
+function nonEmptyObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length > 0
+    ? value
+    : null;
+}
+
+function withStoredQuoteAssets(snapshot, quote) {
+  const storedQuoteData = quote?.quote_data && typeof quote.quote_data === 'object' ? quote.quote_data : {};
+  const logos = nonEmptyObject(snapshot?.logos)
+    || nonEmptyObject(storedQuoteData.logos);
+  const previewImages = nonEmptyObject(snapshot?.previewImages)
+    || nonEmptyObject(snapshot?.preview_images)
+    || nonEmptyObject(storedQuoteData.previewImages)
+    || nonEmptyObject(storedQuoteData.preview_images);
+  const previewImage = snapshot?.previewImage
+    || snapshot?.preview_image
+    || snapshot?.mockupImage
+    || snapshot?.mockup_image
+    || storedQuoteData.previewImage
+    || storedQuoteData.preview_image
+    || storedQuoteData.mockupImage
+    || storedQuoteData.mockup_image
+    || null;
+
+  return {
+    ...snapshot,
+    ...(logos ? { logos } : {}),
+    ...(previewImages ? { previewImages } : {}),
+    ...(previewImage ? { previewImage } : {}),
+  };
+}
+
 /**
  * GET /api/admin/tables
  * List all user tables in the public schema.
@@ -2304,7 +2336,8 @@ router.post('/quotes/:id/quote-preview', async (req, res) => {
       return res.status(400).json({ error: 'Bad request', message: 'Customer email is required' });
     }
 
-    const html = generateAdjustedQuoteEmailHTML(req.body, quote);
+    const snapshot = withStoredQuoteAssets(req.body, quote);
+    const html = generateAdjustedQuoteEmailHTML(snapshot, quote);
     return res.json({
       success: true,
       data: {
@@ -2342,8 +2375,9 @@ router.post('/quotes/:id/send-quote', async (req, res) => {
       return res.status(400).json({ error: 'Bad request', message: 'Customer email is required' });
     }
 
-    const totals = req.body.totals || {};
-    const emailHtml = generateAdjustedQuoteEmailHTML(req.body, quote);
+    const snapshot = withStoredQuoteAssets(req.body, quote);
+    const totals = snapshot.totals || {};
+    const emailHtml = generateAdjustedQuoteEmailHTML(snapshot, quote);
     const sentBy = getAdminActor(req);
 
     const revisionResult = await queryWithTimeout(`
@@ -2355,7 +2389,7 @@ router.post('/quotes/:id/send-quote', async (req, res) => {
       RETURNING id, created_at
     `, [
       quote.id,
-      JSON.stringify(req.body),
+      JSON.stringify(snapshot),
       numericOrNull(totals.originalTotalIncVat),
       numericOrNull(totals.totalIncVat),
       numericOrNull(totals.discountAmount),
@@ -2369,7 +2403,7 @@ router.post('/quotes/:id/send-quote', async (req, res) => {
 
     await sendAdjustedQuoteEmail({
       to: sentTo,
-      snapshot: req.body,
+      snapshot,
       quote,
       html: emailHtml,
     });

@@ -37,6 +37,21 @@ function formatCurrencyFromMinorUnits(amount, currency = 'gbp') {
   }).format(numericAmount);
 }
 
+function buildAdminQuoteUrl(quoteId) {
+  if (!quoteId) return '';
+
+  const encodedQuoteId = encodeURIComponent(String(quoteId));
+  const template = String(process.env.ADMIN_QUOTE_URL_TEMPLATE || '').trim();
+  if (template) {
+    return template
+      .replace(/\{quoteId\}/g, encodedQuoteId)
+      .replace(/\{id\}/g, encodedQuoteId);
+  }
+
+  const adminPanelUrl = String(process.env.ADMIN_PANEL_URL || '').trim().replace(/\/+$/, '');
+  return adminPanelUrl ? `${adminPanelUrl}/quotes/${encodedQuoteId}` : '';
+}
+
 function generateQuoteEmailHTML(data) {
   const customer = data.customer || {};
   const summary = data.summary || {};
@@ -44,6 +59,7 @@ function generateQuoteEmailHTML(data) {
   const customizations = data.customizations || [];
   const product = data.product || {}; // Legacy fallback
   const { notes } = extractQuoteNotes(data);
+  const adminQuoteUrl = buildAdminQuoteUrl(data.quoteId);
 
   // Get customer details (support both fullName and firstName/lastName formats)
   const customerName = customer.fullName ||
@@ -196,6 +212,7 @@ function generateQuoteEmailHTML(data) {
       .basket-item { background: white; padding: 12px; margin: 8px 0; border-radius: 6px; border: 1px solid #e5e7eb; }
       .basket-item-header { font-weight: bold; color: #7c3aed; margin-bottom: 8px; }
       .sizes-detail { color: #6b7280; font-size: 0.9em; margin-top: 4px; }
+      .admin-button { display: inline-block; background: #111827; color: #ffffff !important; padding: 12px 20px; border-radius: 6px; text-decoration: none; font-weight: bold; }
     </style>
   </head>
   <body>
@@ -242,6 +259,14 @@ function generateQuoteEmailHTML(data) {
     <div class="section">
       <h2>Notes</h2>
       <p style="white-space: pre-wrap; margin: 0;">${escapeHtml(notes)}</p>
+    </div>
+    ` : ''}
+
+    ${adminQuoteUrl ? `
+    <div class="section" style="text-align:center;">
+      <h2>Open This Quote</h2>
+      <p>Review the complete request and prepare the customer quote in the admin panel.</p>
+      <a href="${escapeHtml(adminQuoteUrl)}" class="admin-button" target="_blank">Open Quote in Admin</a>
     </div>
     ` : ''}
 
@@ -713,9 +738,43 @@ async function sendContactEmail(data) {
 /* =========================
    QUOTE EMAIL WITH ATTACHMENTS
 ========================= */
+function insertBeforeQuoteRequestDate(html, sectionHtml) {
+  const marker = /<div class="section">\s*<h2>[^<]*Request Date<\/h2>/;
+  if (marker.test(html)) {
+    return html.replace(marker, match => `${sectionHtml}\n    ${match}`);
+  }
+  return html.replace('</body>', `${sectionHtml}\n  </body>`);
+}
+
+function buildInitialQuotePreviewSection(previewImages = {}) {
+  return `
+    <div class="section">
+      <h2>Garment Preview</h2>
+      <table>
+        ${Object.entries(previewImages).map(([view, asset]) => {
+          const url = typeof asset === 'string' ? asset : asset?.url || '';
+          if (!url) return '';
+          const label = String(view || 'Preview').replace(/-/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+          return `
+          <tr>
+            <td class="label">${escapeHtml(label)}:</td>
+            <td class="value">
+              <img src="${escapeHtml(url)}" alt="${escapeHtml(label)} garment preview" style="display:block;width:100%;max-width:520px;height:auto;margin-top:8px;border:1px solid #e5e7eb;border-radius:6px;">
+              <a href="${escapeHtml(url)}" target="_blank" style="display:inline-block;margin-top:8px;color:#7c3aed;font-size:12px;">Open full-size preview</a>
+            </td>
+          </tr>`;
+        }).join('')}
+      </table>
+    </div>
+  `;
+}
+
 function generateQuoteWithLogosEmailHTML(data, logoAssets = {}) {
   // Use the existing quote HTML generator
   let html = generateQuoteEmailHTML(data);
+  const previewImages = data.previewImages && typeof data.previewImages === 'object'
+    ? data.previewImages
+    : {};
 
   // If there are logo assets, add a section for them
   if (Object.keys(logoAssets).length > 0) {
@@ -747,6 +806,38 @@ function generateQuoteWithLogosEmailHTML(data, logoAssets = {}) {
       /<div class="section">\s*<h2>📅 Request Date<\/h2>/,
       `${logosSection}\n    <div class="section">\n      <h2>📅 Request Date</h2>`
     );
+  }
+
+  if (Object.keys(previewImages).length > 0) {
+    const previewsSection = `
+    <div class="section">
+      <h2>Garment Preview</h2>
+      <table>
+        ${Object.entries(previewImages).map(([view, asset]) => {
+          const url = typeof asset === 'string' ? asset : asset?.url || '';
+          if (!url) return '';
+          const label = String(view || 'Preview').replace(/-/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+          return `
+          <tr>
+            <td class="label">${escapeHtml(label)}:</td>
+            <td class="value">
+              <img src="${escapeHtml(url)}" alt="${escapeHtml(label)} garment preview" style="display:block;width:100%;max-width:520px;height:auto;margin-top:8px;border:1px solid #e5e7eb;border-radius:6px;">
+              <a href="${escapeHtml(url)}" target="_blank" style="display:inline-block;margin-top:8px;color:#7c3aed;font-size:12px;">Open full-size preview</a>
+            </td>
+          </tr>`;
+        }).join('')}
+      </table>
+    </div>
+    `;
+
+    html = html.replace(
+      /<div class="section">\s*<h2>ðŸ“… Request Date<\/h2>/,
+      `${previewsSection}\n    <div class="section">\n      <h2>ðŸ“… Request Date</h2>`
+    );
+  }
+
+  if (Object.keys(previewImages).length > 0 && !html.includes('Garment Preview')) {
+    html = insertBeforeQuoteRequestDate(html, buildInitialQuotePreviewSection(previewImages));
   }
 
   return html;
@@ -924,6 +1015,71 @@ function renderSizes(sizes) {
     .join(', ');
 }
 
+function renderQuotePreviewGallery(snapshot = {}) {
+  const previewImages = snapshot.previewImages || snapshot.preview_images || {};
+  const normalized = [];
+
+  if (previewImages && typeof previewImages === 'object' && !Array.isArray(previewImages)) {
+    Object.entries(previewImages).forEach(([view, asset]) => {
+      const url = typeof asset === 'string' ? asset : asset?.url || '';
+      if (url) normalized.push({ view, url });
+    });
+  }
+
+  const singlePreview = snapshot.previewImage || snapshot.preview_image || snapshot.mockupImage || snapshot.mockup_image;
+  if (typeof singlePreview === 'string' && singlePreview && !normalized.some(item => item.url === singlePreview)) {
+    normalized.unshift({ view: 'main', url: singlePreview });
+  }
+
+  if (normalized.length === 0) return '';
+
+  return `
+    <div class="section">
+      <h2>Garment Preview</h2>
+      ${normalized.map(({ view, url }) => {
+        const label = String(view || 'Preview').replace(/-/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+        return `
+          <div class="preview-item">
+            <div class="item-title">${escapeHtml(label)}</div>
+            <img src="${escapeHtml(url)}" alt="${escapeHtml(label)} garment preview" class="preview-image">
+            <a href="${escapeHtml(url)}" target="_blank" class="preview-link">Open full-size preview</a>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderQuoteLogoGallery(snapshot = {}) {
+  const logos = snapshot.logos && typeof snapshot.logos === 'object' && !Array.isArray(snapshot.logos)
+    ? snapshot.logos
+    : {};
+  const normalized = Object.entries(logos)
+    .map(([position, asset]) => ({
+      position,
+      url: typeof asset === 'string' ? asset : asset?.url || '',
+    }))
+    .filter(item => item.url);
+
+  if (normalized.length === 0) return '';
+
+  return `
+    <div class="section">
+      <h2>Uploaded Logos</h2>
+      ${normalized.map(({ position, url }) => {
+        const label = String(position || 'Logo').replace(/-/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+        return `
+          <div class="preview-item">
+            <div class="item-title">${escapeHtml(label)}</div>
+            <img src="${escapeHtml(url)}" alt="${escapeHtml(label)} logo" class="logo-image">
+            <a href="${escapeHtml(url)}" target="_blank" class="preview-link">Open full-size logo</a>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
 function generateAdjustedQuoteEmailHTML(snapshot = {}, quote = {}) {
   const customer = snapshot.customer || {};
   const rawProducts = Array.isArray(snapshot.products) ? snapshot.products : [];
@@ -995,6 +1151,10 @@ function generateAdjustedQuoteEmailHTML(snapshot = {}, quote = {}) {
         .old-price { color: #9ca3af; text-decoration: line-through; font-size: 13px; }
         .new-price { color: #111827; font-weight: 700; }
         .discount-badge { display: inline-block; margin-top: 4px; padding: 2px 7px; border-radius: 999px; background: #dcfce7; color: #166534; font-size: 12px; font-weight: 700; }
+        .preview-item { margin-bottom: 14px; }
+        .preview-image { display: block; width: 100%; max-width: 520px; height: auto; margin-top: 8px; border: 1px solid #e5e7eb; border-radius: 6px; }
+        .logo-image { display: block; width: auto; max-width: 100%; max-height: 260px; height: auto; margin-top: 8px; border: 1px solid #e5e7eb; border-radius: 6px; }
+        .preview-link { display: inline-block; margin-top: 8px; color: #2563eb; font-size: 12px; }
         .totals { width: 100%; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; border-collapse: separate; border-spacing: 0; }
         .totals td { padding: 9px 14px; border-bottom: 1px solid #e5e7eb; }
         .totals tr:last-child td { border-bottom: none; font-size: 18px; font-weight: 800; color: #111827; }
@@ -1032,6 +1192,9 @@ function generateAdjustedQuoteEmailHTML(snapshot = {}, quote = {}) {
                 ${customer.address || quote.customer_address ? `<tr><td class="label">Address</td><td>${escapeHtml(customer.address || quote.customer_address)}</td></tr>` : ''}
               </table>
             </div>
+
+            ${renderQuoteLogoGallery(snapshot)}
+            ${renderQuotePreviewGallery(snapshot)}
 
             <div class="section">
               <h2>Products</h2>
@@ -1090,6 +1253,7 @@ module.exports = {
   sendContactEmail,
   sendQuoteEmailWithAttachments,
   sendPaymentSuccessEmail,
+  generateQuoteWithLogosEmailHTML,
   generateAdjustedQuoteEmailHTML,
   sendAdjustedQuoteEmail,
 };

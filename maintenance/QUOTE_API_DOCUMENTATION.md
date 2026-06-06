@@ -5,6 +5,47 @@
 POST /api/quotes
 ```
 
+## Garment Preview Upload
+
+The endpoint accepts a final customized garment preview as an additional
+multipart image file. Use `preview_image` for the main shirt-with-logo preview:
+
+```text
+Content-Type: multipart/form-data
+
+quoteData: <JSON string>
+logo_left-chest: <logo file>
+preview_image: <final customized garment image>
+```
+
+Optional multiple views can use fields such as `preview_front`, `preview_back`,
+or `preview_left`. Uploaded previews are stored in
+`quote_requests.quote_data.previewImages`, returned through the existing admin
+quote APIs, included in quote emails, and inherited by later sent quote
+revisions.
+
+## Admin Quote Email Deep Link
+
+Set a route template for the button in the initial admin quote notification:
+
+```env
+ADMIN_QUOTE_URL_TEMPLATE=http://localhost:5173/quotes/{quoteId}
+```
+
+Production example:
+
+```env
+ADMIN_QUOTE_URL_TEMPLATE=https://admin.brandeduk.com/quotes/{quoteId}
+```
+
+The admin frontend route should be protected. If the admin is already signed
+in, open that exact quote. Otherwise, redirect to login while preserving the
+requested URL, then return to the quote after successful login.
+
+When an admin previews or sends an adjusted quote, the backend automatically
+inherits the original uploaded `logos` and `previewImages`. The admin frontend
+does not need to resend those assets.
+
 ## Request Headers
 ```
 Content-Type: application/json
