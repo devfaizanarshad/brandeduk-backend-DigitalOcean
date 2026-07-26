@@ -8,6 +8,9 @@
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
+const {
+  resolveUneekProductTypeSlug,
+} = require('./lib/resolve-uneek-product-type');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 // =============================================================================
@@ -47,15 +50,15 @@ const CATEGORY_MAP = {
   'Polos': { productType: 'polos', category: 'polos', sport: null, ageGroup: null },
   'Sweatshirts': { productType: 'sweatshirts', category: 'sweatshirts', sport: null, ageGroup: null },
   'SWEATSHIRT': { productType: 'sweatshirts', category: 'sweatshirts', sport: null, ageGroup: null },
-  'T-Shirts': { productType: 't-shirts', category: 't-shirts', sport: null, ageGroup: null },
-  'Childrenswear': { productType: 'childrenswear', category: 'kids', sport: null, ageGroup: 'kids' },
+  'T-Shirts': { productType: 'tshirts', category: 't-shirts', sport: null, ageGroup: null },
+  'Childrenswear': { productType: 'tshirts', category: 'kids', sport: null, ageGroup: 'kids' },
   'Jackets': { productType: 'jackets', category: 'jackets', sport: null, ageGroup: null },
   'Shirts': { productType: 'shirts', category: 'shirts', sport: null, ageGroup: null },
   'Trousers': { productType: 'trousers', category: 'trousers', sport: null, ageGroup: null },
-  'Healthcare': { productType: 'workwear', category: 'workwear', sport: null, ageGroup: null },
-  'Sportswear': { productType: 'sportswear', category: 'sportswear', sport: 'general', ageGroup: null },
-  'Hi Vis': { productType: 'safety-vest', category: 'safety', sport: null, ageGroup: null },
-  'Jog Bottoms': { productType: 'joggers', category: 'joggers', sport: null, ageGroup: null },
+  'Healthcare': { productType: 'tunics', category: 'workwear', sport: null, ageGroup: null },
+  'Sportswear': { productType: 'trackwear', category: 'sportswear', sport: 'general', ageGroup: null },
+  'Hi Vis': { productType: 'safety-vests', category: 'safety', sport: null, ageGroup: null },
+  'Jog Bottoms': { productType: 'sweatpants', category: 'joggers', sport: null, ageGroup: null },
   'Rugby Shirts': { productType: 'rugby-shirts', category: 'rugby', sport: 'rugby', ageGroup: null },
   'Headwear': { productType: 'caps', category: 'caps', sport: null, ageGroup: null },
   'Hospitality': { productType: 'aprons', category: 'hospitality', sport: null, ageGroup: null },
@@ -132,9 +135,15 @@ async function main() {
     }
 
     // 3. Resolve product_type_id and category_id from mapping (with fuzzy match)
-    function resolveProductType(cat) {
-      const m = CATEGORY_MAP[cat] || CATEGORY_MAP['T-Shirts'];
-      return ptBySlug[m.productType] || ptByName[m.productType] || ptBySlug['t-shirts'] || ptRes.rows[0]?.id;
+    function resolveProductType(cat, productName) {
+      const slug = resolveUneekProductTypeSlug(cat, productName);
+      const id = ptBySlug[slug];
+      if (!slug || !id) {
+        throw new Error(
+          `Cannot resolve product type for category="${cat}" product="${productName}" slug="${slug}"`,
+        );
+      }
+      return id;
     }
     function resolveCategory(cat) {
       const m = CATEGORY_MAP[cat] || CATEGORY_MAP['T-Shirts'];
@@ -200,7 +209,7 @@ async function main() {
     try {
       for (const [productCode, { style: first, skus }] of Object.entries(byStyle)) {
         if (stylesInserted > 0 && stylesInserted % 20 === 0) console.log('  Processed', stylesInserted, 'styles...');
-        const productTypeId = resolveProductType(first.Category);
+        const productTypeId = resolveProductType(first.Category, first.ProductName);
         const genderId = resolveGender(first.Gender);
         const ageGroupId = resolveAgeGroup(first.Category);
 

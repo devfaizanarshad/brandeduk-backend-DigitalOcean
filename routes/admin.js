@@ -1860,7 +1860,15 @@ router.put('/products/bulk-carton-price', async (req, res) => {
 /**
  * PUT /api/admin/products/:code
  * Update product detail for a style_code.
- * Body: { style_name?, specification?, fabric_description?, primary_image_url?, colorImages?: [{ colour_name, url }] }
+ * Body: {
+ *   style_name?,
+ *   specification?,
+ *   fabric_description?,
+ *   product_type_id?,
+ *   expected_product_type_id?,
+ *   primary_image_url?,
+ *   colorImages?: [{ colour_name, url }]
+ * }
  */
 router.put('/products/:code', async (req, res) => {
   try {
@@ -1870,6 +1878,8 @@ router.put('/products/:code', async (req, res) => {
       style_name,
       specification,
       fabric_description,
+      product_type_id,
+      expected_product_type_id,
       primary_image_url,
       colorImages,
       is_best_seller,
@@ -1880,9 +1890,49 @@ router.put('/products/:code', async (req, res) => {
       featured_order
     } = req.body;
 
-    // Check style exists
+    const parsedProductTypeId =
+      product_type_id === undefined ? null : parseInt(product_type_id, 10);
+    const parsedExpectedProductTypeId =
+      expected_product_type_id === undefined
+        ? null
+        : parseInt(expected_product_type_id, 10);
+
+    if (
+      product_type_id !== undefined &&
+      (!Number.isInteger(parsedProductTypeId) || parsedProductTypeId <= 0)
+    ) {
+      return res.status(400).json({
+        error: 'Bad request',
+        message: 'product_type_id must be a positive integer',
+      });
+    }
+    if (
+      expected_product_type_id !== undefined &&
+      (!Number.isInteger(parsedExpectedProductTypeId) ||
+        parsedExpectedProductTypeId <= 0)
+    ) {
+      return res.status(400).json({
+        error: 'Bad request',
+        message: 'expected_product_type_id must be a positive integer',
+      });
+    }
+    if (parsedProductTypeId !== null) {
+      const productTypeCheck = await queryWithTimeout(
+        'SELECT id FROM product_types WHERE id = $1',
+        [parsedProductTypeId],
+        5000,
+      );
+      if (productTypeCheck.rows.length === 0) {
+        return res.status(400).json({
+          error: 'Bad request',
+          message: `Unknown product_type_id: ${parsedProductTypeId}`,
+        });
+      }
+    }
+
+    // Check style exists and capture its current classification for guarded updates.
     const styleCheck = await queryWithTimeout(
-      'SELECT style_code FROM styles WHERE style_code = $1',
+      'SELECT style_code, product_type_id FROM styles WHERE style_code = $1',
       [styleCode],
       5000
     );
@@ -1890,6 +1940,15 @@ router.put('/products/:code', async (req, res) => {
       return res.status(404).json({
         error: 'Not found',
         message: `Product with style_code ${styleCode} not found`
+      });
+    }
+    if (
+      parsedExpectedProductTypeId !== null &&
+      Number(styleCheck.rows[0].product_type_id) !== parsedExpectedProductTypeId
+    ) {
+      return res.status(409).json({
+        error: 'Conflict',
+        message: `Product type changed for ${styleCode}; expected ${parsedExpectedProductTypeId}, found ${styleCheck.rows[0].product_type_id}`,
       });
     }
 
@@ -1900,6 +1959,7 @@ router.put('/products/:code', async (req, res) => {
       style_name !== undefined ||
       specification !== undefined ||
       fabric_description !== undefined ||
+      product_type_id !== undefined ||
       is_best_seller !== undefined ||
       is_recommended !== undefined ||
       is_featured !== undefined ||
@@ -1921,6 +1981,10 @@ router.put('/products/:code', async (req, res) => {
       if (fabric_description !== undefined) {
         styleFields.push(`fabric_description = $${idx++}`);
         styleParams.push(fabric_description);
+      }
+      if (parsedProductTypeId !== null) {
+        styleFields.push(`product_type_id = $${idx++}`);
+        styleParams.push(parsedProductTypeId);
       }
       if (best_seller_order !== undefined) {
         const val = parseInt(best_seller_order, 10);
@@ -2014,7 +2078,7 @@ router.put('/products/:code', async (req, res) => {
     if (updates.length === 0) {
       return res.status(400).json({
         error: 'Bad request',
-        message: 'At least one field must be provided: style_name, specification, fabric_description, primary_image_url, or colorImages'
+        message: 'At least one field must be provided: style_name, specification, fabric_description, product_type_id, primary_image_url, or colorImages'
       });
     }
 
