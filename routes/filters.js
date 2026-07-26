@@ -534,10 +534,47 @@ async function getProductTypeFilteredProductsWithDetails(productTypeSlug, page, 
 
     const searchTerm = normalizeProductType(productTypeSlug);
 
-    // ... (sorting code) ...
+    let normalizedSort = String(sort || 'newest').toLowerCase();
+    let normalizedOrder =
+      String(order || 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    if (normalizedSort === 'best') {
+      normalizedSort = 'newest';
+      normalizedOrder = 'DESC';
+    } else if (normalizedSort === 'brand-az') {
+      normalizedSort = 'brand';
+      normalizedOrder = 'ASC';
+    } else if (normalizedSort === 'brand-za') {
+      normalizedSort = 'brand';
+      normalizedOrder = 'DESC';
+    } else if (normalizedSort === 'code-az') {
+      normalizedSort = 'code';
+      normalizedOrder = 'ASC';
+    } else if (normalizedSort === 'code-za') {
+      normalizedSort = 'code';
+      normalizedOrder = 'DESC';
+    } else if (normalizedSort === 'price-lh') {
+      normalizedSort = 'price';
+      normalizedOrder = 'ASC';
+    } else if (normalizedSort === 'price-hl') {
+      normalizedSort = 'price';
+      normalizedOrder = 'DESC';
+    }
+
+    const orderBy = {
+      price: `sort_price ${normalizedOrder}, psm.style_code`,
+      name: `sort_name ${normalizedOrder}, psm.style_code`,
+      brand: `sort_brand ${normalizedOrder}, psm.style_code`,
+      code: `psm.style_code ${normalizedOrder}`,
+      newest: `sort_created ${normalizedOrder}, psm.style_code`,
+    }[normalizedSort] || `sort_created DESC, psm.style_code`;
 
     const styleCodesQuery = `
-    SELECT DISTINCT psm.style_code
+    SELECT
+      psm.style_code,
+      MIN(psm.sell_price) AS sort_price,
+      MIN(psm.style_name) AS sort_name,
+      MIN(b.name) AS sort_brand,
+      MAX(psm.created_at) AS sort_created
     FROM product_search_mv psm
     INNER JOIN styles s ON psm.style_code = s.style_code
     INNER JOIN product_types pt ON s.product_type_id = pt.id
@@ -547,6 +584,7 @@ async function getProductTypeFilteredProductsWithDetails(productTypeSlug, page, 
       OR LOWER(COALESCE(pt.slug, '')) = $2
       OR LOWER(REGEXP_REPLACE(COALESCE(pt.slug, ''), '[^a-zA-Z0-9]', '', 'g')) = $1
     ) AND psm.sku_status = 'Live'
+    GROUP BY psm.style_code
     ORDER BY ${orderBy}
     LIMIT $3 OFFSET $4
   `;
@@ -569,7 +607,9 @@ async function getProductTypeFilteredProductsWithDetails(productTypeSlug, page, 
     ]);
 
     const styleCodes = styleCodesResult.rows.map(r => r.style_code);
-    const items = await getFullProductDetails(styleCodes);
+    const unorderedItems = await getFullProductDetails(styleCodes);
+    const itemByCode = new Map(unorderedItems.map(item => [item.code, item]));
+    const items = styleCodes.map(code => itemByCode.get(code)).filter(Boolean);
     const total = parseInt(countResult.rows[0]?.total || 0);
 
     let minPrice = Infinity, maxPrice = 0;
