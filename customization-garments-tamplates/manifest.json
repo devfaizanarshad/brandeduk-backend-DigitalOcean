@@ -1,0 +1,154 @@
+{
+  "version": 2,
+  "generatedAt": "2026-07-26T12:34:18.315Z",
+  "canvas": {
+    "width": 1200,
+    "height": 1200,
+    "format": "png",
+    "background": "transparent",
+    "colourSpace": "sRGB"
+  },
+  "templates": [
+    {
+      "productTypeSlug": "aprons",
+      "views": {
+        "front": "aprons/front.png"
+      }
+    },
+    {
+      "productTypeSlug": "bags",
+      "views": {
+        "front": "bags/front.png"
+      }
+    },
+    {
+      "productTypeSlug": "beanies",
+      "views": {
+        "front": "beanies/front.png"
+      }
+    },
+    {
+      "productTypeSlug": "caps",
+      "views": {
+        "front": "caps/front.png",
+        "back": "caps/back.png",
+        "left": "caps/left.png",
+        "right": "caps/right.png"
+      }
+    },
+    {
+      "productTypeSlug": "fleece",
+      "views": {
+        "front": "fleece/front.png",
+        "back": "fleece/back.png",
+        "sleeve": "fleece/sleeve.png"
+      }
+    },
+    {
+      "productTypeSlug": "gilets-body-warmers",
+      "views": {
+        "front": "gilets-body-warmers/front.png",
+        "back": "gilets-body-warmers/back.png",
+        "side": "gilets-body-warmers/side.png"
+      }
+    },
+    {
+      "productTypeSlug": "hats",
+      "views": {
+        "front": "hats/front.png",
+        "side": "hats/side.png"
+      }
+    },
+    {
+      "productTypeSlug": "safety-vests",
+      "views": {
+        "front": "safety-vests/front.png",
+        "back": "safety-vests/back.png"
+      }
+    },
+    {
+      "productTypeSlug": "hoodies",
+      "views": {
+        "front": "hoodies/front.png",
+        "back": "hoodies/back.png",
+        "side": "hoodies/side.png"
+      }
+    },
+    {
+      "productTypeSlug": "jackets",
+      "views": {
+        "front": "jackets/front.png",
+        "back": "jackets/back.png",
+        "sleeve": "jackets/sleeve.png"
+      }
+    },
+    {
+      "productTypeSlug": "polos",
+      "views": {
+        "front": "polos/front.png",
+        "back": "polos/back.png",
+        "sleeve": "polos/sleeve.png"
+      }
+    },
+    {
+      "productTypeSlug": "shirts",
+      "views": {
+        "front": "shirts/front.png",
+        "back": "shirts/back.png",
+        "sleeve": "shirts/sleeve.png"
+      }
+    },
+    {
+      "productTypeSlug": "shorts",
+      "views": {
+        "front": "shorts/front.png",
+        "back": "shorts/back.png"
+      }
+    },
+    {
+      "productTypeSlug": "softshells",
+      "views": {
+        "front": "softshells/front.png",
+        "back": "softshells/back.png",
+        "sleeve": "softshells/sleeve.png"
+      }
+    },
+    {
+      "productTypeSlug": "sweatpants",
+      "views": {
+        "front": "sweatpants/front.png",
+        "back": "sweatpants/back.png"
+      }
+    },
+    {
+      "productTypeSlug": "sweatshirts",
+      "views": {
+        "front": "sweatshirts/front.png",
+        "back": "sweatshirts/back.png",
+        "sleeve": "sweatshirts/sleeve.png"
+      }
+    },
+    {
+      "productTypeSlug": "trousers",
+      "views": {
+        "front": "trousers/front.png",
+        "back": "trousers/back.png"
+      }
+    },
+    {
+      "productTypeSlug": "tshirts",
+      "views": {
+        "front": "tshirts/front.png",
+        "back": "tshirts/back.png",
+        "sleeve": "tshirts/sleeve.png"
+      }
+    },
+    {
+      "productTypeSlug": "vests-t-shirt",
+      "views": {
+        "front": "vests-t-shirt/front.png",
+        "back": "vests-t-shirt/back.png"
+      }
+    }
+  ]
+}

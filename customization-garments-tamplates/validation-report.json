@@ -1,0 +1,928 @@
+{
+  "generatedAt": "2026-07-26T12:33:39.493Z",
+  "expectedFiles": 46,
+  "actualFiles": 46,
+  "passed": true,
+  "files": [
+    {
+      "file": "aprons/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 356909,
+      "transparentPct": 67.38,
+      "partialAlphaPct": 32.53,
+      "subjectPct": 32.62,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "bags/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 553713,
+      "transparentPct": 62.4,
+      "partialAlphaPct": 37.56,
+      "subjectPct": 37.6,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "beanies/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 832778,
+      "transparentPct": 36.45,
+      "partialAlphaPct": 63.38,
+      "subjectPct": 63.55,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "caps/back.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 795076,
+      "transparentPct": 51.14,
+      "partialAlphaPct": 48.8,
+      "subjectPct": 48.86,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "caps/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 774300,
+      "transparentPct": 39.67,
+      "partialAlphaPct": 60.33,
+      "subjectPct": 60.33,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "caps/left.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 417163,
+      "transparentPct": 72.21,
+      "partialAlphaPct": 27.72,
+      "subjectPct": 27.79,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "caps/right.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 453770,
+      "transparentPct": 72.86,
+      "partialAlphaPct": 27.04,
+      "subjectPct": 27.14,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "fleece/back.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 672351,
+      "transparentPct": 49.81,
+      "partialAlphaPct": 47.79,
+      "subjectPct": 50.19,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "fleece/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 679002,
+      "transparentPct": 46.19,
+      "partialAlphaPct": 53.11,
+      "subjectPct": 53.81,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "fleece/sleeve.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 328825,
+      "transparentPct": 76.13,
+      "partialAlphaPct": 23.77,
+      "subjectPct": 23.87,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "gilets-body-warmers/back.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 644909,
+      "transparentPct": 58.89,
+      "partialAlphaPct": 41.04,
+      "subjectPct": 41.11,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "gilets-body-warmers/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 654877,
+      "transparentPct": 59.16,
+      "partialAlphaPct": 40.75,
+      "subjectPct": 40.84,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "gilets-body-warmers/side.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 519515,
+      "transparentPct": 72.63,
+      "partialAlphaPct": 27.27,
+      "subjectPct": 27.37,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "hats/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 878956,
+      "transparentPct": 39.94,
+      "partialAlphaPct": 59.89,
+      "subjectPct": 60.06,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "hats/side.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 423565,
+      "transparentPct": 72.21,
+      "partialAlphaPct": 27.7,
+      "subjectPct": 27.79,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "hoodies/back.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 763733,
+      "transparentPct": 49.27,
+      "partialAlphaPct": 42.37,
+      "subjectPct": 50.73,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "hoodies/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 651249,
+      "transparentPct": 48.65,
+      "partialAlphaPct": 32.87,
+      "subjectPct": 51.35,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "hoodies/side.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 353890,
+      "transparentPct": 75.62,
+      "partialAlphaPct": 24.3,
+      "subjectPct": 24.38,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "jackets/back.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 331079,
+      "transparentPct": 47.56,
+      "partialAlphaPct": 0.9,
+      "subjectPct": 52.44,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "jackets/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 368148,
+      "transparentPct": 47.43,
+      "partialAlphaPct": 0.81,
+      "subjectPct": 52.57,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "jackets/sleeve.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 224719,
+      "transparentPct": 67.52,
+      "partialAlphaPct": 0.48,
+      "subjectPct": 32.48,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "polos/back.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 570953,
+      "transparentPct": 57.63,
+      "partialAlphaPct": 41.49,
+      "subjectPct": 42.37,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "polos/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 502477,
+      "transparentPct": 56.89,
+      "partialAlphaPct": 43.04,
+      "subjectPct": 43.11,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "polos/sleeve.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 352606,
+      "transparentPct": 71.95,
+      "partialAlphaPct": 27.95,
+      "subjectPct": 28.05,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "safety-vests/back.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 691563,
+      "transparentPct": 53.83,
+      "partialAlphaPct": 40.72,
+      "subjectPct": 46.17,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "safety-vests/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 658704,
+      "transparentPct": 53.4,
+      "partialAlphaPct": 46.54,
+      "subjectPct": 46.6,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "shirts/back.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 590750,
+      "transparentPct": 46.67,
+      "partialAlphaPct": 53.18,
+      "subjectPct": 53.33,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "shirts/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 601879,
+      "transparentPct": 46.7,
+      "partialAlphaPct": 53.16,
+      "subjectPct": 53.3,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "shirts/sleeve.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 340141,
+      "transparentPct": 73.3,
+      "partialAlphaPct": 26.65,
+      "subjectPct": 26.7,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "shorts/back.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 506295,
+      "transparentPct": 65.31,
+      "partialAlphaPct": 34.65,
+      "subjectPct": 34.69,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "shorts/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 466905,
+      "transparentPct": 69.57,
+      "partialAlphaPct": 30.4,
+      "subjectPct": 30.43,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "softshells/back.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 752970,
+      "transparentPct": 46.67,
+      "partialAlphaPct": 53.18,
+      "subjectPct": 53.33,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "softshells/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 871959,
+      "transparentPct": 45.41,
+      "partialAlphaPct": 54.43,
+      "subjectPct": 54.59,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "softshells/sleeve.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 444625,
+      "transparentPct": 74.36,
+      "partialAlphaPct": 24.17,
+      "subjectPct": 25.64,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "sweatpants/back.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 382549,
+      "transparentPct": 73.38,
+      "partialAlphaPct": 15.38,
+      "subjectPct": 26.62,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "sweatpants/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 388140,
+      "transparentPct": 75.22,
+      "partialAlphaPct": 16.11,
+      "subjectPct": 24.78,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "sweatshirts/back.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 351004,
+      "transparentPct": 41.96,
+      "partialAlphaPct": 57.77,
+      "subjectPct": 58.04,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "sweatshirts/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 826152,
+      "transparentPct": 39.23,
+      "partialAlphaPct": 60.66,
+      "subjectPct": 60.77,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "sweatshirts/sleeve.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 502981,
+      "transparentPct": 72.02,
+      "partialAlphaPct": 27.94,
+      "subjectPct": 27.98,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "trousers/back.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 387122,
+      "transparentPct": 73.99,
+      "partialAlphaPct": 15.13,
+      "subjectPct": 26.01,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "trousers/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 383207,
+      "transparentPct": 73.85,
+      "partialAlphaPct": 16.82,
+      "subjectPct": 26.15,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "tshirts/back.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 280051,
+      "transparentPct": 76.02,
+      "partialAlphaPct": 23.89,
+      "subjectPct": 23.98,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "tshirts/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 542166,
+      "transparentPct": 53.25,
+      "partialAlphaPct": 46.63,
+      "subjectPct": 46.75,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "tshirts/sleeve.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 475548,
+      "transparentPct": 70.36,
+      "partialAlphaPct": 18.26,
+      "subjectPct": 29.64,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "vests-t-shirt/back.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 415841,
+      "transparentPct": 60.96,
+      "partialAlphaPct": 38.96,
+      "subjectPct": 39.04,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    },
+    {
+      "file": "vests-t-shirt/front.png",
+      "width": 1200,
+      "height": 1200,
+      "format": "png",
+      "channels": 4,
+      "hasAlpha": true,
+      "bytes": 400295,
+      "transparentPct": 61.7,
+      "partialAlphaPct": 38.2,
+      "subjectPct": 38.3,
+      "cornerAlpha": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "maxChromaDelta": 0,
+      "errors": []
+    }
+  ]
+}
