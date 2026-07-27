@@ -8,6 +8,9 @@ const PRODUCT_TYPE_SLUG = 'bags';
 const TEMPLATES_ROOT = path.join(__dirname, '..', 'customization-garments-tamplates');
 const MANIFEST_PATH = path.join(TEMPLATES_ROOT, 'manifest.json');
 const BACKUP_DIR = path.join(__dirname, 'backups');
+// nginx currently rejects multipart requests around 1 MiB. Keep enough room
+// for multipart headers so the preflight fails before any live API mutation.
+const MAX_SAFE_UPLOAD_BYTES = 900 * 1024;
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -19,7 +22,10 @@ async function readJsonResponse(response, context) {
   try {
     body = text ? JSON.parse(text) : {};
   } catch {
-    throw new Error(`${context}: invalid JSON response (${response.status})`);
+    const preview = text.trim().replace(/\s+/g, ' ').slice(0, 180);
+    throw new Error(
+      `${context}: HTTP ${response.status}: ${preview || 'non-JSON response'}`,
+    );
   }
   if (!response.ok || body.success === false) {
     throw new Error(`${context}: HTTP ${response.status}: ${body.message || text.slice(0, 300)}`);
@@ -91,7 +97,11 @@ function loadVariants() {
           ),
         `Invalid PNG: ${filePath}`,
       );
-      return { viewSlug, filePath };
+      assert(
+        bytes.length <= MAX_SAFE_UPLOAD_BYTES,
+        `${subtypeKey}/${viewSlug} is ${bytes.length} bytes; upload-safe limit is ${MAX_SAFE_UPLOAD_BYTES}`,
+      );
+      return { viewSlug, filePath, bytes: bytes.length };
     });
     assert(views.length > 0, `Bag variant ${subtypeKey} has no views`);
     return { subtypeKey, views };
@@ -157,6 +167,9 @@ async function main() {
 
   const updated = [];
   try {
+    // Complete every image upload before changing any database configuration.
+    // A proxy/file failure can then stop safely without a partial subtype seed.
+    const uploadedBySubtype = {};
     for (const variant of variants) {
       const uploadedImages = {};
       for (const view of variant.views) {
@@ -165,10 +178,15 @@ async function main() {
           view.viewSlug,
           view.filePath,
         );
+        console.log(`UPLOADED ${variant.subtypeKey}/${view.viewSlug}`);
       }
+      uploadedBySubtype[variant.subtypeKey] = uploadedImages;
+    }
+
+    for (const variant of variants) {
       const saved = await saveConfig(
         variant.subtypeKey,
-        clonePositionsWithImages(defaultConfig, uploadedImages),
+        clonePositionsWithImages(defaultConfig, uploadedBySubtype[variant.subtypeKey]),
       );
       assert(saved.subtypeKey === variant.subtypeKey, `${variant.subtypeKey} saved as wrong subtype`);
       updated.push(variant.subtypeKey);

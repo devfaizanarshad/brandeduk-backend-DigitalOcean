@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-27T07:59:55.636Z",
+  "generatedAt": "2026-07-27T08:31:22.283Z",
   "expectedFiles": 50,
   "actualFiles": 50,
   "passed": true,
@@ -31,17 +31,17 @@
       "format": "png",
       "channels": 4,
       "hasAlpha": true,
-      "bytes": 1011839,
-      "transparentPct": 55.38,
+      "bytes": 621667,
+      "transparentPct": 55.39,
       "partialAlphaPct": 0.06,
-      "subjectPct": 44.62,
+      "subjectPct": 44.61,
       "cornerAlpha": [
         0,
         0,
         0,
         0
       ],
-      "maxChromaDelta": 0,
+      "maxChromaDelta": 37,
       "errors": []
     },
     {
@@ -71,17 +71,17 @@
       "format": "png",
       "channels": 4,
       "hasAlpha": true,
-      "bytes": 910157,
-      "transparentPct": 63.15,
+      "bytes": 512791,
+      "transparentPct": 63.16,
       "partialAlphaPct": 0.06,
-      "subjectPct": 36.85,
+      "subjectPct": 36.84,
       "cornerAlpha": [
         0,
         0,
         0,
         0
       ],
-      "maxChromaDelta": 0,
+      "maxChromaDelta": 37,
       "errors": []
     },
     {
@@ -91,17 +91,17 @@
       "format": "png",
       "channels": 4,
       "hasAlpha": true,
-      "bytes": 1226543,
-      "transparentPct": 51.39,
-      "partialAlphaPct": 0.13,
-      "subjectPct": 48.61,
+      "bytes": 666469,
+      "transparentPct": 51.41,
+      "partialAlphaPct": 0.12,
+      "subjectPct": 48.59,
       "cornerAlpha": [
         0,
         0,
         0,
         0
       ],
-      "maxChromaDelta": 0,
+      "maxChromaDelta": 37,
       "errors": []
     },
     {
@@ -111,17 +111,17 @@
       "format": "png",
       "channels": 4,
       "hasAlpha": true,
-      "bytes": 863324,
-      "transparentPct": 71.77,
-      "partialAlphaPct": 0.7,
-      "subjectPct": 28.23,
+      "bytes": 399829,
+      "transparentPct": 71.8,
+      "partialAlphaPct": 0.59,
+      "subjectPct": 28.2,
       "cornerAlpha": [
         0,
         0,
         0,
         0
       ],
-      "maxChromaDelta": 0,
+      "maxChromaDelta": 37,
       "errors": []
     },
     {
