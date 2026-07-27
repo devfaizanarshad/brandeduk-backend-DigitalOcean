@@ -29,6 +29,34 @@ This folder is the normalized upload set for the BrandedUK admin panel.
 Use `admin-upload-checklist.csv` as the full product-type/position checklist.
 Do not upload `contact-sheet.png`; it is only for visual quality review.
 
+## Bag silhouettes
+
+The `bags` product type has four optional subtype configurations:
+
+- `tote`
+- `backpack`
+- `holdall`
+- `laptop-document`
+
+The original `bags/front.png` remains the generic fallback for uncommon shapes
+such as pouches, wash bags, coolers, and cases.
+
+After deploying the subtype-aware backend, verify the four local files and the
+live generic bag configuration:
+
+```bash
+npm run customization:seed-bag-variants
+```
+
+Then upload and save the four subtype configurations:
+
+```bash
+npm run customization:seed-bag-variants -- --apply
+```
+
+The apply command creates a database backup before changing any subtype
+configuration and verifies every public API response after saving.
+
 ## Important
 
 Upload files from this `customization-garments-tamplates` folder. The previous

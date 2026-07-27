@@ -30,7 +30,11 @@ const storage = multer.diskStorage({
     const ext = IMAGE_EXTENSIONS_BY_MIME[file.mimetype]
       || path.extname(file.originalname || '').toLowerCase()
       || '.png';
-    const base = normalizeSlug(req.body.productTypeSlug || req.body.productType || 'customization');
+    const productType = normalizeSlug(
+      req.body.productTypeSlug || req.body.productType || 'customization',
+    );
+    const subtypeKey = normalizeSlug(req.body.subtypeKey || req.body.subtype || '');
+    const base = subtypeKey ? `${productType}-${subtypeKey}` : productType;
     const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     cb(null, `${base}-${unique}${ext}`);
   },
@@ -69,7 +73,10 @@ async function handleListProductTypes(req, res) {
 
 async function handleGetConfig(req, res) {
   try {
-    const config = await getCustomizationConfigByProductTypeSlug(req.params.productTypeSlug);
+    const config = await getCustomizationConfigByProductTypeSlug(
+      req.params.productTypeSlug,
+      req.query.subtype,
+    );
     if (!config) {
       return res.status(404).json({ success: false, message: 'Customization config not found' });
     }
@@ -82,7 +89,11 @@ async function handleGetConfig(req, res) {
 
 async function handleSaveConfig(req, res) {
   try {
-    const config = await saveCustomizationConfig(req.params.productTypeSlug, req.body || {});
+    const config = await saveCustomizationConfig(
+      req.params.productTypeSlug,
+      req.body || {},
+      req.query.subtype,
+    );
     return res.json({ success: true, data: config });
   } catch (error) {
     console.error('[CUSTOMIZATION] Failed to save configuration:', error.message);
@@ -92,7 +103,10 @@ async function handleSaveConfig(req, res) {
 
 async function handleDeleteConfig(req, res) {
   try {
-    const result = await deleteCustomizationConfig(req.params.productTypeSlug);
+    const result = await deleteCustomizationConfig(
+      req.params.productTypeSlug,
+      req.query.subtype,
+    );
     return res.json({ success: true, data: result });
   } catch (error) {
     console.error('[CUSTOMIZATION] Failed to delete configuration:', error.message);

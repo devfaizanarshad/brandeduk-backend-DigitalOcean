@@ -4,7 +4,10 @@ const { getCustomizationConfigByProductTypeSlug } = require('../services/customi
 
 router.get('/:productTypeSlug', async (req, res) => {
   try {
-    const config = await getCustomizationConfigByProductTypeSlug(req.params.productTypeSlug);
+    const config = await getCustomizationConfigByProductTypeSlug(
+      req.params.productTypeSlug,
+      req.query.subtype,
+    );
     if (!config) {
       return res.status(404).json({
         success: false,

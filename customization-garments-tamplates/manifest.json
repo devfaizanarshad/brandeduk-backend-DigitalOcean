@@ -19,6 +19,28 @@
       "productTypeSlug": "bags",
       "views": {
         "front": "bags/front.png"
+      },
+      "variants": {
+        "tote": {
+          "views": {
+            "front": "bags/tote/front.png"
+          }
+        },
+        "backpack": {
+          "views": {
+            "front": "bags/backpack/front.png"
+          }
+        },
+        "holdall": {
+          "views": {
+            "front": "bags/holdall/front.png"
+          }
+        },
+        "laptop-document": {
+          "views": {
+            "front": "bags/laptop-document/front.png"
+          }
+        }
       }
     },
     {

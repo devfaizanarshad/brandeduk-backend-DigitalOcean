@@ -148,7 +148,7 @@ async function resolveProductTypeById(productTypeId) {
   return normalizeProductTypeRow(result.rows[0] || null);
 }
 
-function mapConfigRows(productType, rows) {
+function mapConfigRows(productType, rows, metadata = {}) {
   const positionMap = new Map();
 
   for (const row of rows) {
@@ -190,21 +190,31 @@ function mapConfigRows(productType, rows) {
       slug: productType.slug,
       displayOrder: productType.display_order || 0,
     },
+    subtypeKey: metadata.subtypeKey || '',
+    requestedSubtypeKey: metadata.requestedSubtypeKey || metadata.subtypeKey || '',
+    isSubtypeFallback: Boolean(metadata.isSubtypeFallback),
     positions,
   };
 }
 
-async function getCustomizationConfigByProductTypeSlug(productTypeSlug) {
+async function getCustomizationConfigByProductTypeSlug(productTypeSlug, subtypeKey = '') {
   const productType = await resolveProductTypeBySlug(productTypeSlug);
   if (!productType) return null;
-  return getCustomizationConfigByProductTypeId(productType.id);
+  return getCustomizationConfigByProductTypeId(productType.id, subtypeKey);
 }
 
-async function getCustomizationConfigByProductTypeId(productTypeId) {
+async function getCustomizationConfigByProductTypeId(
+  productTypeId,
+  subtypeKey = '',
+  options = {},
+) {
   await ensureCustomizationTables();
 
   const productType = await resolveProductTypeById(productTypeId);
   if (!productType) return null;
+  const normalizedSubtypeKey = normalizeSlug(subtypeKey);
+  const scopeType = normalizedSubtypeKey ? 'product_subtype' : 'product_type';
+  const fallbackToDefault = options.fallbackToDefault !== false;
 
   const result = await queryWithTimeout(`
     SELECT
@@ -227,12 +237,29 @@ async function getCustomizationConfigByProductTypeId(productTypeId) {
     LEFT JOIN customization_config_methods ccm
       ON ccm.position_id = ccp.id
     WHERE cc.product_type_id = $1
-      AND cc.scope_type = 'product_type'
-      AND cc.subtype_key = ''
+      AND cc.scope_type = $2
+      AND cc.subtype_key = $3
       AND cc.is_active = true
       AND (ccp.id IS NULL OR ccp.is_active = true)
     ORDER BY ccp.sort_order ASC NULLS LAST, ccp.id ASC, ccm.method ASC
-  `, [productTypeId], 10000);
+  `, [productTypeId, scopeType, normalizedSubtypeKey], 10000);
+
+  if (
+    normalizedSubtypeKey
+    && fallbackToDefault
+    && (result.rows.length === 0 || !result.rows[0].position_id)
+  ) {
+    const fallback = await getCustomizationConfigByProductTypeId(
+      productTypeId,
+      '',
+      { fallbackToDefault: false },
+    );
+    return {
+      ...fallback,
+      requestedSubtypeKey: normalizedSubtypeKey,
+      isSubtypeFallback: true,
+    };
+  }
 
   if (result.rows.length === 0 || !result.rows[0].position_id) {
     return {
@@ -242,11 +269,18 @@ async function getCustomizationConfigByProductTypeId(productTypeId) {
         slug: productType.slug,
         displayOrder: productType.display_order || 0,
       },
+      subtypeKey: normalizedSubtypeKey,
+      requestedSubtypeKey: normalizedSubtypeKey,
+      isSubtypeFallback: false,
       positions: [],
     };
   }
 
-  return mapConfigRows(productType, result.rows);
+  return mapConfigRows(productType, result.rows, {
+    subtypeKey: normalizedSubtypeKey,
+    requestedSubtypeKey: normalizedSubtypeKey,
+    isSubtypeFallback: false,
+  });
 }
 
 async function listCustomizationProductTypes() {
@@ -330,7 +364,7 @@ function normalizePositionInput(position, index) {
   };
 }
 
-async function saveCustomizationConfig(productTypeSlug, payload = {}) {
+async function saveCustomizationConfig(productTypeSlug, payload = {}, subtypeKey = '') {
   await ensureCustomizationTables();
 
   const productType = await resolveProductTypeBySlug(productTypeSlug);
@@ -342,6 +376,10 @@ async function saveCustomizationConfig(productTypeSlug, payload = {}) {
 
   const positionsInput = Array.isArray(payload.positions) ? payload.positions : [];
   const positions = positionsInput.map(normalizePositionInput);
+  // The route query identifies the configuration being edited. Fall back to
+  // the body value for API clients that do not send the query parameter.
+  const normalizedSubtypeKey = normalizeSlug(subtypeKey || payload.subtypeKey);
+  const scopeType = normalizedSubtypeKey ? 'product_subtype' : 'product_type';
 
   const client = await pool.connect();
   try {
@@ -356,13 +394,13 @@ async function saveCustomizationConfig(productTypeSlug, payload = {}) {
         created_at,
         updated_at
       )
-      VALUES ($1, 'product_type', '', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      VALUES ($1, $2, $3, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       ON CONFLICT (product_type_id, scope_type, subtype_key)
       DO UPDATE SET
         is_active = true,
         updated_at = CURRENT_TIMESTAMP
       RETURNING id
-    `, [productType.id]);
+    `, [productType.id, scopeType, normalizedSubtypeKey]);
 
     const configId = configResult.rows[0].id;
 
@@ -437,10 +475,14 @@ async function saveCustomizationConfig(productTypeSlug, payload = {}) {
     client.release();
   }
 
-  return getCustomizationConfigByProductTypeId(productType.id);
+  return getCustomizationConfigByProductTypeId(
+    productType.id,
+    normalizedSubtypeKey,
+    { fallbackToDefault: false },
+  );
 }
 
-async function deleteCustomizationConfig(productTypeSlug) {
+async function deleteCustomizationConfig(productTypeSlug, subtypeKey = '') {
   await ensureCustomizationTables();
 
   const productType = await resolveProductTypeBySlug(productTypeSlug);
@@ -450,14 +492,17 @@ async function deleteCustomizationConfig(productTypeSlug) {
     throw error;
   }
 
+  const normalizedSubtypeKey = normalizeSlug(subtypeKey);
+  const scopeType = normalizedSubtypeKey ? 'product_subtype' : 'product_type';
+
   await queryWithTimeout(`
     DELETE FROM customization_configs
     WHERE product_type_id = $1
-      AND scope_type = 'product_type'
-      AND subtype_key = ''
-  `, [productType.id], 10000);
+      AND scope_type = $2
+      AND subtype_key = $3
+  `, [productType.id, scopeType, normalizedSubtypeKey], 10000);
 
-  return { success: true, productType };
+  return { success: true, productType, subtypeKey: normalizedSubtypeKey };
 }
 
 module.exports = {
