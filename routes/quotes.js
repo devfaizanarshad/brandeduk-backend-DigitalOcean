@@ -83,7 +83,9 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024, files: 10 },
+  // A quote can include several garments and several decorated views per
+  // garment. Keep the per-file cap while allowing all view previews through.
+  limits: { fileSize: 5 * 1024 * 1024, files: 30 },
   fileFilter
 });
 
