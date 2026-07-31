@@ -753,6 +753,13 @@ function insertBeforeQuoteRequestDate(html, sectionHtml) {
   return html.replace('</body>', `${sectionHtml}\n  </body>`);
 }
 
+function getQuotePreviewImageSource(asset) {
+  if (asset && typeof asset === 'object' && asset.contentId) {
+    return `cid:${asset.contentId}`;
+  }
+  return typeof asset === 'string' ? asset : asset?.url || '';
+}
+
 function buildInitialQuotePreviewSection(previewImages = {}) {
   return `
     <div class="section">
@@ -760,14 +767,15 @@ function buildInitialQuotePreviewSection(previewImages = {}) {
       <table>
         ${Object.entries(previewImages).map(([view, asset]) => {
           const url = typeof asset === 'string' ? asset : asset?.url || '';
-          if (!url) return '';
+          const imageSrc = getQuotePreviewImageSource(asset);
+          if (!imageSrc) return '';
           const label = String(view || 'Preview').replace(/-/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
           return `
           <tr>
             <td class="label">${escapeHtml(label)}:</td>
             <td class="value">
-              <img src="${escapeHtml(url)}" alt="${escapeHtml(label)} garment preview" style="display:block;width:100%;max-width:520px;height:auto;margin-top:8px;border:1px solid #e5e7eb;border-radius:6px;">
-              <a href="${escapeHtml(url)}" target="_blank" style="display:inline-block;margin-top:8px;color:#7c3aed;font-size:12px;">Open full-size preview</a>
+              <img src="${escapeHtml(imageSrc)}" alt="${escapeHtml(label)} garment preview" style="display:block;width:100%;max-width:520px;height:auto;margin-top:8px;border:1px solid #e5e7eb;border-radius:6px;">
+              ${url ? `<a href="${escapeHtml(url)}" target="_blank" style="display:inline-block;margin-top:8px;color:#7c3aed;font-size:12px;">Open full-size preview</a>` : ''}
             </td>
           </tr>`;
         }).join('')}
@@ -822,14 +830,15 @@ function generateQuoteWithLogosEmailHTML(data, logoAssets = {}) {
       <table>
         ${Object.entries(previewImages).map(([view, asset]) => {
           const url = typeof asset === 'string' ? asset : asset?.url || '';
-          if (!url) return '';
+          const imageSrc = getQuotePreviewImageSource(asset);
+          if (!imageSrc) return '';
           const label = String(view || 'Preview').replace(/-/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
           return `
           <tr>
             <td class="label">${escapeHtml(label)}:</td>
             <td class="value">
-              <img src="${escapeHtml(url)}" alt="${escapeHtml(label)} garment preview" style="display:block;width:100%;max-width:520px;height:auto;margin-top:8px;border:1px solid #e5e7eb;border-radius:6px;">
-              <a href="${escapeHtml(url)}" target="_blank" style="display:inline-block;margin-top:8px;color:#7c3aed;font-size:12px;">Open full-size preview</a>
+              <img src="${escapeHtml(imageSrc)}" alt="${escapeHtml(label)} garment preview" style="display:block;width:100%;max-width:520px;height:auto;margin-top:8px;border:1px solid #e5e7eb;border-radius:6px;">
+              ${url ? `<a href="${escapeHtml(url)}" target="_blank" style="display:inline-block;margin-top:8px;color:#7c3aed;font-size:12px;">Open full-size preview</a>` : ''}
             </td>
           </tr>`;
         }).join('')}
@@ -871,6 +880,7 @@ async function sendQuoteEmailWithAttachments(data, attachments = [], logoAssets 
         filename: att.filename,
         content: Buffer.isBuffer(att.content) ? att.content.toString('base64') : att.content,
         contentType: att.contentType,
+        ...(att.contentId ? { contentId: att.contentId } : {}),
       }));
     }
 

@@ -134,6 +134,17 @@ const normalizePreviewImages = (quoteData = {}) => {
   return previews;
 };
 
+const getUniquePreviewKey = (previews, requestedKey = 'main') => {
+  const baseKey = String(requestedKey || 'main').trim() || 'main';
+  if (!Object.prototype.hasOwnProperty.call(previews, baseKey)) return baseKey;
+
+  let suffix = 2;
+  while (Object.prototype.hasOwnProperty.call(previews, `${baseKey}-${suffix}`)) {
+    suffix += 1;
+  }
+  return `${baseKey}-${suffix}`;
+};
+
 const detectClientDevice = (userAgent = '') => {
   const ua = String(userAgent || '').toLowerCase();
 
@@ -242,7 +253,8 @@ router.post('/', upload.any(), async (req, res) => {
     const logoFiles = {};
     const previewImages = normalizePreviewImages(quoteData);
     const logoAttachments = [];
-    uploadedFiles.forEach(file => {
+    const previewAttachments = [];
+    uploadedFiles.forEach((file, fileIndex) => {
       if (file.fieldname.startsWith('logo_')) {
         const positionSlug = file.fieldname.replace('logo_', '');
         const contentId = `${quoteId}-${positionSlug}`.replace(/[^a-zA-Z0-9_-]/g, '');
@@ -264,17 +276,37 @@ router.post('/', upload.any(), async (req, res) => {
           } catch (e) {}
         }
       } else if (isPreviewField(file.fieldname)) {
-        const view = getPreviewView(file.fieldname);
+        const view = getUniquePreviewKey(previewImages, getPreviewView(file.fieldname));
+        const contentId = `${quoteId}-preview-${fileIndex}`;
         previewImages[view] = {
           filename: file.filename,
           originalName: file.originalname,
           mimetype: file.mimetype,
           url: buildPreviewUrl(req, file.filename),
+          contentId,
         };
+        try {
+          const attachmentView = String(view)
+            .replace(/[^a-zA-Z0-9_-]/g, '-')
+            .slice(0, 80) || `preview-${fileIndex}`;
+          previewAttachments.push({
+            filename: `garment-preview-${attachmentView}${getImageExtension(file)}`,
+            content: fs.readFileSync(file.path),
+            contentType: file.mimetype,
+            contentId,
+          });
+        } catch (e) {
+          // Keep the public URL fallback if the inline attachment cannot be read.
+          delete previewImages[view].contentId;
+        }
       }
     });
 
-    const totalAttachmentBytes = logoAttachments.reduce((sum, attachment) => {
+    const emailAttachments = [
+      ...previewAttachments,
+      ...(shouldAttachQuoteLogos ? logoAttachments : []),
+    ];
+    const totalAttachmentBytes = emailAttachments.reduce((sum, attachment) => {
       if (Buffer.isBuffer(attachment.content)) {
         return sum + attachment.content.length;
       }
@@ -285,7 +317,7 @@ router.post('/', upload.any(), async (req, res) => {
       cleanupFiles(uploadedFiles);
       return res.status(400).json({
         success: false,
-        message: 'Uploaded logos are too large to send by email. Please reduce the total logo size and try again.'
+        message: 'Uploaded quote images are too large to send by email. Please reduce the total image size and try again.'
       });
     }
 
@@ -304,6 +336,9 @@ router.post('/', upload.any(), async (req, res) => {
     let emailResult;
     try {
       if (Object.keys(logoFiles).length > 0 || Object.keys(previewImages).length > 0) {
+        if (previewAttachments.length > 0) {
+          console.log(`[EMAIL] Embedding ${previewAttachments.length} garment preview(s) inline`);
+        }
         if (shouldAttachQuoteLogos && logoAttachments.length > 0) {
           console.log(`[EMAIL] Quote logo attachments enabled (${logoAttachments.length} file(s))`);
         } else {
@@ -311,7 +346,7 @@ router.post('/', upload.any(), async (req, res) => {
         }
         emailResult = await sendQuoteEmailWithAttachments(
           emailData,
-          shouldAttachQuoteLogos ? logoAttachments : [],
+          emailAttachments,
           logoFiles
         );
       } else {
