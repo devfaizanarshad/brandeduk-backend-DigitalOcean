@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "generatedAt": "2026-07-26T12:34:18.315Z",
+  "version": 3,
+  "generatedAt": "2026-08-01T00:00:00.000Z",
   "canvas": {
     "width": 1200,
     "height": 1200,
@@ -13,6 +13,18 @@
       "productTypeSlug": "aprons",
       "views": {
         "front": "aprons/front.png"
+      },
+      "variants": {
+        "bib": {
+          "views": {
+            "front": "aprons/bib/front.png"
+          }
+        },
+        "waist": {
+          "views": {
+            "front": "aprons/waist/front.png"
+          }
+        }
       }
     },
     {
@@ -47,6 +59,18 @@
       "productTypeSlug": "beanies",
       "views": {
         "front": "beanies/front.png"
+      },
+      "variants": {
+        "cuffed": {
+          "views": {
+            "front": "beanies/cuffed/front.png"
+          }
+        },
+        "bobble": {
+          "views": {
+            "front": "beanies/bobble/front.png"
+          }
+        }
       }
     },
     {
@@ -64,6 +88,22 @@
         "front": "fleece/front.png",
         "back": "fleece/back.png",
         "sleeve": "fleece/sleeve.png"
+      },
+      "variants": {
+        "full-zip": {
+          "views": {
+            "front": "fleece/full-zip/front.png",
+            "back": "fleece/full-zip/back.png",
+            "sleeve": "fleece/full-zip/sleeve.png"
+          }
+        },
+        "quarter-zip": {
+          "views": {
+            "front": "fleece/quarter-zip/front.png",
+            "back": "fleece/quarter-zip/back.png",
+            "sleeve": "fleece/quarter-zip/sleeve.png"
+          }
+        }
       }
     },
     {
@@ -72,6 +112,22 @@
         "front": "gilets-body-warmers/front.png",
         "back": "gilets-body-warmers/back.png",
         "side": "gilets-body-warmers/side.png"
+      },
+      "variants": {
+        "padded": {
+          "views": {
+            "front": "gilets-body-warmers/padded/front.png",
+            "back": "gilets-body-warmers/padded/back.png",
+            "side": "gilets-body-warmers/padded/side.png"
+          }
+        },
+        "fleece": {
+          "views": {
+            "front": "gilets-body-warmers/fleece/front.png",
+            "back": "gilets-body-warmers/fleece/back.png",
+            "side": "gilets-body-warmers/fleece/side.png"
+          }
+        }
       }
     },
     {
@@ -79,6 +135,20 @@
       "views": {
         "front": "hats/front.png",
         "side": "hats/side.png"
+      },
+      "variants": {
+        "bucket": {
+          "views": {
+            "front": "hats/bucket/front.png",
+            "side": "hats/bucket/side.png"
+          }
+        },
+        "wide-brim": {
+          "views": {
+            "front": "hats/wide-brim/front.png",
+            "side": "hats/wide-brim/side.png"
+          }
+        }
       }
     },
     {
@@ -86,6 +156,20 @@
       "views": {
         "front": "safety-vests/front.png",
         "back": "safety-vests/back.png"
+      },
+      "variants": {
+        "waistcoat": {
+          "views": {
+            "front": "safety-vests/waistcoat/front.png",
+            "back": "safety-vests/waistcoat/back.png"
+          }
+        },
+        "jacket-bomber": {
+          "views": {
+            "front": "safety-vests/jacket-bomber/front.png",
+            "back": "safety-vests/jacket-bomber/back.png"
+          }
+        }
       }
     },
     {
@@ -94,6 +178,22 @@
         "front": "hoodies/front.png",
         "back": "hoodies/back.png",
         "side": "hoodies/side.png"
+      },
+      "variants": {
+        "pullover": {
+          "views": {
+            "front": "hoodies/pullover/front.png",
+            "back": "hoodies/pullover/back.png",
+            "side": "hoodies/pullover/side.png"
+          }
+        },
+        "full-zip": {
+          "views": {
+            "front": "hoodies/full-zip/front.png",
+            "back": "hoodies/full-zip/back.png",
+            "side": "hoodies/full-zip/side.png"
+          }
+        }
       }
     },
     {
@@ -102,6 +202,29 @@
         "front": "jackets/front.png",
         "back": "jackets/back.png",
         "sleeve": "jackets/sleeve.png"
+      },
+      "variants": {
+        "lightweight": {
+          "views": {
+            "front": "jackets/lightweight/front.png",
+            "back": "jackets/lightweight/back.png",
+            "sleeve": "jackets/lightweight/sleeve.png"
+          }
+        },
+        "padded-puffer": {
+          "views": {
+            "front": "jackets/padded-puffer/front.png",
+            "back": "jackets/padded-puffer/back.png",
+            "sleeve": "jackets/padded-puffer/sleeve.png"
+          }
+        },
+        "waterproof-parka": {
+          "views": {
+            "front": "jackets/waterproof-parka/front.png",
+            "back": "jackets/waterproof-parka/back.png",
+            "sleeve": "jackets/waterproof-parka/sleeve.png"
+          }
+        }
       }
     },
     {
@@ -110,6 +233,22 @@
         "front": "polos/front.png",
         "back": "polos/back.png",
         "sleeve": "polos/sleeve.png"
+      },
+      "variants": {
+        "short-sleeve": {
+          "views": {
+            "front": "polos/short-sleeve/front.png",
+            "back": "polos/short-sleeve/back.png",
+            "sleeve": "polos/short-sleeve/sleeve.png"
+          }
+        },
+        "long-sleeve": {
+          "views": {
+            "front": "polos/long-sleeve/front.png",
+            "back": "polos/long-sleeve/back.png",
+            "sleeve": "polos/long-sleeve/sleeve.png"
+          }
+        }
       }
     },
     {
@@ -118,6 +257,22 @@
         "front": "shirts/front.png",
         "back": "shirts/back.png",
         "sleeve": "shirts/sleeve.png"
+      },
+      "variants": {
+        "short-sleeve": {
+          "views": {
+            "front": "shirts/short-sleeve/front.png",
+            "back": "shirts/short-sleeve/back.png",
+            "sleeve": "shirts/short-sleeve/sleeve.png"
+          }
+        },
+        "long-sleeve": {
+          "views": {
+            "front": "shirts/long-sleeve/front.png",
+            "back": "shirts/long-sleeve/back.png",
+            "sleeve": "shirts/long-sleeve/sleeve.png"
+          }
+        }
       }
     },
     {
@@ -125,6 +280,20 @@
       "views": {
         "front": "shorts/front.png",
         "back": "shorts/back.png"
+      },
+      "variants": {
+        "sports": {
+          "views": {
+            "front": "shorts/sports/front.png",
+            "back": "shorts/sports/back.png"
+          }
+        },
+        "cargo-workwear": {
+          "views": {
+            "front": "shorts/cargo-workwear/front.png",
+            "back": "shorts/cargo-workwear/back.png"
+          }
+        }
       }
     },
     {
@@ -148,6 +317,22 @@
         "front": "sweatshirts/front.png",
         "back": "sweatshirts/back.png",
         "sleeve": "sweatshirts/sleeve.png"
+      },
+      "variants": {
+        "crewneck": {
+          "views": {
+            "front": "sweatshirts/crewneck/front.png",
+            "back": "sweatshirts/crewneck/back.png",
+            "sleeve": "sweatshirts/crewneck/sleeve.png"
+          }
+        },
+        "quarter-zip": {
+          "views": {
+            "front": "sweatshirts/quarter-zip/front.png",
+            "back": "sweatshirts/quarter-zip/back.png",
+            "sleeve": "sweatshirts/quarter-zip/sleeve.png"
+          }
+        }
       }
     },
     {
@@ -163,6 +348,22 @@
         "front": "tshirts/front.png",
         "back": "tshirts/back.png",
         "sleeve": "tshirts/sleeve.png"
+      },
+      "variants": {
+        "short-sleeve": {
+          "views": {
+            "front": "tshirts/short-sleeve/front.png",
+            "back": "tshirts/short-sleeve/back.png",
+            "sleeve": "tshirts/short-sleeve/sleeve.png"
+          }
+        },
+        "long-sleeve": {
+          "views": {
+            "front": "tshirts/long-sleeve/front.png",
+            "back": "tshirts/long-sleeve/back.png",
+            "sleeve": "tshirts/long-sleeve/sleeve.png"
+          }
+        }
       }
     },
     {
@@ -170,6 +371,20 @@
       "views": {
         "front": "vests-t-shirt/front.png",
         "back": "vests-t-shirt/back.png"
+      },
+      "variants": {
+        "standard": {
+          "views": {
+            "front": "vests-t-shirt/standard/front.png",
+            "back": "vests-t-shirt/standard/back.png"
+          }
+        },
+        "racerback": {
+          "views": {
+            "front": "vests-t-shirt/racerback/front.png",
+            "back": "vests-t-shirt/racerback/back.png"
+          }
+        }
       }
     }
   ]

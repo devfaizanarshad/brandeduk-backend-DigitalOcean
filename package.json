@@ -8,7 +8,8 @@
     "dev": "nodemon server.js",
     "merge:uneek": "node maintenance/run-uneek-merge.js",
     "customization:replace-images": "node maintenance/replace-customization-images-via-api.js",
-    "customization:seed-bag-variants": "node maintenance/seed-bag-customization-variants.js"
+    "customization:seed-bag-variants": "node maintenance/seed-bag-customization-variants.js",
+    "customization:seed-subtypes": "node maintenance/seed-customization-subtypes.js"
   },
   "keywords": [],
   "author": "",
