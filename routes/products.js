@@ -63,6 +63,7 @@ router.get('/', async (req, res) => {
       primaryColour,
       colourShade,
       colour,
+      color, // US spelling used by older frontend clients
       style,
       styles, // Accept both 'style' and 'styles' parameters
       feature,
@@ -133,6 +134,21 @@ router.get('/', async (req, res) => {
       return normalized.endsWith('gsm') ? normalized : `${normalized}gsm`;
     };
 
+    const expandFabricFilters = (values) => {
+      const aliases = {
+        cotton100: ['cotton-100', 'cotton-100-1', 'organic-100', 'organic-100-1', 'ringspun-100', 'combed-100', 'pre-100'],
+        'cotton-100': ['cotton-100', 'cotton-100-1', 'organic-100', 'organic-100-1', 'ringspun-100', 'combed-100', 'pre-100'],
+        polyester100: ['polyester-100', 'polyester-100-1', 'poly-100'],
+        organic: ['organic-100', 'organic-100-1'],
+        recycled: ['recycled-100', 'recycled-100-1'],
+        nylon: ['nylon-100']
+      };
+      return [...new Set(values.flatMap(value => {
+        const normalized = String(value || '').toLowerCase().trim();
+        return aliases[normalized] || [normalized];
+      }).filter(Boolean))];
+    };
+
     const normalizeStyleSlug = (slug) => {
       if (!slug) return slug;
       const lowerSlug = slug.toLowerCase().trim();
@@ -154,11 +170,11 @@ router.get('/', async (req, res) => {
       accreditations: parseArray(accreditations),
       primaryColour: parseArray(primaryColour),
       colourShade: parseArray(colourShade),
-      colour: parseArray(colour),
+      colour: parseArray(colour || color),
       style: normalizedStyles,
       feature: parseArray(feature),
       size: parseArray(size),
-      fabric: parseArray(fabric),
+      fabric: expandFabricFilters(parseArray(fabric)),
       flag: parseArray(flag),
       isBestSeller: isBestSeller === 'true' || isBestSeller === true,
       isRecommended: isRecommended === 'true' || isRecommended === true,

@@ -137,6 +137,41 @@ function normalizeSlug(slug) {
   return slug.toLowerCase().trim();
 }
 
+function resolveProductWeight({ weight, name, description, fabric, productType } = {}) {
+  const explicitValues = Array.isArray(weight) ? weight : [weight];
+  for (const value of explicitValues.filter(Boolean)) {
+    const text = String(value).trim();
+    if (/^\d{2,3}$/.test(text)) return `${text} gsm`;
+    if (/\d/.test(text)) {
+      return text
+        .replace(/\s*gsm\b/i, ' gsm')
+        .replace(/\s*-\s*/g, '-');
+    }
+  }
+
+  const descriptiveText = [description, fabric, name].filter(Boolean).join(' ');
+  const explicitGsm = descriptiveText.match(/\b(\d{2,3})\s*(?:gsm|g\s*\/\s*m(?:2|\u00b2))\b/i);
+  if (explicitGsm) return `${explicitGsm[1]} gsm`;
+
+  // Some T-shirt ranges encode their actual garment weight in the product
+  // name, for example B&C #Inspire E150 and The AWDis 180 T. Keep this
+  // inference limited to T-shirts so unrelated model numbers are not exposed
+  // as specifications.
+  const normalizedType = String(productType || '').toLowerCase();
+  const productName = String(name || '');
+  if (/t[\s-]*shirts?|\btees?\b/.test(normalizedType) || /\bt[\s-]*shirts?\b|\btees?\b/i.test(productName)) {
+    const encodedWeight = productName.match(/\bE(\d{3})\b/i)
+      || productName.match(/\b(\d{3})\s*(?:T|tee|t[\s-]*shirt)\b/i)
+      || productName.match(/\b(?:T|tee|t[\s-]*shirt)\s*(\d{3})\b/i);
+    if (encodedWeight) {
+      const gsm = Number(encodedWeight[1]);
+      if (gsm >= 50 && gsm <= 500) return `${gsm} gsm`;
+    }
+  }
+
+  return '';
+}
+
 async function getCategoryIdsWithChildrenCached(categoryIds) {
   if (!categoryIds || categoryIds.length === 0) {
     return [];
@@ -2625,7 +2660,9 @@ async function buildAlternativeProductsQuery(styleCode, limit = 5) {
 }
 
 async function buildProductDetailQuery(styleCode) {
-  const cacheKey = `product:${styleCode}`;
+  // Versioned because the detail payload now includes resolved fabric/weight
+  // metadata; do not serve an older cached response with an empty weight.
+  const cacheKey = `product:v2:${styleCode}`;
   const cached = await getCached(cacheKey);
   if (cached) {
     console.log(`[CACHE] Hit for product detail: ${styleCode}`);
@@ -2655,6 +2692,7 @@ async function buildProductDetailQuery(styleCode) {
       s.style_name,
       s.specification as description,
       s.fabric_description,
+      weight_info.weight_names,
       b.name as brand,
       pt.name as product_type,
       sup.slug as supplier,
@@ -2682,6 +2720,13 @@ async function buildProductDetailQuery(styleCode) {
     LEFT JOIN products p ON p.style_code = s.style_code AND p.sku_status IN ('Live', 'Discontinued')
     LEFT JOIN sizes sz ON p.size_id = sz.id
     LEFT JOIN tags t ON p.tag_id = t.id
+    LEFT JOIN LATERAL (
+      SELECT array_agg(DISTINCT wr.name ORDER BY wr.name) AS weight_names
+      FROM products pw
+      JOIN product_weight_ranges pwr ON pwr.product_id = pw.id
+      JOIN weight_ranges wr ON wr.id = pwr.weight_range_id
+      WHERE pw.style_code = s.style_code
+    ) weight_info ON true
     LEFT JOIN product_markup_overrides pmo ON pmo.style_code = s.style_code
     LEFT JOIN pricing_rules pr ON pr.active = true
       AND COALESCE(NULLIF(p.carton_price, 0), NULLIF(p.single_price, 0)) BETWEEN pr.from_price AND pr.to_price
@@ -2877,6 +2922,13 @@ async function buildProductDetailQuery(styleCode) {
 
   // Base price for markup: carton_price or single_price if carton is 0
   const basePriceForMarkup = cartonPrice && cartonPrice > 0 ? cartonPrice : (prices[0] ?? 0);
+  const resolvedWeight = resolveProductWeight({
+    weight: firstRow.weight_names || [],
+    name: firstRow.style_name || '',
+    description: firstRow.description || '',
+    fabric: firstRow.fabric_description || '',
+    productType: firstRow.product_type || ''
+  });
 
   const productDetail = {
     code: styleCode,
@@ -2895,10 +2947,12 @@ async function buildProductDetailQuery(styleCode) {
     variants: variants,
     images: images,
     description: firstRow.description || '',
+    fabric: firstRow.fabric_description || '',
+    weight: resolvedWeight,
     details: {
       fit: '',
       fabric: firstRow.fabric_description || '',
-      weight: '',
+      weight: resolvedWeight,
       care: ''
     },
     customization: ['embroidery', 'print'],
@@ -2947,5 +3001,6 @@ module.exports = {
   buildRelatedProductsQuery,
   buildProductDetailQuery,
   buildFilterAggregations: getFilterAggregations, // Export for routes
+  resolveProductWeight,
   clearCache
 };
