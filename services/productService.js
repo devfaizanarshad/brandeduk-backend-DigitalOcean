@@ -316,6 +316,21 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
       params.push(filters.primaryColour.map(c => c.toLowerCase()));
       paramIndex++;
     }
+    if (hasItems(filters.colourShade)) {
+      conditions.push(`LOWER(psm.colour_shade) = ANY($${paramIndex})`);
+      params.push(filters.colourShade.map(c => c.toLowerCase()));
+      paramIndex++;
+    }
+    if (hasItems(filters.colour)) {
+      conditions.push(`psm.colour_slugs::text[] && $${paramIndex}::text[]`);
+      params.push(filters.colour.map(c => c.toLowerCase()));
+      paramIndex++;
+    }
+    if (hasItems(filters.tag)) {
+      conditions.push(`LOWER(psm.tag_slug) = ANY($${paramIndex})`);
+      params.push(filters.tag.map(t => t.toLowerCase()));
+      paramIndex++;
+    }
     if (hasItems(filters.sleeve)) {
       conditions.push(`psm.sleeve_slugs::text[] && $${paramIndex}::text[]`);
       params.push(filters.sleeve.map(s => s.toLowerCase()));
@@ -329,6 +344,56 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
     if (hasItems(filters.fabric)) {
       conditions.push(`psm.fabric_slugs::text[] && $${paramIndex}::text[]`);
       params.push(filters.fabric.map(f => f.toLowerCase()));
+      paramIndex++;
+    }
+    if (hasItems(filters.size)) {
+      conditions.push(`psm.size_slugs::text[] && $${paramIndex}::text[]`);
+      params.push(filters.size.map(s => s.toLowerCase()));
+      paramIndex++;
+    }
+    if (hasItems(filters.style)) {
+      conditions.push(`psm.style_keyword_slugs::text[] && $${paramIndex}::text[]`);
+      params.push(filters.style.map(normalizeSlug));
+      paramIndex++;
+    }
+    if (hasItems(filters.feature)) {
+      conditions.push(`psm.feature_slugs::text[] && $${paramIndex}::text[]`);
+      params.push(filters.feature.map(normalizeSlug));
+      paramIndex++;
+    }
+    if (hasItems(filters.weight)) {
+      conditions.push(`psm.weight_slugs::text[] && $${paramIndex}::text[]`);
+      params.push(filters.weight.map(w => w.toLowerCase()));
+      paramIndex++;
+    }
+    if (hasItems(filters.fit)) {
+      conditions.push(`psm.fit_slugs::text[] && $${paramIndex}::text[]`);
+      params.push(filters.fit.map(normalizeSlug));
+      paramIndex++;
+    }
+    if (hasItems(filters.effect)) {
+      conditions.push(`psm.effects_arr::text[] && $${paramIndex}::text[]`);
+      params.push(filters.effect.map(e => e.toLowerCase()));
+      paramIndex++;
+    }
+    if (hasItems(filters.accreditations)) {
+      conditions.push(`psm.accreditation_slugs::text[] && $${paramIndex}::text[]`);
+      params.push(filters.accreditations.map(a => a.toLowerCase()));
+      paramIndex++;
+    }
+    if (hasItems(filters.sector)) {
+      conditions.push(`psm.sector_slugs::text[] && $${paramIndex}::text[]`);
+      params.push(filters.sector.map(s => s.toLowerCase()));
+      paramIndex++;
+    }
+    if (hasItems(filters.sport)) {
+      conditions.push(`psm.sport_slugs::text[] && $${paramIndex}::text[]`);
+      params.push(filters.sport.map(s => s.toLowerCase()));
+      paramIndex++;
+    }
+    if (hasItems(filters.flag)) {
+      conditions.push(`psm.flag_ids::int[] && ARRAY(SELECT id FROM special_flags WHERE LOWER(slug) = ANY($${paramIndex}::text[]))`);
+      params.push(filters.flag.map(f => f.toLowerCase()));
       paramIndex++;
     }
 

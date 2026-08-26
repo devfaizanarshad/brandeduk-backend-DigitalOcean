@@ -24,6 +24,7 @@ const paymentRoutes = require('./routes/payment');
 const profileRoutes = require('./routes/profile');
 const customizationRoutes = require('./routes/customization');
 const adminCustomizationRoutes = require('./routes/adminCustomization');
+const basketShareRoutes = require('./routes/basketShares');
 const { handleStripeWebhook } = require('./routes/stripeQuotes');
 
 // Load Swagger documentation
@@ -139,6 +140,7 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/customization-config', customizationRoutes);
 app.use('/api/admin/customization-config', adminCustomizationRoutes);
 app.use('/api/admin/customization', adminCustomizationRoutes);
+app.use('/api/basket-shares', basketShareRoutes);
 app.use('/api/admin', adminRoutes);
 
 // Swagger API Documentation

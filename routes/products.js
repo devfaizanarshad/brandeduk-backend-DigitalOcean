@@ -338,7 +338,10 @@ router.get('/filters', async (req, res) => {
     if (rc.cached) return res.json(rc.cached);
 
     const {
-      q, text, priceMin, priceMax, gender, ageGroup, sleeve, neckline, fabric, size, tag, productType, productTypes, category, categories
+      q, text, priceMin, priceMax, gender, ageGroup, sleeve, neckline,
+      accreditations, primaryColour, colourShade, colour, color, style, styles,
+      feature, size, fabric, weight, fit, sector, sport, tag, effect, flag,
+      brand, brands, productType, productTypes, category, categories
     } = req.query;
 
     const parseArray = (val) => {
@@ -347,6 +350,45 @@ router.get('/filters', async (req, res) => {
       if (typeof val === 'object') return Object.values(val);
       return [val];
     };
+
+    const expandFabricFilters = (values) => {
+      const aliases = {
+        cotton100: ['cotton-100', 'cotton-100-1', 'organic-100', 'organic-100-1', 'ringspun-100', 'combed-100', 'pre-100'],
+        polyester100: ['polyester-100', 'polyester-100-1', 'poly-100'],
+        organic: ['organic-100', 'organic-100-1'],
+        recycled: ['recycled-100', 'recycled-100-1'],
+        nylon: ['nylon-100']
+      };
+      return [...new Set(values.flatMap(value => aliases[String(value || '').toLowerCase().trim()] || [value]).filter(Boolean))];
+    };
+
+    const primaryColourAliases = {
+      grey: ['grey', 'gray', 'charcoal', 'heather grey', 'silver', 'ash'],
+      blue: ['blue', 'navy', 'royal', 'french navy', 'sapphire', 'sky', 'light blue', 'dark blue', 'navy/royal'],
+      green: ['green', 'olive', 'bottle green', 'kelly green', 'khaki', 'lime', 'military green'],
+      red: ['red', 'burgundy', 'maroon', 'crimson', 'scarlet', 'wine'],
+      pink: ['pink', 'hot pink', 'fuchsia', 'magenta'],
+      yellow: ['yellow', 'gold', 'mustard'],
+      purple: ['purple', 'violet', 'lilac', 'plum'],
+      orange: ['orange', 'coral'],
+      brown: ['brown', 'tan', 'camel', 'chocolate'],
+      neutral: ['neutral', 'beige', 'natural', 'stone', 'sand', 'cream', 'oatmeal'],
+      pattern: ['pattern', 'multi', 'multicolour']
+    };
+    const expandPrimaryColours = values => [...new Set(values.flatMap(value => {
+      const normalized = String(value || '').toLowerCase().trim();
+      return primaryColourAliases[normalized] || [normalized];
+    }).filter(Boolean))];
+
+    const normalizeWeights = values => values.map(value => {
+      const normalized = String(value || '').toLowerCase().trim().replace(/\s+/g, '-');
+      return normalized.endsWith('gsm') ? normalized : `${normalized}gsm`;
+    });
+    const expandKeywordFilters = values => [...new Set(values.flatMap(value => {
+      const normalized = String(value || '').toLowerCase().trim();
+      if (!normalized || /-\d+$/.test(normalized)) return normalized ? [normalized] : [];
+      return [normalized, `${normalized}-1`, `${normalized}-2`];
+    }))];
 
     const filters = {
       q: q || text || null,
@@ -357,9 +399,22 @@ router.get('/filters', async (req, res) => {
       ageGroup: parseArray(ageGroup),
       sleeve: parseArray(sleeve),
       neckline: parseArray(neckline),
-      fabric: parseArray(fabric),
+      accreditations: parseArray(accreditations),
+      primaryColour: expandPrimaryColours(parseArray(primaryColour)),
+      colourShade: parseArray(colourShade),
+      colour: parseArray(colour || color),
+      style: expandKeywordFilters(parseArray(style || styles)),
+      feature: expandKeywordFilters(parseArray(feature)),
       size: parseArray(size),
+      fabric: expandFabricFilters(parseArray(fabric)),
+      weight: normalizeWeights(parseArray(weight)),
+      fit: parseArray(fit),
+      sector: parseArray(sector),
+      sport: parseArray(sport),
       tag: parseArray(tag),
+      effect: parseArray(effect),
+      flag: parseArray(flag),
+      brand: parseArray(brand || brands),
       productType: parseArray(productType || productTypes || category || categories)
     };
 
