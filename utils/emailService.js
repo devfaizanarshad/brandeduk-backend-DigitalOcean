@@ -181,6 +181,13 @@ function generateQuoteEmailHTML(data) {
   const garmentCost = formatNumber(summary.garmentCost);
   const customizationCost = formatNumber(summary.customizationCost);
   const digitizingFee = formatNumber(summary.digitizingFee);
+  const embroideryDesignCount = Math.max(
+    0,
+    Number(summary.embroideryDesignCount) || Math.round((parseFloat(digitizingFee) || 0) / 25)
+  );
+  const digitizingFeeLabel = embroideryDesignCount > 0
+    ? `Embroidery digitising (£25 × ${embroideryDesignCount} ${embroideryDesignCount === 1 ? 'design' : 'designs'})`
+    : 'Embroidery digitising';
   const subtotal = formatNumber(summary.subtotal);
   const vatAmount = formatNumber(summary.vatAmount);
   const displayTotal = formatNumber(summary.displayTotal);
@@ -255,7 +262,7 @@ function generateQuoteEmailHTML(data) {
         <div class="summary-row"><span>Total Quantity:</span><span><strong>${totalQty} units</strong></span></div>
         <div class="summary-row"><span>Garment Cost:</span><span>£${garmentCost} ex VAT</span></div>
         <div class="summary-row"><span>Customization Cost:</span><span>£${customizationCost} ex VAT</span></div>
-        ${parseFloat(digitizingFee) > 0 ? `<div class="summary-row"><span>Digitizing Fee (one-time):</span><span>£${digitizingFee} ex VAT</span></div>` : ''}
+        ${parseFloat(digitizingFee) > 0 ? `<div class="summary-row"><span>${digitizingFeeLabel}:</span><span>£${digitizingFee} ex VAT</span></div>` : ''}
         <div class="summary-row"><span>Subtotal (ex VAT):</span><span>£${subtotal}</span></div>
         <div class="summary-row"><span>VAT (20%):</span><span>£${vatAmount}</span></div>
         <div class="summary-row"><span><strong>Total (${vatMode === 'inc' ? 'inc' : 'ex'} VAT):</strong></span><span><strong>£${displayTotal}</strong></span></div>
