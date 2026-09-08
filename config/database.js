@@ -62,8 +62,8 @@ const pool = new Pool({
 
   // Connection management
   connectionTimeoutMillis: 30000,                   // 30s to acquire connection (wait longer)
-  statement_timeout: 600000,                        // PostgreSQL kills queries >10min (needed for MV refresh)
-  query_timeout: 600000,                            // App-level timeout 10min
+  statement_timeout: parseInt(process.env.DB_STATEMENT_TIMEOUT_MS, 10) || 600000,
+  query_timeout: parseInt(process.env.DB_QUERY_TIMEOUT_MS, 10) || 600000,
 
   // Application settings
   application_name: 'branded-uk-api',

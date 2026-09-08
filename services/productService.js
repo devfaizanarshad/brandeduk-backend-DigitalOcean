@@ -16,12 +16,6 @@ const REDIS_TTL = {
 
 // PAGINATION CONFIGURATION - Enterprise-level settings
 const PAGINATION_CONFIG = {
-  // Maximum colors per product estimate (used for batch query limit calculation)
-  MAX_COLORS_PER_PRODUCT: 50,
-  // Absolute maximum rows to fetch in batch query (safety limit)
-  MAX_BATCH_ROWS: 10000,
-  // Minimum batch rows (ensures small requests work)
-  MIN_BATCH_ROWS: 500,
   // Maximum page size allowed
   MAX_PAGE_SIZE: 200,
   // Default page size
@@ -813,11 +807,9 @@ async function buildProductListQuery(filters, page, limit) {
 
   // ENTERPRISE-LEVEL: When color or price filters are active, fetch more items to account for post-filtering
   // This ensures we return the correct number of items after strict filtering
-  const hasPriceFilter = (filters.priceMin !== null && filters.priceMin !== undefined) ||
-    (filters.priceMax !== null && filters.priceMax !== undefined);
-  const hasColorFilter = hasItems(filters.primaryColour) || hasItems(filters.colourShade) || hasItems(filters.colour);
-  const hasStrictFilters = hasPriceFilter || hasColorFilter;
-  const fetchLimit = hasStrictFilters ? Math.min(limit * 3, 200) : limit; // Fetch up to 3x limit or 200, whichever is smaller
+  // Filtering is completed in SQL before pagination, so every request must
+  // honour the public page-size contract exactly.
+  const fetchLimit = limit;
   const offset = (page - 1) * limit;
 
   // ENTERPRISE-LEVEL: Log active filters for debugging
@@ -1170,28 +1162,28 @@ async function buildProductListQuery(filters, page, limit) {
 
   if (prioritizeCustomOrder) {
     // Default (newest/best-sellers proxy) – honour custom display order first
-    orderByClause = `custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}`;
+    orderByClause = `custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}, style_code ASC`;
   } else if (prioritizeBest) {
     // "Best" sort: prioritise products flagged as best seller with custom order
-    orderByClause = `is_best DESC, best_seller_order ASC, is_recommended DESC, recommended_order ASC, is_featured DESC, featured_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}`;
+    orderByClause = `is_best DESC, best_seller_order ASC, is_recommended DESC, recommended_order ASC, is_featured DESC, featured_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}, style_code ASC`;
   } else if (prioritizeRecommended) {
     // "Recommended" sort: prioritise products flagged as recommended with custom order
-    orderByClause = `is_recommended DESC, recommended_order ASC, is_best DESC, best_seller_order ASC, is_featured DESC, featured_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}`;
+    orderByClause = `is_recommended DESC, recommended_order ASC, is_best DESC, best_seller_order ASC, is_featured DESC, featured_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}, style_code ASC`;
   } else if (prioritizeFeatured) {
     // "Featured" sort: prioritise products flagged as featured with custom order
-    orderByClause = `is_featured DESC, featured_order ASC, is_best DESC, best_seller_order ASC, is_recommended DESC, recommended_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}`;
+    orderByClause = `is_featured DESC, featured_order ASC, is_best DESC, best_seller_order ASC, is_recommended DESC, recommended_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}, style_code ASC`;
   } else {
     // Normal sorting
     if (sort === 'price') {
-      orderByClause = `sell_price ${order}, ${searchSort}product_type_priority ASC`;
+      orderByClause = `sell_price ${order}, ${searchSort}product_type_priority ASC, style_code ASC`;
     } else if (sort === 'name') {
-      orderByClause = `style_name ${order}, ${searchSort}product_type_priority ASC`;
+      orderByClause = `style_name ${order}, ${searchSort}product_type_priority ASC, style_code ASC`;
     } else if (sort === 'brand') {
-      orderByClause = `brand_name ${order}, ${searchSort}product_type_priority ASC`;
+      orderByClause = `brand_name ${order}, ${searchSort}product_type_priority ASC, style_code ASC`;
     } else if (sort === 'code') {
       orderByClause = `style_code ${order}, ${searchSort}product_type_priority ASC`;
     } else {
-      orderByClause = `${searchSort}product_type_priority ASC, created_at ${order}`;
+      orderByClause = `${searchSort}product_type_priority ASC, created_at ${order}, style_code ASC`;
     }
   }
 
@@ -1420,26 +1412,15 @@ async function buildProductListQuery(filters, page, limit) {
     // STEP 2: Fetch full details for only the paginated style codes (SMALL DATASET)
     const batchStartTime = Date.now();
 
-    // ENTERPRISE-LEVEL: Dynamic batch limit calculation
-    // Without DISTINCT ON, each row = one color+size combination.
-    // We need enough rows to cover all products:  colors × sizes per product.
-    // Formula: styleCodes.length * MAX_VARIANTS_PER_PRODUCT, capped at MAX_BATCH_ROWS
-    const dynamicBatchLimit = Math.max(
-      PAGINATION_CONFIG.MIN_BATCH_ROWS,
-      Math.min(
-        styleCodes.length * PAGINATION_CONFIG.MAX_COLORS_PER_PRODUCT * 8, // ~8 sizes per color
-        PAGINATION_CONFIG.MAX_BATCH_ROWS
-      )
-    );
-
-    console.log(`[PAGINATION] Batch query limit: ${dynamicBatchLimit} (for ${styleCodes.length} style codes)`);
-
+    // Without DISTINCT ON, each row is one colour/size combination.
+    // Every variant for the selected page is required to build complete colour
+    // and size lists; truncation would make valid products disappear.
     // ENTERPRISE-LEVEL: Build color filter conditions for batch query
     // When color filters are applied, we MUST filter the batch query too
     // Otherwise, products with multiple colors will show ALL colors instead of just filtered ones
-    const batchParams = [styleCodes, dynamicBatchLimit];
+    const batchParams = [styleCodes];
     let batchColorConditions = [];
-    let batchParamIndex = 3;
+    let batchParamIndex = 2;
 
     // Apply primaryColour filter to batch query
     if (hasItems(filters.primaryColour)) {
@@ -1459,12 +1440,12 @@ async function buildProductListQuery(filters, page, limit) {
 
     // Build the color WHERE clause (if any filters are active)
     const batchColorWhereClause = batchColorConditions.length > 0
-      ? `AND (${batchColorConditions.join(' OR ')})`
+      ? `AND (${batchColorConditions.join(' AND ')})`
       : '';
 
     // Fetch all rows (style_code + colour + size combinations) so sizes accumulate correctly.
     // Previously DISTINCT ON (style_code, colour_name) collapsed rows, losing all but the first size.
-    // Dynamic limit ensures all requested products are retrieved regardless of color/size count.
+    // Fetch every variant for the page so valid colours and sizes are never truncated.
     // CRITICAL FIX: Apply color filters to batch query to ensure only matching colors are returned
     const batchQuery = `
       SELECT
@@ -1498,7 +1479,6 @@ async function buildProductListQuery(filters, page, limit) {
       WHERE p.style_code = ANY($1::text[]) AND p.sku_status = 'Live'
       ${batchColorWhereClause}
       ORDER BY p.style_code, p.colour_name, COALESCE(sz.size_order, 999)
-      LIMIT $2
     `;
 
     const batchResult = await queryWithTimeout(batchQuery, batchParams, 30000); // 30s timeout for larger batch queries
@@ -1756,7 +1736,7 @@ async function buildProductListQuery(filters, page, limit) {
       invalidPriceCount: invalidPriceProducts.length,
       finalItemsCount: items.length,
       batchRowsReturned: batchResult.rows.length,
-      batchLimit: dynamicBatchLimit,
+      batchLimit: null,
       colorFilterActive: colorFilterActive
     };
 
@@ -1792,43 +1772,13 @@ async function buildProductListQuery(filters, page, limit) {
       return true;
     });
 
-    // Recompute price range based on filtered items for accurate UI feedback
-    const filteredPriceRange = filteredItems.length
-      ? {
-        min: Math.min(...filteredItems.map(i => i.price)),
-        max: Math.max(...filteredItems.map(i => i.price))
-      }
-      : { min: 0, max: 0 };
-
     const totalTime = Date.now() - startTime;
     console.log(`[QUERY] Total product list: ${totalTime}ms`);
 
-    // Price range is already in sell_price (marked-up), no conversion needed
-    // Use filtered price range when price filters are active to avoid misleading UI
-    const markedUpPriceRange = (priceMinFilter !== null && priceMinFilter !== undefined) ||
-      (priceMaxFilter !== null && priceMaxFilter !== undefined)
-      ? filteredPriceRange
-      : priceRange;
-
-    // ENTERPRISE-LEVEL: Adjust total count when filters cause significant page shortfall
-    // If we requested 'limit' items but got fewer (not on last page), something is wrong
-    // This can happen when the materialized view has stale color data
-    let adjustedTotal = total;
-    const expectedItemsOnPage = Math.min(limit, total - offset);
-    const actualItemsOnPage = filteredItems.length;
-
-    // Only adjust if we're getting significantly fewer items than expected AND filters are active
-    if (hasStrictFilters && actualItemsOnPage < expectedItemsOnPage && actualItemsOnPage > 0) {
-      // Calculate adjustment factor based on what we actually got vs expected
-      const actualRatio = actualItemsOnPage / expectedItemsOnPage;
-      adjustedTotal = Math.ceil(total * actualRatio);
-      console.log(`[FILTER ADJUSTMENT] Adjusted total from ${total} to ${adjustedTotal} (ratio: ${actualRatio.toFixed(2)})`);
-    }
-
     const queryResponse = {
       items: filteredItems,
-      total: adjustedTotal,
-      priceRange: markedUpPriceRange
+      total,
+      priceRange
     };
 
     // Cache the response using centralized TTL
