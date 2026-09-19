@@ -12,6 +12,8 @@
     "catalog:sync": "node maintenance/sync-supplier-catalog.js",
     "catalog:verify": "node maintenance/verify-supplier-catalog.js",
     "customization:replace-images": "node maintenance/replace-customization-images-via-api.js",
+    "customization:prepare-63": "python maintenance/prepare-customization-63-assets.py",
+    "customization:replace-63": "node maintenance/replace-customization-63-categories.js",
     "customization:seed-bag-variants": "node maintenance/seed-bag-customization-variants.js",
     "customization:seed-subtypes": "node maintenance/seed-customization-subtypes.js"
   },
