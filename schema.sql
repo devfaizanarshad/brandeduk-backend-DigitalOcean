@@ -355,6 +355,30 @@ CREATE TABLE IF NOT EXISTS customization_sku_capability_overrides (
   PRIMARY KEY (sku, position_key, method)
 );
 
+CREATE TABLE IF NOT EXISTS customization_decoration_price_tiers (
+  method VARCHAR(40) NOT NULL REFERENCES customization_decoration_methods(method) ON DELETE CASCADE,
+  price_class VARCHAR(40) NOT NULL DEFAULT 'standard',
+  min_quantity INTEGER NOT NULL CHECK (min_quantity > 0),
+  max_quantity INTEGER CHECK (max_quantity IS NULL OR max_quantity >= min_quantity),
+  unit_price NUMERIC(10, 2) NOT NULL CHECK (unit_price >= 0),
+  source_count INTEGER NOT NULL DEFAULT 0,
+  requires_manual_review BOOLEAN NOT NULL DEFAULT false,
+  pricing_version VARCHAR(40) NOT NULL,
+  updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (method, price_class, min_quantity)
+);
+
+CREATE TABLE IF NOT EXISTS customization_decoration_fees (
+  method VARCHAR(40) NOT NULL REFERENCES customization_decoration_methods(method) ON DELETE CASCADE,
+  fee_code VARCHAR(80) NOT NULL,
+  label VARCHAR(160) NOT NULL,
+  amount NUMERIC(10, 2) NOT NULL CHECK (amount >= 0),
+  per_unit VARCHAR(40) NOT NULL,
+  pricing_version VARCHAR(40) NOT NULL,
+  updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (method, fee_code)
+);
+
 
 
 -- DB_HOST=206.189.119.150
