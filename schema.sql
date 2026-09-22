@@ -315,6 +315,46 @@ CREATE TABLE IF NOT EXISTS "weight_ranges" (
   "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Data-driven garment decoration capability rules
+CREATE TABLE IF NOT EXISTS customization_decoration_methods (
+  method VARCHAR(40) PRIMARY KEY,
+  label VARCHAR(120) NOT NULL,
+  method_type VARCHAR(40) NOT NULL,
+  global_status VARCHAR(20) NOT NULL CHECK (global_status IN ('AVAILABLE', 'POA', 'UNAVAILABLE', 'HIDDEN')),
+  customer_facing BOOLEAN NOT NULL DEFAULT true,
+  ruleset_version VARCHAR(40) NOT NULL,
+  created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS customization_product_capabilities (
+  product_type_key VARCHAR(120) NOT NULL,
+  method VARCHAR(40) NOT NULL REFERENCES customization_decoration_methods(method) ON DELETE CASCADE,
+  status VARCHAR(20) NOT NULL CHECK (status IN ('AVAILABLE', 'POA', 'UNAVAILABLE', 'HIDDEN')),
+  ruleset_version VARCHAR(40) NOT NULL,
+  updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (product_type_key, method)
+);
+
+CREATE TABLE IF NOT EXISTS customization_position_capabilities (
+  position_key VARCHAR(120) NOT NULL,
+  method VARCHAR(40) NOT NULL REFERENCES customization_decoration_methods(method) ON DELETE CASCADE,
+  status VARCHAR(20) NOT NULL CHECK (status IN ('AVAILABLE', 'POA', 'UNAVAILABLE', 'HIDDEN')),
+  ruleset_version VARCHAR(40) NOT NULL,
+  updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (position_key, method)
+);
+
+CREATE TABLE IF NOT EXISTS customization_sku_capability_overrides (
+  sku VARCHAR(120) NOT NULL,
+  position_key VARCHAR(120) NOT NULL DEFAULT '',
+  method VARCHAR(40) NOT NULL REFERENCES customization_decoration_methods(method) ON DELETE CASCADE,
+  status VARCHAR(20) NOT NULL CHECK (status IN ('AVAILABLE', 'POA', 'UNAVAILABLE', 'HIDDEN')),
+  notes TEXT,
+  updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (sku, position_key, method)
+);
+
 
 
 -- DB_HOST=206.189.119.150
