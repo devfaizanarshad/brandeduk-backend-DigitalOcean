@@ -11,6 +11,7 @@
     "catalog:audit": "node maintenance/audit-supplier-catalog.js",
     "catalog:sync": "node maintenance/sync-supplier-catalog.js",
     "catalog:verify": "node maintenance/verify-supplier-catalog.js",
+    "catalog:groups": "node maintenance/sync-ralawise-catalog-groups.js",
     "customization:replace-images": "node maintenance/replace-customization-images-via-api.js",
     "customization:prepare-63": "python maintenance/prepare-customization-63-assets.py",
     "customization:replace-63": "node maintenance/replace-customization-63-categories.js",
@@ -22,6 +23,7 @@
   "license": "ISC",
   "dependencies": {
     "cors": "^2.8.5",
+    "csv-parse": "^6.2.1",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "ioredis": "^5.9.2",

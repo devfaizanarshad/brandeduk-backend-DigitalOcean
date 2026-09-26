@@ -3,6 +3,8 @@ const cors = require('cors');
 const swaggerUi = require('swagger-ui-express');
 const YAML = require('yamljs');
 const path = require('path');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const { checkDatabaseHealth, closePool } = require('./config/database');
 require('dotenv').config();
 
@@ -25,6 +27,7 @@ const profileRoutes = require('./routes/profile');
 const customizationRoutes = require('./routes/customization');
 const customizationCapabilitiesRoutes = require('./routes/customizationCapabilities');
 const customizationPricingRoutes = require('./routes/customizationPricing');
+const catalogGroupsRoutes = require('./routes/catalogGroups');
 const adminCustomizationRoutes = require('./routes/adminCustomization');
 const basketShareRoutes = require('./routes/basketShares');
 const { handleStripeWebhook } = require('./routes/stripeQuotes');
@@ -34,6 +37,7 @@ const swaggerDocument = YAML.load(path.join(__dirname, 'swagger.yaml'));
 
 const app = express();
 const PORT = process.env.PORT || 3004;
+const execFileAsync = promisify(execFile);
 
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -142,6 +146,7 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/customization-config', customizationRoutes);
 app.use('/api/customization-capabilities', customizationCapabilitiesRoutes);
 app.use('/api/customization-pricing', customizationPricingRoutes);
+app.use('/api/catalog-groups', catalogGroupsRoutes);
 app.use('/api/admin/customization-config', adminCustomizationRoutes);
 app.use('/api/admin/customization', adminCustomizationRoutes);
 app.use('/api/basket-shares', basketShareRoutes);
@@ -274,25 +279,41 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('[ERROR] Unhandled rejection:', { promise, reason });
 });
 
-server = app.listen(PORT, () => {
-  console.log(`[SERVER] Started on port ${PORT}`);
-  console.log(`[SERVER] API: http://localhost:${PORT}/api/products`);
-  console.log(`[SERVER] Health: http://localhost:${PORT}/health`);
-  console.log(`[SERVER] Environment: ${process.env.NODE_ENV || 'development'}`);
-});
-
-// Increase server timeout to 10 minutes (600,000ms) for long-running syncs
-server.timeout = 600000;
-server.keepAliveTimeout = 601000; // and slightly higher keep-alive
-server.headersTimeout = 602000;   // and headers timeout
-
-server.on('error', (error) => {
-
-  if (error.code === 'EADDRINUSE') {
-    console.error(`[SERVER] Port ${PORT} is already in use`);
-  } else {
-    console.error('[SERVER] Error:', error.message);
+async function startServer() {
+  if (process.env.NODE_ENV === 'production' && process.env.CATALOG_GROUP_SYNC_ON_START !== 'false') {
+    const migration = path.join(__dirname, 'maintenance', 'sync-ralawise-catalog-groups.js');
+    const { stdout, stderr } = await execFileAsync(process.execPath, [migration, '--apply'], {
+      cwd: __dirname,
+      env: process.env,
+      maxBuffer: 10 * 1024 * 1024
+    });
+    if (stdout) console.log(stdout.trim());
+    if (stderr) console.warn(stderr.trim());
   }
+
+  server = app.listen(PORT, () => {
+    console.log(`[SERVER] Started on port ${PORT}`);
+    console.log(`[SERVER] API: http://localhost:${PORT}/api/products`);
+    console.log(`[SERVER] Health: http://localhost:${PORT}/health`);
+    console.log(`[SERVER] Environment: ${process.env.NODE_ENV || 'development'}`);
+  });
+
+  server.timeout = 600000;
+  server.keepAliveTimeout = 601000;
+  server.headersTimeout = 602000;
+
+  server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(`[SERVER] Port ${PORT} is already in use`);
+    } else {
+      console.error('[SERVER] Error:', error.message);
+    }
+    process.exit(1);
+  });
+}
+
+startServer().catch(error => {
+  console.error('[SERVER] Startup migration failed:', error.message);
   process.exit(1);
 });
 
