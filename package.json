@@ -16,7 +16,8 @@
     "customization:prepare-63": "python maintenance/prepare-customization-63-assets.py",
     "customization:replace-63": "node maintenance/replace-customization-63-categories.js",
     "customization:seed-bag-variants": "node maintenance/seed-bag-customization-variants.js",
-    "customization:seed-subtypes": "node maintenance/seed-customization-subtypes.js"
+    "customization:seed-subtypes": "node maintenance/seed-customization-subtypes.js",
+    "admin:create": "node maintenance/create-admin-user.js"
   },
   "keywords": [],
   "author": "",

@@ -147,10 +147,26 @@ async function requireAuth(req, res, next) {
   }
 }
 
+function isAdminRole(role) {
+  return role === 'admin' || role === 'super_admin';
+}
+
+async function requireAdmin(req, res, next) {
+  return requireAuth(req, res, (error) => {
+    if (error) return next(error);
+    if (!isAdminRole(req.user?.role)) {
+      return res.status(403).json({ success: false, message: 'Administrator access required' });
+    }
+    return next();
+  });
+}
+
 module.exports = {
   hashPassword,
   optionalAuth,
+  requireAdmin,
   requireAuth,
+  isAdminRole,
   signJwt,
   verifyJwt,
   verifyPassword,

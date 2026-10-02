@@ -31,27 +31,44 @@ const catalogGroupsRoutes = require('./routes/catalogGroups');
 const adminCustomizationRoutes = require('./routes/adminCustomization');
 const basketShareRoutes = require('./routes/basketShares');
 const { handleStripeWebhook } = require('./routes/stripeQuotes');
+const { requireAdmin } = require('./utils/auth');
+const { buildCorsOptions } = require('./utils/security');
 
 // Load Swagger documentation
 const swaggerDocument = YAML.load(path.join(__dirname, 'swagger.yaml'));
 
 const app = express();
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3004;
 const execFileAsync = promisify(execFile);
 
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   next();
 });
 
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
-  credentials: true,
-  optionsSuccessStatus: 200,
-}));
+app.use((req, res, next) => {
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    if (res.statusCode >= 500 && body && typeof body === 'object') {
+      const safeBody = { ...body };
+      delete safeBody.message;
+      delete safeBody.details;
+      delete safeBody.stack;
+      if (!safeBody.error) safeBody.error = 'Internal server error';
+      return originalJson(safeBody);
+    }
+    return originalJson(body);
+  };
+  next();
+});
+
+app.use(cors(buildCorsOptions()));
 
 app.use(['/api/quotes/stripe/webhook', '/api/payment/webhook', '/webhook'], express.raw({ type: 'application/json' }));
 app.post('/webhook', handleStripeWebhook);
@@ -132,8 +149,8 @@ app.use('/api/categories', categoriesRoutes);
 app.use('/api/filters', filtersRoutes);
 app.use('/api/quotes', quotesRoutes);
 app.use('/api/contact', contactRoutes);
-app.use('/api/display-order', displayOrderRoutes);
-app.use('/api/pricing', pricingRoutes);
+app.use('/api/display-order', requireAdmin, displayOrderRoutes);
+app.use('/api/pricing', requireAdmin, pricingRoutes);
 app.use('/api/sites', sitesRoutes);
 app.use('/api/vecteezy', vecteezyRoutes);
 app.use('/api/auth', authRoutes);
@@ -147,24 +164,24 @@ app.use('/api/customization-config', customizationRoutes);
 app.use('/api/customization-capabilities', customizationCapabilitiesRoutes);
 app.use('/api/customization-pricing', customizationPricingRoutes);
 app.use('/api/catalog-groups', catalogGroupsRoutes);
-app.use('/api/admin/customization-config', adminCustomizationRoutes);
-app.use('/api/admin/customization', adminCustomizationRoutes);
+app.use('/api/admin/customization-config', requireAdmin, adminCustomizationRoutes);
+app.use('/api/admin/customization', requireAdmin, adminCustomizationRoutes);
 app.use('/api/basket-shares', basketShareRoutes);
-app.use('/api/admin', adminRoutes);
+app.use('/api/admin', requireAdmin, adminRoutes);
 
-// Swagger API Documentation
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
-  customCss: `
-    .swagger-ui .topbar { display: none }
-    .swagger-ui .wrapper { max-width: 100%; padding: 0 20px; }
-    html, body { margin: 0; padding: 0; }
-  `,
-  customSiteTitle: 'Branded UK API Documentation'
-}));
+if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_API_DOCS === 'true') {
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
+    customCss: `
+      .swagger-ui .topbar { display: none }
+      .swagger-ui .wrapper { max-width: 100%; padding: 0 20px; }
+      html, body { margin: 0; padding: 0; }
+    `,
+    customSiteTitle: 'Branded UK API Documentation'
+  }));
+}
 
-// Redirect root to API docs
 app.get('/', (req, res) => {
-  res.redirect('/api-docs');
+  res.json({ service: 'Branded UK API', status: 'online' });
 });
 
 app.get('/health', async (req, res) => {
@@ -173,12 +190,6 @@ app.get('/health', async (req, res) => {
   res.json({
     status: dbHealth.healthy ? 'healthy' : 'degraded',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    memory: {
-      used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB',
-      total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + 'MB',
-    },
-    database: dbHealth,
   });
 });
 
@@ -191,12 +202,12 @@ app.get('/health/ready', async (req, res) => {
   if (dbHealth.healthy) {
     res.json({ status: 'ready', timestamp: new Date().toISOString() });
   } else {
-    res.status(503).json({ status: 'not ready', database: dbHealth });
+    res.status(503).json({ status: 'not ready', timestamp: new Date().toISOString() });
   }
 });
 
 // Cache health endpoint - monitor Redis/memory cache performance
-app.get('/health/cache', async (req, res) => {
+app.get('/health/cache', requireAdmin, async (req, res) => {
   try {
     const cacheService = require('./services/cacheService');
     const { getStats } = require('./config/database');
@@ -216,7 +227,7 @@ app.get('/health/cache', async (req, res) => {
     });
   } catch (err) {
     res.json({
-      cache: { healthy: false, error: err.message },
+      cache: { healthy: false },
       timestamp: new Date().toISOString()
     });
   }

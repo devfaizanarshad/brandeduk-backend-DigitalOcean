@@ -10,7 +10,7 @@ const cache = require('../services/cacheService');
  * Uses the full URL as cache key. TTL defaults to PRODUCTS (3 days).
  */
 async function routeCache(req, ttl) {
-  const rawKey = `products:route:${req.originalUrl}`;
+  const rawKey = `products:route:v2:${req.originalUrl}`;
   let hash = 0;
   for (let i = 0; i < rawKey.length; i++) {
     const char = rawKey.charCodeAt(i);
@@ -209,7 +209,7 @@ router.get('/', async (req, res) => {
     res.json(response);
   } catch (error) {
     console.error('[ERROR] Failed to fetch products:', error.message);
-    res.status(500).json({ error: 'Internal server error', message: error.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -474,6 +474,73 @@ router.get('/types', async (req, res) => {
     await rc.store(response);
     res.json(response);
   } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/featured', async (req, res) => {
+  try {
+    const { type, product_type_id, limit = 50, offset = 0 } = req.query;
+    let conditions = ['(s.is_best_seller = true OR s.is_recommended = true OR s.is_featured = true)'];
+    const params = [];
+    let parameterIndex = 1;
+
+    if (type === 'best') conditions = ['s.is_best_seller = true'];
+    else if (type === 'recommended') conditions = ['s.is_recommended = true'];
+    else if (type === 'featured') conditions = ['s.is_featured = true'];
+
+    if (product_type_id) {
+      conditions.push(`s.product_type_id = $${parameterIndex++}`);
+      params.push(parseInt(product_type_id, 10));
+    }
+
+    const limitNumber = Math.min(parseInt(limit, 10) || 50, 100);
+    const offsetNumber = Math.max(parseInt(offset, 10) || 0, 0);
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
+    const orderColumn = type === 'best'
+      ? 's.best_seller_order'
+      : type === 'recommended'
+        ? 's.recommended_order'
+        : type === 'featured'
+          ? 's.featured_order'
+          : 's.updated_at';
+
+    const sql = `
+      SELECT s.style_code, s.style_name, s.is_best_seller, s.is_recommended,
+        s.is_featured, s.best_seller_order, s.recommended_order, s.featured_order,
+        b.name AS brand_name, pt.name AS product_type_name,
+        (SELECT p.sell_price FROM products p WHERE p.style_code = s.style_code AND p.sku_status = 'Live' LIMIT 1) AS price,
+        (SELECT p.primary_image_url FROM products p WHERE p.style_code = s.style_code AND p.sku_status = 'Live' LIMIT 1) AS image,
+        (SELECT COUNT(*) FROM products p WHERE p.style_code = s.style_code AND p.sku_status = 'Live') AS sku_count
+      FROM styles s
+      LEFT JOIN brands b ON s.brand_id = b.id
+      LEFT JOIN product_types pt ON s.product_type_id = pt.id
+      ${whereClause}
+      ORDER BY ${orderColumn} ${type ? 'ASC' : 'DESC'}
+      LIMIT $${parameterIndex++} OFFSET $${parameterIndex++}
+    `;
+    const countSql = `SELECT COUNT(*) FROM styles s ${whereClause}`;
+    const summarySql = `
+      SELECT pt.id, pt.name, COUNT(DISTINCT s.style_code) AS count
+      FROM styles s JOIN product_types pt ON s.product_type_id = pt.id
+      WHERE s.is_best_seller = true OR s.is_recommended = true OR s.is_featured = true
+      GROUP BY pt.id, pt.name ORDER BY pt.name ASC
+    `;
+    const [result, countResult, summaryResult] = await Promise.all([
+      queryWithTimeout(sql, [...params, limitNumber, offsetNumber], 10000),
+      queryWithTimeout(countSql, params, 10000),
+      queryWithTimeout(summarySql, [], 10000),
+    ]);
+
+    res.json({
+      items: result.rows,
+      total: parseInt(countResult.rows[0]?.count || 0, 10),
+      by_product_type: summaryResult.rows.map((row) => ({ id: row.id, name: row.name, count: parseInt(row.count, 10) })),
+      limit: limitNumber,
+      offset: offsetNumber,
+    });
+  } catch (error) {
+    console.error('[ERROR] Failed to list featured products:', error.message);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
