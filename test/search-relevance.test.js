@@ -11,7 +11,13 @@ const rowsForQuery = sql => {
   if (sql.includes('FROM product_types')) return [
     { name: 'Hooded Sweatshirts' },
     { name: 'Vests (t-shirt)' },
-    { name: 'Hi Vis' }
+    { name: 'Hi Vis' },
+    { name: 'Beanies' },
+    { name: 'Hats' },
+    { name: 'Fleece' },
+    { name: 'Jackets' },
+    { name: 'Sweatshirts' },
+    { name: 'T-shirts' }
   ];
   if (sql.includes('FROM style_keywords')) return [
     { name: 'Zipped', slug: 'zipped', keyword_type: 'feature' },
@@ -28,9 +34,17 @@ const rowsForQuery = sql => {
     { name: "Women's", slug: 'womens' },
     { name: 'Kids', slug: 'kids' }
   ];
+  if (sql.includes('FROM age_groups')) return [
+    { name: 'Adult', slug: 'adult' },
+    { name: 'Infant', slug: 'infant' },
+    { name: 'Kids', slug: 'kids' }
+  ];
   if (sql.includes('FROM search_synonyms')) return [
     { term: 'hoodie', canonical: 'hooded sweatshirt', synonym_type: 'product_type' },
     { term: 'hoodies', canonical: 'hooded sweatshirts', synonym_type: 'product_type' },
+    { term: 'beanie', canonical: 'beanies', synonym_type: 'product_type' },
+    { term: 'sweatshirt', canonical: 'sweatshirts', synonym_type: 'product_type' },
+    { term: 't shirt', canonical: 't-shirts', synonym_type: 'product_type' },
     { term: 'zip', canonical: 'zipped', synonym_type: 'attribute' },
     { term: 'mens', canonical: 'mens', synonym_type: 'gender' },
     { term: 'quarter zip', canonical: 'quarter-zip', synonym_type: 'attribute' },
@@ -95,5 +109,34 @@ test('hi-vis vest resolves to safetywear instead of fashion vests', async () => 
 
   assert.equal(parsed.productType, 'hi vis');
   assert.deepEqual(parsed.colours, []);
-  assert.deepEqual(parsed.freeText, ['vest', 'waistcoat']);
+  assert.deepEqual(parsed.freeText, []);
+  assert.deepEqual(parsed.requiredNameGroups, [['vest', 'waistcoat']]);
+});
+
+test('specific garment types are not overwritten by generic trailing words', async () => {
+  assert.equal((await parseSearchQuery('beanie hat')).productType, 'beanies');
+  assert.equal((await parseSearchQuery('fleece jacket')).productType, 'fleece');
+});
+
+test('age intent uses catalogue age groups instead of loose text', async () => {
+  const junior = await parseSearchQuery('junior sweatshirt');
+  const baby = await parseSearchQuery('baby t shirt');
+
+  assert.deepEqual(junior.ageGroups, ['kids']);
+  assert.equal(junior.productType, 'sweatshirts');
+  assert.deepEqual(junior.freeText, []);
+  assert.deepEqual(baby.ageGroups, ['infant']);
+  assert.equal(baby.productType, 't-shirts');
+  assert.deepEqual(baby.freeText, []);
+});
+
+test('hi-vis garment subtypes use strict name constraints', async () => {
+  const jacket = await parseSearchQuery('hi vis jacket');
+  const trousers = await parseSearchQuery('hi vis trousers');
+
+  assert.deepEqual(jacket.requiredNameGroups, [['jacket']]);
+  assert.deepEqual(trousers.requiredNameGroups, [['trouser', 'pant']]);
+
+  const search = await buildSearchConditions('hi vis jacket');
+  assert.match(search.conditions.join(' AND '), /style_name ILIKE ANY/);
 });

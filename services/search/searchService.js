@@ -80,6 +80,14 @@ async function buildSearchConditions(rawQuery, viewAlias = 'psm', paramIndex = 1
     const index = addParam([...new Set(parsed.genders)]);
     conditions.push(`${viewAlias}.gender_slug = ANY($${index}::text[])`);
   }
+  if (parsed.ageGroups.length > 0) {
+    const index = addParam([...new Set(parsed.ageGroups)]);
+    conditions.push(`${viewAlias}.age_group_slug = ANY($${index}::text[])`);
+  }
+  parsed.requiredNameGroups.forEach(group => {
+    const index = addParam(group.map(term => `%${term}%`));
+    conditions.push(`${viewAlias}.style_name ILIKE ANY($${index}::text[])`);
+  });
   if (parsed.sports.length > 0) {
     const index = addParam([...new Set(parsed.sports)]);
     conditions.push(`${viewAlias}.sport_slugs::text[] && $${index}::text[]`);

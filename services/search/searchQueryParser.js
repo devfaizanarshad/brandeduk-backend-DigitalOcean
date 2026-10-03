@@ -34,7 +34,7 @@ function toSlugMap(rows) {
 async function loadLookups() {
     if (lookupCache && Date.now() - lookupCacheTimestamp < 600000) return lookupCache;
 
-    const [brands, types, keywords, fabrics, sectors, colours, sports, genders] = await Promise.all([
+    const [brands, types, keywords, fabrics, sectors, colours, sports, genders, ageGroups] = await Promise.all([
         queryWithTimeout('SELECT name FROM brands', []),
         queryWithTimeout('SELECT name FROM product_types', []),
         queryWithTimeout('SELECT name, slug, keyword_type FROM style_keywords', []),
@@ -42,7 +42,8 @@ async function loadLookups() {
         queryWithTimeout('SELECT name, slug FROM related_sectors', []),
         queryWithTimeout('SELECT DISTINCT primary_colour as name FROM products WHERE primary_colour IS NOT NULL', []),
         queryWithTimeout('SELECT name, slug FROM related_sports', []),
-        queryWithTimeout('SELECT name, slug FROM genders', [])
+        queryWithTimeout('SELECT name, slug FROM genders', []),
+        queryWithTimeout('SELECT name, slug FROM age_groups', [])
     ]);
 
     const keywordRows = keywords.rows;
@@ -63,6 +64,7 @@ async function loadLookups() {
         fabrics: toSlugMap(fabrics.rows),
         sectors: toSlugMap(sectors.rows),
         genders: toSlugMap(genders.rows),
+        ageGroups: toSlugMap(ageGroups.rows),
         colours: toNameSet(colours.rows)
     };
     lookupCacheTimestamp = Date.now();
@@ -86,10 +88,12 @@ async function parseSearchQuery(rawQuery) {
         fabrics: [],
         sectors: [],
         genders: [],
+        ageGroups: [],
         colours: [],
         features: [],
         keywords: [],
         freeText: [],
+        requiredNameGroups: [],
         styleCode: null
     };
 
@@ -104,23 +108,32 @@ async function parseSearchQuery(rawQuery) {
         }
     }
 
+    function assignProductType(term) {
+        if (!result.productType) result.productType = term;
+    }
+
     function classifyTerm(term, resolvedItem) {
         if (resolvedItem && resolvedItem.type === 'gender') {
             result.genders.push(lookups.genders.get(term) || term);
             return true;
         }
 
-        const allowBrandTypeMatch = !resolvedItem || resolvedItem.type === 'product_type';
+        if (resolvedItem && resolvedItem.type === 'age_group') {
+            result.ageGroups.push(lookups.ageGroups.get(term) || term);
+            return true;
+        }
+
+        const allowBrandTypeMatch = !resolvedItem || resolvedItem.type === 'product_type' || resolvedItem.type === 'unknown';
         const isBrand = lookups.brands.has(term);
         const isType = allowBrandTypeMatch && lookups.types.has(term);
 
         if (isBrand && isType) {
             result.brand = term;
-            result.productType = term;
+            assignProductType(term);
         } else if (isBrand) {
             result.brand = term;
         } else if (isType) {
-            result.productType = term;
+            assignProductType(term);
         } else if (lookups.sports.has(term)) {
             result.sports.push(lookups.sports.get(term));
         } else if (lookups.fits.has(term)) {
@@ -171,23 +184,41 @@ async function parseSearchQuery(rawQuery) {
         if (!consumed[index]) result.freeText.push(terms[index]);
     }
 
+    const hasInfantIntent = /\b(?:baby|babies|toddler|toddlers|infant|infants)\b/.test(query);
+    const hasKidsIntent = /\b(?:kid|kids|child|children|childrens|junior|juniors|youth)\b/.test(query);
+    if (hasInfantIntent) result.ageGroups = ['infant'];
+    if (hasKidsIntent) {
+        result.ageGroups = ['kids'];
+        result.genders = result.genders.filter(gender => gender !== 'kids');
+    }
+    if (hasInfantIntent || hasKidsIntent) {
+        result.freeText = result.freeText.filter(term => !/^(?:baby|babies|toddler|toddlers|infant|infants|kid|kids|child|children|childrens|junior|juniors|youth)$/.test(term));
+    }
+
     if (hasHiVisIntent) {
         result.productType = 'hi vis';
         result.colours = result.colours.filter(colour => !/^(?:hi-?vis|hi-?viz|high visibility)$/.test(colour));
 
         const descriptorGroups = [
             { pattern: /\b(?:vest|vests|waistcoat|waistcoats)\b/, terms: ['vest', 'waistcoat'] },
-            { pattern: /\b(?:jacket|jackets|coat|coats)\b/, terms: ['jacket', 'coat'] },
-            { pattern: /\b(?:trouser|trousers|pants)\b/, terms: ['trouser'] },
+            { pattern: /\b(?:jacket|jackets)\b/, terms: ['jacket'] },
+            { pattern: /\b(?:coat|coats)\b/, terms: ['coat'] },
+            { pattern: /\b(?:trouser|trousers|pants)\b/, terms: ['trouser', 'pant'] },
             { pattern: /\b(?:polo|polos)\b/, terms: ['polo'] },
             { pattern: /\b(?:hoodie|hoodies|sweatshirt|sweatshirts)\b/, terms: ['hoodie', 'sweatshirt'] },
             { pattern: /\b(?:t[\s-]?shirt|t[\s-]?shirts|tee|tees)\b/, terms: ['t-shirt'] }
         ];
 
-        const descriptors = descriptorGroups
+        const matchedGroups = descriptorGroups
             .filter(group => group.pattern.test(query))
-            .flatMap(group => group.terms);
-        result.freeText = [...new Set([...result.freeText.filter(term => !/^(?:hi-?vis|hi-?viz)$/.test(term)), ...descriptors])];
+            .map(group => group.terms);
+        result.requiredNameGroups = matchedGroups;
+        const descriptorTerms = new Set(matchedGroups.flat());
+        result.freeText = [...new Set(result.freeText.filter(term => (
+            !/^(?:hi-?vis|hi-?viz)$/.test(term)
+            && !descriptorTerms.has(term)
+            && !descriptorGroups.some(group => group.pattern.test(term))
+        )))];
     }
 
     return result;
