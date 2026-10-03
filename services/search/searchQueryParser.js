@@ -206,13 +206,13 @@ async function parseSearchQuery(rawQuery) {
         result.colours = result.colours.filter(colour => !/^(?:hi-?vis|hi-?viz|high visibility)$/.test(colour));
 
         const descriptorGroups = [
-            { pattern: /\b(?:vest|vests|waistcoat|waistcoats)\b/, terms: ['vest', 'waistcoat'] },
-            { pattern: /\b(?:jacket|jackets)\b/, terms: ['jacket'] },
-            { pattern: /\b(?:coat|coats)\b/, terms: ['coat'] },
-            { pattern: /\b(?:trouser|trousers|pants)\b/, terms: ['trouser', 'pant'] },
-            { pattern: /\b(?:polo|polos)\b/, terms: ['polo'] },
-            { pattern: /\b(?:hoodie|hoodies|sweatshirt|sweatshirts)\b/, terms: ['hoodie', 'sweatshirt'] },
-            { pattern: /\b(?:t[\s-]?shirt|t[\s-]?shirts|tee|tees)\b/, terms: ['t-shirt'] }
+            { pattern: /\b(?:vest|vests|waistcoat|waistcoats)\b/, terms: ['vest', 'vests', 'waistcoat', 'waistcoats'] },
+            { pattern: /\b(?:jacket|jackets)\b/, terms: ['jacket', 'jackets'] },
+            { pattern: /\b(?:coat|coats)\b/, terms: ['jacket', 'jackets', 'coat', 'coats'] },
+            { pattern: /\b(?:trouser|trousers|pants)\b/, terms: ['trouser', 'trousers', 'pant', 'pants'] },
+            { pattern: /\b(?:polo|polos)\b/, terms: ['polo', 'polos'] },
+            { pattern: /\b(?:hoodie|hoodies|sweatshirt|sweatshirts)\b/, terms: ['hoodie', 'hoodies', 'sweatshirt', 'sweatshirts'] },
+            { pattern: /\b(?:t[\s-]?shirt|t[\s-]?shirts|tee|tees)\b/, terms: ['t-shirt', 't-shirts', 't shirt', 't shirts', 'tee', 'tees'] }
         ];
 
         const matchedGroups = descriptorGroups

@@ -89,7 +89,9 @@ test('multiple descriptors use controlled OR matching with exact-match ranking',
   assert.match(where, /feature_slugs/);
   assert.match(where, / OR /);
   assert.match(search.relevanceSelect, /THEN 120/);
-  assert.deepEqual(search.params.filter(Array.isArray), [['waterproof'], ['zipped']]);
+  assert.deepEqual(search.params.filter(Array.isArray), [
+    ['waterproof'], ['%waterproof%'], ['zipped'], ['%zipped%']
+  ]);
 });
 
 test('one descriptor remains a required match', async () => {
@@ -97,7 +99,7 @@ test('one descriptor remains a required match', async () => {
   const featureConditions = search.conditions.filter(condition => condition.includes('feature_slugs'));
 
   assert.equal(featureConditions.length, 1);
-  assert.doesNotMatch(featureConditions[0], / OR /);
+  assert.match(featureConditions[0], /style_name ILIKE ANY/);
 });
 
 test('prefix tsquery safely broadens unclassified words', () => {
@@ -111,7 +113,7 @@ test('hi-vis vest resolves to safetywear instead of fashion vests', async () => 
   assert.deepEqual(parsed.colours, []);
   assert.deepEqual(parsed.requiredFeatures, ['high-visibility']);
   assert.deepEqual(parsed.freeText, []);
-  assert.deepEqual(parsed.requiredNameGroups, [['vest', 'waistcoat']]);
+  assert.deepEqual(parsed.requiredNameGroups, [['vest', 'vests', 'waistcoat', 'waistcoats']]);
 });
 
 test('specific garment types are not overwritten by generic trailing words', async () => {
@@ -136,11 +138,11 @@ test('hi-vis garment subtypes use strict name constraints', async () => {
   const jacket = await parseSearchQuery('hi vis jacket');
   const trousers = await parseSearchQuery('hi vis trousers');
 
-  assert.deepEqual(jacket.requiredNameGroups, [['jacket']]);
-  assert.deepEqual(trousers.requiredNameGroups, [['trouser', 'pant']]);
+  assert.deepEqual(jacket.requiredNameGroups, [['jacket', 'jackets']]);
+  assert.deepEqual(trousers.requiredNameGroups, [['trouser', 'trousers', 'pant', 'pants']]);
 
   const search = await buildSearchConditions('hi vis jacket');
   const where = search.conditions.join(' AND ');
   assert.match(where, /feature_slugs/);
-  assert.match(where, /style_name ILIKE ANY/);
+  assert.match(where, /style_name ~\* ANY/);
 });

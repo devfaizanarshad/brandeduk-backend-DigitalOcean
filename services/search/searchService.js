@@ -41,6 +41,17 @@ async function buildSearchConditions(rawQuery, viewAlias = 'psm', paramIndex = 1
       });
     });
   };
+  const addSoftFeatureMatch = (values, weight) => {
+    if (!values || values.length === 0) return;
+    [...new Set(values)].forEach(value => {
+      const slugIndex = addParam([value]);
+      const nameIndex = addParam([`%${String(value).replace(/-/g, ' ')}%`]);
+      softMatches.push({
+        expression: `(${viewAlias}.feature_slugs::text[] && $${slugIndex}::text[] OR ${viewAlias}.style_name ILIKE ANY($${nameIndex}::text[]))`,
+        weight
+      });
+    });
+  };
 
   const isAmbiguous = parsed.brand && parsed.productType && parsed.brand === parsed.productType;
   if (isAmbiguous) {
@@ -89,8 +100,9 @@ async function buildSearchConditions(rawQuery, viewAlias = 'psm', paramIndex = 1
     conditions.push(`${viewAlias}.feature_slugs::text[] && $${index}::text[]`);
   }
   parsed.requiredNameGroups.forEach(group => {
-    const index = addParam(group.map(term => `%${term}%`));
-    conditions.push(`${viewAlias}.style_name ILIKE ANY($${index}::text[])`);
+    const patterns = group.map(term => `\\m${String(term).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\M`);
+    const index = addParam(patterns);
+    conditions.push(`${viewAlias}.style_name ~* ANY($${index}::text[])`);
   });
   if (parsed.excludedNameTerms.length > 0) {
     const index = addParam(parsed.excludedNameTerms.map(term => `%${term}%`));
@@ -117,7 +129,7 @@ async function buildSearchConditions(rawQuery, viewAlias = 'psm', paramIndex = 1
   addSoftArrayMatch('sleeve_slugs', parsed.sleeves, 28);
   addSoftArrayMatch('neckline_slugs', parsed.necklines, 28);
   addSoftArrayMatch('fabric_slugs', parsed.fabrics, 30);
-  addSoftArrayMatch('feature_slugs', parsed.features, 32);
+  addSoftFeatureMatch(parsed.features, 32);
   addSoftArrayMatch('style_keyword_slugs', parsed.keywords, 34);
 
   const searchText = parsed.freeText.join(' ').trim();
