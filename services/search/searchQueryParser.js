@@ -71,6 +71,7 @@ async function loadLookups() {
 
 async function parseSearchQuery(rawQuery) {
     const query = rawQuery.toLowerCase().trim();
+    const hasHiVisIntent = /\b(?:hi[\s-]?vis|hi[\s-]?viz|high[\s-]?visibility)\b/.test(query);
     const lookups = await loadLookups();
     await synonyms.ensureLoaded();
 
@@ -168,6 +169,25 @@ async function parseSearchQuery(rawQuery) {
 
     for (let index = 0; index < terms.length; index++) {
         if (!consumed[index]) result.freeText.push(terms[index]);
+    }
+
+    if (hasHiVisIntent) {
+        result.productType = 'hi vis';
+        result.colours = result.colours.filter(colour => !/^(?:hi-?vis|hi-?viz|high visibility)$/.test(colour));
+
+        const descriptorGroups = [
+            { pattern: /\b(?:vest|vests|waistcoat|waistcoats)\b/, terms: ['vest', 'waistcoat'] },
+            { pattern: /\b(?:jacket|jackets|coat|coats)\b/, terms: ['jacket', 'coat'] },
+            { pattern: /\b(?:trouser|trousers|pants)\b/, terms: ['trouser'] },
+            { pattern: /\b(?:polo|polos)\b/, terms: ['polo'] },
+            { pattern: /\b(?:hoodie|hoodies|sweatshirt|sweatshirts)\b/, terms: ['hoodie', 'sweatshirt'] },
+            { pattern: /\b(?:t[\s-]?shirt|t[\s-]?shirts|tee|tees)\b/, terms: ['t-shirt'] }
+        ];
+
+        const descriptors = descriptorGroups
+            .filter(group => group.pattern.test(query))
+            .flatMap(group => group.terms);
+        result.freeText = [...new Set([...result.freeText.filter(term => !/^(?:hi-?vis|hi-?viz)$/.test(term)), ...descriptors])];
     }
 
     return result;

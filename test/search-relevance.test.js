@@ -8,7 +8,11 @@ const servicePath = require.resolve('../services/search/searchService');
 
 const rowsForQuery = sql => {
   if (sql.includes('FROM brands')) return [{ name: 'Pro RTX' }];
-  if (sql.includes('FROM product_types')) return [{ name: 'Hooded Sweatshirts' }];
+  if (sql.includes('FROM product_types')) return [
+    { name: 'Hooded Sweatshirts' },
+    { name: 'Vests (t-shirt)' },
+    { name: 'Hi Vis' }
+  ];
   if (sql.includes('FROM style_keywords')) return [
     { name: 'Zipped', slug: 'zipped', keyword_type: 'feature' },
     { name: 'Waterproof', slug: 'waterproof', keyword_type: 'feature' },
@@ -29,7 +33,9 @@ const rowsForQuery = sql => {
     { term: 'hoodies', canonical: 'hooded sweatshirts', synonym_type: 'product_type' },
     { term: 'zip', canonical: 'zipped', synonym_type: 'attribute' },
     { term: 'mens', canonical: 'mens', synonym_type: 'gender' },
-    { term: 'quarter zip', canonical: 'quarter-zip', synonym_type: 'attribute' }
+    { term: 'quarter zip', canonical: 'quarter-zip', synonym_type: 'attribute' },
+    { term: 'hivis', canonical: 'hi-vis', synonym_type: 'colour' },
+    { term: 'vest', canonical: 'vests (t-shirt)', synonym_type: 'product_type' }
   ];
   return [];
 };
@@ -82,4 +88,12 @@ test('one descriptor remains a required match', async () => {
 
 test('prefix tsquery safely broadens unclassified words', () => {
   assert.equal(prefixTsQuery(['full-zip', 'hoodie']), 'fullzip:* | hoodie:*');
+});
+
+test('hi-vis vest resolves to safetywear instead of fashion vests', async () => {
+  const parsed = await parseSearchQuery('hivis vest');
+
+  assert.equal(parsed.productType, 'hi vis');
+  assert.deepEqual(parsed.colours, []);
+  assert.deepEqual(parsed.freeText, ['vest', 'waistcoat']);
 });
