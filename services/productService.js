@@ -27,6 +27,7 @@ const PAGINATION_CONFIG = {
  * Uses a prefix that matches the cache invalidation patterns
  */
 function getCacheKey(filters, page, limit, type = 'products') {
+  const cacheVersion = filters.q || filters.text ? 'search-v4' : 'catalog-v1';
   const normalizedFilters = {};
   Object.keys(filters).sort().forEach(key => {
     const value = filters[key];
@@ -46,7 +47,7 @@ function getCacheKey(filters, page, limit, type = 'products') {
     .map(key => `${key}:${Array.isArray(normalizedFilters[key]) ? normalizedFilters[key].join(',') : normalizedFilters[key]}`)
     .join('|');
 
-  const keyString = `${filterString}|page:${page}|limit:${limit}|type:${type}`;
+  const keyString = `${cacheVersion}|${filterString}|page:${page}|limit:${limit}|type:${type}`;
 
   // Simple hashing algorithm
   let hash = 0;
