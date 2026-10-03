@@ -1,238 +1,160 @@
 /**
- * searchService.js — Hybrid Ranking Engine (Production Final)
- * 
- * IMPORTANT: Uses product_search_mv which has all columns:
- *   - brand (text)       — direct column
- *   - style_name (text)  — direct column
- *   - search_vector      — tsvector column
- *   - sport_slugs        — text[] (from product_sports + related_sports)
- *   - product_type is NOT a direct column; must JOIN styles→product_types
+ * Catalogue search conditions, relevance ranking, and lightweight suggestions.
  */
 
 const { parseSearchQuery } = require('./searchQueryParser');
 const { queryWithTimeout } = require('../../config/database');
 
-/**
- * Builds the Hybrid Search Query (FTS + Trigram)
- * Aggregates results by style_code (Canonical Entity)
- */
+function prefixTsQuery(terms, operator = ' | ') {
+  return terms
+    .flatMap(term => String(term).split(/\s+/))
+    .map(term => term.toLowerCase().replace(/[^a-z0-9]/g, ''))
+    .filter(Boolean)
+    .map(term => `${term}:*`)
+    .join(operator);
+}
+
 async function buildSearchConditions(rawQuery, viewAlias = 'psm', paramIndex = 1) {
   const parsed = await parseSearchQuery(rawQuery);
   const conditions = [];
   const params = [];
-  let idx = paramIndex;
+  const softMatches = [];
+  let nextIndex = paramIndex;
+  let brandParamIndex = -1;
+  let typeParamIndex = -1;
+  let styleCodeParamIndex = -1;
+  let ftsParamIndex = -1;
+  let textParamIndex = -1;
 
-  // Track specific parameter indices for relevance boosts
-  let brandParamIdx = -1;
-  let typeParamIdx = -1;
+  const addParam = value => {
+    const index = nextIndex++;
+    params.push(value);
+    return index;
+  };
+  const addSoftArrayMatch = (column, values, weight) => {
+    if (!values || values.length === 0) return;
+    [...new Set(values)].forEach(value => {
+      const index = addParam([value]);
+      softMatches.push({
+        expression: `${viewAlias}.${column}::text[] && $${index}::text[]`,
+        weight
+      });
+    });
+  };
 
-  // 1. Structured Narrowing (Applied first for planner efficiency)
   const isAmbiguous = parsed.brand && parsed.productType && parsed.brand === parsed.productType;
-
   if (isAmbiguous) {
-    // Ambiguous term (e.g. "polo") — match brand OR product type
-    brandParamIdx = idx;
-    const brandParam = idx++;
-    typeParamIdx = idx;
-    const typeParam = idx++;
-    params.push(parsed.brand, parsed.productType.replace(/-/g, '').replace(/ /g, ''));
-
+    brandParamIndex = addParam(parsed.brand);
+    typeParamIndex = addParam(parsed.productType.replace(/-/g, '').replace(/ /g, ''));
     conditions.push(`(
-      ${viewAlias}.brand ILIKE $${brandParam}
+      ${viewAlias}.brand ILIKE $${brandParamIndex}
       OR EXISTS (
         SELECT 1 FROM styles s_pt
         INNER JOIN product_types pt_s ON s_pt.product_type_id = pt_s.id
         WHERE s_pt.style_code = ${viewAlias}.style_code
-          AND LOWER(REPLACE(REPLACE(pt_s.name, '-', ''), ' ', '')) ILIKE $${typeParam}
+          AND LOWER(REPLACE(REPLACE(pt_s.name, '-', ''), ' ', '')) ILIKE $${typeParamIndex}
       )
     )`);
   } else {
     if (parsed.brand) {
-      brandParamIdx = idx;
-      conditions.push(`${viewAlias}.brand ILIKE $${idx}`);
-      params.push(parsed.brand);
-      idx++;
+      brandParamIndex = addParam(parsed.brand);
+      conditions.push(`${viewAlias}.brand ILIKE $${brandParamIndex}`);
     }
     if (parsed.productType) {
-      typeParamIdx = idx;
-      // product_type is NOT on the mat-view; resolve via subquery
+      typeParamIndex = addParam(parsed.productType.replace(/-/g, '').replace(/ /g, ''));
       conditions.push(`EXISTS (
         SELECT 1 FROM styles s_pt
         INNER JOIN product_types pt_s ON s_pt.product_type_id = pt_s.id
         WHERE s_pt.style_code = ${viewAlias}.style_code
-          AND LOWER(REPLACE(REPLACE(pt_s.name, '-', ''), ' ', '')) ILIKE $${idx}
+          AND LOWER(REPLACE(REPLACE(pt_s.name, '-', ''), ' ', '')) ILIKE $${typeParamIndex}
       )`);
-      params.push(parsed.productType.replace(/-/g, '').replace(/ /g, ''));
-      idx++;
     }
   }
-  if (parsed.sports && parsed.sports.length > 0) {
-    // product_search_mv correctly populates sport_slugs from product_sports + related_sports
-    // Cast to text[] for type compatibility (column is varchar[])
-    conditions.push(`${viewAlias}.sport_slugs::text[] && $${idx}::text[]`);
-    params.push(parsed.sports);
-    idx++;
+
+  if (parsed.styleCode) {
+    styleCodeParamIndex = addParam(parsed.styleCode);
+    conditions.push(`${viewAlias}.style_code ILIKE $${styleCodeParamIndex}`);
   }
 
-  // --- EXTENDED ATTRIBUTE FILTERS (Robust Subqueries) ---
-
-  // Fits
-  if (parsed.fits && parsed.fits.length > 0) {
-    conditions.push(`EXISTS (
-      SELECT 1 FROM styles s_fit
-      JOIN style_keywords_mapping skm ON s_fit.style_code = skm.style_code
-      JOIN style_keywords sk ON skm.keyword_id = sk.id
-      WHERE s_fit.style_code = ${viewAlias}.style_code
-        AND sk.keyword_type = 'fit'
-        AND sk.name ILIKE ANY($${idx})
-    )`);
-    params.push(parsed.fits);
-    idx++;
+  if (parsed.genders.length > 0) {
+    const index = addParam([...new Set(parsed.genders)]);
+    conditions.push(`${viewAlias}.gender_slug = ANY($${index}::text[])`);
   }
-
-  // Sleeves
-  if (parsed.sleeves && parsed.sleeves.length > 0) {
-    conditions.push(`EXISTS (
-      SELECT 1 FROM styles s_sl
-      JOIN style_keywords_mapping skm ON s_sl.style_code = skm.style_code
-      JOIN style_keywords sk ON skm.keyword_id = sk.id
-      WHERE s_sl.style_code = ${viewAlias}.style_code
-        AND sk.keyword_type = 'sleeve'
-        AND sk.name ILIKE ANY($${idx})
-    )`);
-    params.push(parsed.sleeves);
-    idx++;
+  if (parsed.sports.length > 0) {
+    const index = addParam([...new Set(parsed.sports)]);
+    conditions.push(`${viewAlias}.sport_slugs::text[] && $${index}::text[]`);
   }
-
-  // Necklines
-  if (parsed.necklines && parsed.necklines.length > 0) {
-    conditions.push(`EXISTS (
-      SELECT 1 FROM styles s_nk
-      JOIN style_keywords_mapping skm ON s_nk.style_code = skm.style_code
-      JOIN style_keywords sk ON skm.keyword_id = sk.id
-      WHERE s_nk.style_code = ${viewAlias}.style_code
-        AND sk.keyword_type = 'neckline'
-        AND sk.name ILIKE ANY($${idx})
-    )`);
-    params.push(parsed.necklines);
-    idx++;
+  if (parsed.sectors.length > 0) {
+    const index = addParam([...new Set(parsed.sectors)]);
+    conditions.push(`${viewAlias}.sector_slugs::text[] && $${index}::text[]`);
   }
-
-  // Fabrics
-  if (parsed.fabrics && parsed.fabrics.length > 0) {
-    conditions.push(`EXISTS (
-      SELECT 1 FROM styles s_fab
-      JOIN products p ON s_fab.style_code = p.style_code
-      JOIN product_fabrics pf ON p.id = pf.product_id
-      JOIN fabrics f ON pf.fabric_id = f.id
-      WHERE s_fab.style_code = ${viewAlias}.style_code
-        AND f.name ILIKE ANY($${idx})
-    )`);
-    params.push(parsed.fabrics);
-    idx++;
-  }
-
-  // Sectors
-  if (parsed.sectors && parsed.sectors.length > 0) {
-    conditions.push(`EXISTS (
-      SELECT 1 FROM styles s_sec
-      JOIN products p ON s_sec.style_code = p.style_code
-      JOIN product_sectors ps ON p.id = ps.product_id
-      JOIN related_sectors rs ON ps.sector_id = rs.id
-      WHERE s_sec.style_code = ${viewAlias}.style_code
-        AND rs.name ILIKE ANY($${idx})
-    )`);
-    params.push(parsed.sectors);
-    idx++;
-  }
-
-  // Colours (Primary Colour check)
-  if (parsed.colours && parsed.colours.length > 0) {
-    // Check against materialized view primary_colour if available, OR join products
-    // Using robust product join to be safe
+  if (parsed.colours.length > 0) {
+    const index = addParam([...new Set(parsed.colours)]);
     conditions.push(`EXISTS (
       SELECT 1 FROM products p_col
       WHERE p_col.style_code = ${viewAlias}.style_code
-        AND (p_col.primary_colour ILIKE ANY($${idx}) OR p_col.colour_name ILIKE ANY($${idx}))
+        AND (p_col.primary_colour ILIKE ANY($${index}) OR p_col.colour_name ILIKE ANY($${index}))
     )`);
-    params.push(parsed.colours);
-    idx++;
   }
 
-  // Features (e.g. breathable, moisture wicking)
-  if (parsed.features && parsed.features.length > 0) {
-    conditions.push(`EXISTS (
-      SELECT 1 FROM styles s_ft
-      JOIN style_keywords_mapping skm ON s_ft.style_code = skm.style_code
-      JOIN style_keywords sk ON skm.keyword_id = sk.id
-      WHERE s_ft.style_code = ${viewAlias}.style_code
-        AND sk.keyword_type = 'feature'
-        AND sk.name ILIKE ANY($${idx})
-    )`);
-    params.push(parsed.features);
-    idx++;
-  }
+  addSoftArrayMatch('fit_slugs', parsed.fits, 28);
+  addSoftArrayMatch('sleeve_slugs', parsed.sleeves, 28);
+  addSoftArrayMatch('neckline_slugs', parsed.necklines, 28);
+  addSoftArrayMatch('fabric_slugs', parsed.fabrics, 30);
+  addSoftArrayMatch('feature_slugs', parsed.features, 32);
+  addSoftArrayMatch('style_keyword_slugs', parsed.keywords, 34);
 
-  // 2. Hybrid Text Match (FTS + High-Signal Trigram + Style Code)
-  // Only add FTS/trigram when there's unclassified free text
   const searchText = parsed.freeText.join(' ').trim();
-  let ftsParam = -1;
-  let trgmParam = -1;
-  let styleCodeParam = -1;
-
-  // Style code direct match (highest priority)
-  if (parsed.styleCode) {
-    styleCodeParam = idx++;
-    params.push(parsed.styleCode);
-    conditions.push(`${viewAlias}.style_code ILIKE $${styleCodeParam}`);
-  } else if (searchText) {
-    ftsParam = idx++;
-    trgmParam = idx++;
-    // Flatten multi-word tokens (e.g. "polo shirt" -> "polo", "shirt") to avoid tsquery syntax errors
-    const tsQuery = parsed.freeText
-      .flatMap(t => t.split(/\s+/))
-      .filter(t => t.length > 0)
-      .map(t => `${t}:*`)
-      .join(' & ');
-
-    params.push(tsQuery, searchText);
-
-    conditions.push(`(${viewAlias}.search_vector @@ to_tsquery('english', $${ftsParam}) OR ${viewAlias}.style_name % $${trgmParam} OR ${viewAlias}.style_code ILIKE $${trgmParam})`);
+  if (!parsed.styleCode && searchText) {
+    const tsQuery = prefixTsQuery(parsed.freeText);
+    if (tsQuery) {
+      ftsParamIndex = addParam(tsQuery);
+      textParamIndex = addParam(searchText);
+      softMatches.push({
+        expression: `(
+          ${viewAlias}.search_vector @@ to_tsquery('english', $${ftsParamIndex})
+          OR ${viewAlias}.style_name % $${textParamIndex}
+          OR ${viewAlias}.style_name ILIKE ('%' || $${textParamIndex} || '%')
+          OR ${viewAlias}.style_code ILIKE $${textParamIndex}
+        )`,
+        weight: 40
+      });
+    }
   }
 
-  // 3. Precision Ranking Formula
-  // Conditionally include FTS/trigram scoring only when free text is present
-  const hasFTS = ftsParam > 0;
-  const hasStyleCode = styleCodeParam > 0;
+  if (softMatches.length === 1) {
+    conditions.push(softMatches[0].expression);
+  } else if (softMatches.length > 1) {
+    conditions.push(`(${softMatches.map(match => match.expression).join(' OR ')})`);
+  }
+
+  const softScore = softMatches.length > 0
+    ? softMatches.map(match => `(CASE WHEN ${match.expression} THEN ${match.weight} ELSE 0 END)`).join(' + ')
+    : '0';
+  const allSignalsBonus = softMatches.length > 1
+    ? `(CASE WHEN ${softMatches.map(match => match.expression).join(' AND ')} THEN 120 ELSE 0 END)`
+    : '0';
+  const ftsScore = ftsParamIndex > 0
+    ? `(ts_rank_cd(${viewAlias}.search_vector, to_tsquery('english', $${ftsParamIndex}), 32) * 100)`
+    : '0';
+  const textSimilarityScore = textParamIndex > 0
+    ? `(GREATEST(similarity(${viewAlias}.style_name, $${textParamIndex}), similarity(${viewAlias}.brand, $${textParamIndex})) * 40)`
+    : '0';
 
   const relevanceSelect = `
     (
-      ${hasStyleCode ? `
-      -- Direct style code match boost
-      (CASE WHEN ${viewAlias}.style_code ILIKE $${styleCodeParam} THEN 200 ELSE 0 END) +
-      ` : ''}
-      ${hasFTS ? `
-      -- FTS Rank (0-100)
-      (ts_rank_cd(${viewAlias}.search_vector, to_tsquery('english', $${ftsParam}), 32) * 100) +
-      
-      -- Multi-Field Similarity (0-40) — only columns on the view
-      (GREATEST(
-        similarity(${viewAlias}.style_name, $${trgmParam}),
-        similarity(${viewAlias}.brand, $${trgmParam})
-      ) * 40) +
-
-      -- Style code exact match boost
-      (CASE WHEN ${viewAlias}.style_code ILIKE $${trgmParam} THEN 200 ELSE 0 END) +
-      ` : ''}
-
-      -- Identity Boosts (Fixed weights on classified tokens)
-      ${brandParamIdx > 0 ? `(CASE WHEN ${viewAlias}.brand ILIKE $${brandParamIdx} THEN 60 ELSE 0 END)` : '0'} +
-      ${typeParamIdx > 0 ? `(CASE WHEN EXISTS (
+      ${styleCodeParamIndex > 0 ? `(CASE WHEN ${viewAlias}.style_code ILIKE $${styleCodeParamIndex} THEN 200 ELSE 0 END)` : '0'} +
+      ${brandParamIndex > 0 ? `(CASE WHEN ${viewAlias}.brand ILIKE $${brandParamIndex} THEN 60 ELSE 0 END)` : '0'} +
+      ${typeParamIndex > 0 ? `(CASE WHEN EXISTS (
         SELECT 1 FROM styles s_pt_rel
         INNER JOIN product_types pt_rel ON s_pt_rel.product_type_id = pt_rel.id
         WHERE s_pt_rel.style_code = ${viewAlias}.style_code
-          AND LOWER(REPLACE(REPLACE(pt_rel.name, '-', ''), ' ', '')) ILIKE $${typeParamIdx}
-      ) THEN 50 ELSE 0 END)` : '0'}
+          AND LOWER(REPLACE(REPLACE(pt_rel.name, '-', ''), ' ', '')) ILIKE $${typeParamIndex}
+      ) THEN 50 ELSE 0 END)` : '0'} +
+      ${softScore} +
+      ${allSignalsBonus} +
+      ${ftsScore} +
+      ${textSimilarityScore}
     )::int as relevance_score
   `;
 
@@ -240,102 +162,97 @@ async function buildSearchConditions(rawQuery, viewAlias = 'psm', paramIndex = 1
     conditions,
     params,
     relevanceSelect,
-    // Deterministic tie-breaker (style_code ASC) ensures pagination stability
     relevanceOrder: 'relevance_score DESC, style_code ASC',
-    nextParamIndex: idx,
+    nextParamIndex: nextIndex,
     parsed
   };
 }
 
-/**
- * Builds a fuzzy fallback query when primary search returns no results.
- * Uses trigram similarity with a lower threshold.
- */
 async function buildFuzzyFallback(rawQuery, viewAlias = 'psm', paramIndex = 1) {
-  // Simplified fallback: broaden trigram threshold
   const searchText = rawQuery.toLowerCase().trim();
-  const conditions = [
-    `(${viewAlias}.style_name % $${paramIndex} OR ${viewAlias}.brand % $${paramIndex})`
-  ];
-  const params = [searchText];
-
-  const relevanceSelect = `
-    (GREATEST(
-      similarity(${viewAlias}.style_name, $${paramIndex}),
-      similarity(${viewAlias}.brand, $${paramIndex})
-    ) * 100)::int as relevance_score
-  `;
-
   return {
-    conditions,
-    params,
-    relevanceSelect,
+    conditions: [`(${viewAlias}.style_name % $${paramIndex} OR ${viewAlias}.brand % $${paramIndex})`],
+    params: [searchText],
+    relevanceSelect: `(GREATEST(similarity(${viewAlias}.style_name, $${paramIndex}), similarity(${viewAlias}.brand, $${paramIndex})) * 100)::int as relevance_score`,
     relevanceOrder: 'relevance_score DESC',
     nextParamIndex: paramIndex + 1
   };
 }
 
-/**
- * Gets typeahead suggestions for a search query.
- * Returns Brands, Product Types, and top matching Products for dropdown.
- */
-async function getSearchSuggestions(query) {
-  const searchTerm = (query || '').trim();
-  if (!searchTerm || searchTerm.length < 2) {
-    return { brands: [], types: [], products: [] };
-  }
+async function getSearchSuggestions(query, requestedLimit = 12) {
+  const searchTerm = String(query || '').trim();
+  if (searchTerm.length < 2) return { brands: [], types: [], products: [] };
 
-  const words = searchTerm.split(/\s+/).filter(w => w.length >= 2);
-  const wordMatch = words.map((_, i) => `(s.style_name ILIKE $${i + 1} OR b.name ILIKE $${i + 1} OR s.style_code ILIKE $${i + 1})`).join(' AND ');
-  const wordParams = words.map(w => `%${w}%`);
+  const limit = Math.min(12, Math.max(1, Number(requestedLimit) || 12));
+  const words = searchTerm.toLowerCase().split(/\s+/).filter(word => word.length >= 2);
+  const lookupParams = words.map(word => `%${word}%`);
+  const lookupCondition = words.map((_, index) => `name ILIKE $${index + 1}`).join(' OR ') || 'FALSE';
+  const search = await buildSearchConditions(searchTerm, 'psm', 1);
+  const productLimitIndex = search.params.length + 1;
+  const productWhere = search.conditions.length > 0 ? `AND ${search.conditions.join(' AND ')}` : '';
 
-  // Parallel queries to fetch suggestions
-  const [brandsRes, typesRes, productsRes] = await Promise.all([
-    // 1. Brands (Prefix match on any word)
+  const [brandsResult, typesResult, productsResult] = await Promise.all([
     queryWithTimeout(`
-      SELECT name, slug FROM brands 
-      WHERE ${words.map((_, i) => `name ILIKE $${i + 1}`).join(' OR ')}
-      ORDER BY name ASC 
+      SELECT name, slug FROM brands
+      WHERE ${lookupCondition}
+      ORDER BY name ASC
       LIMIT 3
-    `, wordParams),
-
-    // 2. Product Types (Prefix match on any word)
+    `, lookupParams),
     queryWithTimeout(`
-      SELECT name, slug FROM product_types 
-      WHERE ${words.map((_, i) => `name ILIKE $${i + 1}`).join(' OR ')}
-      ORDER BY name ASC 
+      SELECT name, slug FROM product_types
+      WHERE ${lookupCondition}
+      ORDER BY name ASC
       LIMIT 3
-    `, wordParams),
-
-    // 3. Products (All words must match somewhere in name/code/brand)
+    `, lookupParams),
     queryWithTimeout(`
-      SELECT DISTINCT ON (s.style_code)
-        s.style_code, 
-        s.style_name, 
-        p.primary_image_url, 
-        b.name as brand,
-        p.sell_price as price
-      FROM styles s
-      JOIN products p ON s.style_code = p.style_code
-      LEFT JOIN brands b ON s.brand_id = b.id
-      WHERE p.sku_status = 'Live'
-        AND (${wordMatch})
-      LIMIT 5
-    `, wordParams)
+      WITH ranked AS (
+        SELECT
+          ranked_rows.style_code,
+          MAX(ranked_rows.relevance_score) AS relevance_score
+        FROM (
+          SELECT psm.style_code, ${search.relevanceSelect}
+          FROM product_search_mv psm
+          WHERE psm.sku_status = 'Live'
+            ${productWhere}
+        ) ranked_rows
+        GROUP BY ranked_rows.style_code
+        ORDER BY relevance_score DESC, ranked_rows.style_code ASC
+        LIMIT $${productLimitIndex}
+      )
+      SELECT
+        ranked.style_code,
+        MIN(s.style_name) AS style_name,
+        MIN(NULLIF(p.primary_image_url, 'Not available')) AS primary_image_url,
+        MIN(b.name) AS brand,
+        MIN(p.sell_price) AS price
+      FROM ranked
+      INNER JOIN styles s ON s.style_code = ranked.style_code
+      INNER JOIN products p ON p.style_code = ranked.style_code AND p.sku_status = 'Live'
+      LEFT JOIN brands b ON b.id = s.brand_id
+      GROUP BY ranked.style_code, ranked.relevance_score
+      ORDER BY ranked.relevance_score DESC, ranked.style_code ASC
+    `, [...search.params, limit])
   ]);
 
   return {
-    brands: brandsRes.rows.map(r => ({ label: r.name, value: r.slug, type: 'brand' })),
-    types: typesRes.rows.map(r => ({ label: r.name, value: r.slug, type: 'type' })),
-    products: productsRes.rows.map(r => ({
-      label: r.style_name,
-      value: r.style_code,
-      image: r.primary_image_url,
-      brand: r.brand,
-      price: r.price,
+    brands: brandsResult.rows.map(row => ({ label: row.name, value: row.slug, type: 'brand' })),
+    types: typesResult.rows.map(row => ({ label: row.name, value: row.slug, type: 'type' })),
+    products: productsResult.rows.map(row => ({
+      label: row.style_name,
+      value: row.style_code,
+      code: row.style_code,
+      name: row.style_name,
+      image: row.primary_image_url,
+      brand: row.brand,
+      price: Number(row.price) || 0,
       type: 'product'
     }))
   };
 }
 
-module.exports = { buildSearchConditions, buildFuzzyFallback, getSearchSuggestions };
+module.exports = {
+  buildSearchConditions,
+  buildFuzzyFallback,
+  getSearchSuggestions,
+  prefixTsQuery
+};

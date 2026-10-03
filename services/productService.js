@@ -1160,7 +1160,11 @@ async function buildProductListQuery(filters, page, limit) {
   let orderByClause = '';
   const searchSort = (hasSearch && searchRelevanceOrder) ? `${searchRelevanceOrder}, ` : '';
 
-  if (prioritizeCustomOrder) {
+  if (hasSearch && searchRelevanceOrder && prioritizeCustomOrder) {
+    // Search intent must outrank merchandising order. Merchandising remains
+    // the deterministic tie-breaker between equally relevant products.
+    orderByClause = `${searchRelevanceOrder}, custom_display_order ASC, product_type_priority ASC, created_at ${order}, style_code ASC`;
+  } else if (prioritizeCustomOrder) {
     // Default (newest/best-sellers proxy) – honour custom display order first
     orderByClause = `custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}, style_code ASC`;
   } else if (prioritizeBest) {

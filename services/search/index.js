@@ -12,7 +12,7 @@
  */
 
 const { buildSearchConditions, buildFuzzyFallback, getSearchSuggestions } = require('./searchService');
-const { parseSearchQuery, invalidateCache: invalidateParserCache } = require('./searchQueryParser');
+const { parseSearchQuery, invalidateCache: invalidateParserCache, warmSearchCache } = require('./searchQueryParser');
 const { refreshSynonyms, ensureLoaded: ensureSynonymsLoaded } = require('./searchSynonyms');
 
 module.exports = {
@@ -22,5 +22,6 @@ module.exports = {
     parseSearchQuery,
     refreshSynonyms,
     ensureSynonymsLoaded,
+    warmSearchCache,
     invalidateParserCache
 };

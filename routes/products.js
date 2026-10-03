@@ -435,14 +435,14 @@ router.get('/filters', async (req, res) => {
  */
 router.get('/suggest', async (req, res) => {
   try {
-    const { q } = req.query;
+    const { q, limit } = req.query;
     if (!q || q.length < 2) return res.json({ brands: [], types: [], products: [] });
 
     const rc = await routeCache(req, cache.TTL.PRODUCTS);
     if (rc.cached) return res.json(rc.cached);
 
     const { getSearchSuggestions } = require('../services/search');
-    const suggestions = await getSearchSuggestions(q);
+    const suggestions = await getSearchSuggestions(q, limit);
 
     await rc.store(suggestions);
     res.json(suggestions);

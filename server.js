@@ -307,6 +307,10 @@ async function startServer() {
     console.log(`[SERVER] API: http://localhost:${PORT}/api/products`);
     console.log(`[SERVER] Health: http://localhost:${PORT}/health`);
     console.log(`[SERVER] Environment: ${process.env.NODE_ENV || 'development'}`);
+
+    require('./services/search').warmSearchCache()
+      .then(() => console.log('[SEARCH] Lookup cache warmed'))
+      .catch(error => console.warn('[SEARCH] Lookup cache warm-up failed:', error.message));
   });
 
   server.timeout = 600000;
