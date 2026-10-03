@@ -107,8 +107,9 @@ test('prefix tsquery safely broadens unclassified words', () => {
 test('hi-vis vest resolves to safetywear instead of fashion vests', async () => {
   const parsed = await parseSearchQuery('hivis vest');
 
-  assert.equal(parsed.productType, 'hi vis');
+  assert.equal(parsed.productType, null);
   assert.deepEqual(parsed.colours, []);
+  assert.deepEqual(parsed.requiredFeatures, ['high-visibility']);
   assert.deepEqual(parsed.freeText, []);
   assert.deepEqual(parsed.requiredNameGroups, [['vest', 'waistcoat']]);
 });
@@ -126,6 +127,7 @@ test('age intent uses catalogue age groups instead of loose text', async () => {
   assert.equal(junior.productType, 'sweatshirts');
   assert.deepEqual(junior.freeText, []);
   assert.deepEqual(baby.ageGroups, ['infant']);
+  assert.deepEqual(baby.excludedNameTerms, ['women', 'ladies', 'adult']);
   assert.equal(baby.productType, 't-shirts');
   assert.deepEqual(baby.freeText, []);
 });
@@ -138,5 +140,7 @@ test('hi-vis garment subtypes use strict name constraints', async () => {
   assert.deepEqual(trousers.requiredNameGroups, [['trouser', 'pant']]);
 
   const search = await buildSearchConditions('hi vis jacket');
-  assert.match(search.conditions.join(' AND '), /style_name ILIKE ANY/);
+  const where = search.conditions.join(' AND ');
+  assert.match(where, /feature_slugs/);
+  assert.match(where, /style_name ILIKE ANY/);
 });

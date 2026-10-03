@@ -93,7 +93,9 @@ async function parseSearchQuery(rawQuery) {
         features: [],
         keywords: [],
         freeText: [],
+        requiredFeatures: [],
         requiredNameGroups: [],
+        excludedNameTerms: [],
         styleCode: null
     };
 
@@ -186,7 +188,10 @@ async function parseSearchQuery(rawQuery) {
 
     const hasInfantIntent = /\b(?:baby|babies|toddler|toddlers|infant|infants)\b/.test(query);
     const hasKidsIntent = /\b(?:kid|kids|child|children|childrens|junior|juniors|youth)\b/.test(query);
-    if (hasInfantIntent) result.ageGroups = ['infant'];
+    if (hasInfantIntent) {
+        result.ageGroups = ['infant'];
+        result.excludedNameTerms = ['women', 'ladies', 'adult'];
+    }
     if (hasKidsIntent) {
         result.ageGroups = ['kids'];
         result.genders = result.genders.filter(gender => gender !== 'kids');
@@ -196,7 +201,8 @@ async function parseSearchQuery(rawQuery) {
     }
 
     if (hasHiVisIntent) {
-        result.productType = 'hi vis';
+        result.productType = null;
+        result.requiredFeatures = ['high-visibility'];
         result.colours = result.colours.filter(colour => !/^(?:hi-?vis|hi-?viz|high visibility)$/.test(colour));
 
         const descriptorGroups = [

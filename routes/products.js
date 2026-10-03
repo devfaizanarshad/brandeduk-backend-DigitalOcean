@@ -10,7 +10,7 @@ const cache = require('../services/cacheService');
  * Uses the full URL as cache key. TTL defaults to PRODUCTS (3 days).
  */
 async function routeCache(req, ttl) {
-  const rawKey = `products:route:v4:${req.originalUrl}`;
+  const rawKey = `products:route:v5:${req.originalUrl}`;
   let hash = 0;
   for (let i = 0; i < rawKey.length; i++) {
     const char = rawKey.charCodeAt(i);
