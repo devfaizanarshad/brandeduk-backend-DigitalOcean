@@ -587,7 +587,180 @@ async function sendPaymentSuccessEmail(data) {
 /* =========================
    CONTACT FORM EMAIL
 ========================= */
+function generateBasketContactEmailHTML(data) {
+  const snapshot = data.basketSnapshot || {};
+  const items = Array.isArray(snapshot.items) ? snapshot.items.slice(0, 50) : [];
+  const summary = snapshot.summary && typeof snapshot.summary === 'object' ? snapshot.summary : {};
+  const safeLinkUrl = value => {
+    const url = String(value || '').trim();
+    return /^https?:\/\//i.test(url) ? escapeHtml(url) : '';
+  };
+  const safeImageSource = value => {
+    const url = String(value || '').trim();
+    return /^(https?:\/\/|cid:)/i.test(url) ? escapeHtml(url) : '';
+  };
+  const safeDownloadUrl = value => {
+    const url = String(value || '').trim();
+    return /^(https?:\/\/|cid:[a-z0-9._-]+$)/i.test(url) ? escapeHtml(url) : '';
+  };
+  const money = value => {
+    const amount = Number(value);
+    return Number.isFinite(amount) ? `&pound;${amount.toFixed(2)}` : '&mdash;';
+  };
+  const titleCase = value => String(value || '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b\w/g, character => character.toUpperCase());
+  const productFallback = items.reduce((total, item) => total + (Number(item.itemTotal) || 0), 0);
+  const customizationFallback = items.reduce((total, item) => {
+    const decorations = Array.isArray(item.decorations) ? item.decorations : [];
+    return total + decorations.reduce((sum, decoration) => sum + (Number(decoration.lineTotal) || 0), 0);
+  }, 0);
+  const amountOr = (value, fallback) => value !== null && value !== '' && Number.isFinite(Number(value))
+    ? Number(value)
+    : fallback;
+  const productCosts = amountOr(summary.productCosts, productFallback);
+  const customizationCosts = amountOr(summary.customizationCosts, customizationFallback);
+  const digitizingFee = amountOr(summary.digitizingFee, 0);
+  const subtotalExVat = amountOr(summary.subtotalExVat, productCosts + customizationCosts + digitizingFee);
+  const vatAmount = amountOr(summary.vatAmount, subtotalExVat * 0.2);
+  const totalIncVat = amountOr(summary.totalIncVat, subtotalExVat + vatAmount);
+
+  const itemRows = items.map((item, index) => {
+    const productImage = safeImageSource(item.imageUrl || item.image);
+    const productCode = String(item.code || '').trim();
+    const productLink = safeLinkUrl(item.productUrl) || (productCode
+      ? `https://www.brandeduk.com/shop-pc?product=${encodeURIComponent(productCode)}`
+      : '');
+    const quantity = Number(item.quantity) || 0;
+    const details = [item.code, item.color, item.size].filter(Boolean).map(escapeHtml).join(' &nbsp;&middot;&nbsp; ');
+    const decorations = Array.isArray(item.decorations) ? item.decorations.slice(0, 20) : [];
+    const itemCustomisationTotal = decorations.reduce((total, decoration) => total + (Number(decoration.lineTotal) || 0), 0);
+    const itemCombinedTotal = (Number(item.itemTotal) || 0) + itemCustomisationTotal;
+    const decorationRows = decorations.length ? decorations.map(decoration => {
+      const logoUrl = safeImageSource(decoration.logoUrl || decoration.logo);
+      const previewUrl = safeLinkUrl(decoration.previewUrl) || safeLinkUrl(decoration.logoUrl || decoration.logo);
+      const downloadUrl = safeDownloadUrl(decoration.downloadUrl) || safeDownloadUrl(decoration.logoUrl || decoration.logo);
+      const method = escapeHtml(titleCase(decoration.method || decoration.type || 'Customisation'));
+      const methodBadge = /embroider/i.test(method) ? 'EMBROIDERY' : (/print/i.test(method) ? 'PRINT' : 'CUSTOM');
+      const position = escapeHtml(titleCase(decoration.position || 'Not specified'));
+      const methodColour = /embroider/i.test(method) ? '#2563eb' : '#f59e0b';
+      const methodBackground = /embroider/i.test(method) ? '#dbeafe' : '#fff3cd';
+      const artwork = logoUrl
+        ? `${previewUrl ? `<a href="${previewUrl}" target="_blank" rel="noopener">` : ''}<img src="${logoUrl}" width="68" height="68" alt="${method} artwork" style="display:block;width:68px;height:68px;object-fit:contain;border:1px solid #d8dee8;border-radius:5px;background:#fff;">${previewUrl ? '</a>' : ''}`
+        : `<div style="width:68px;height:68px;line-height:68px;text-align:center;border:1px solid #d8dee8;border-radius:5px;background:#f8fafc;color:#94a3b8;font-size:10px;">${decoration.type === 'text' ? 'TEXT' : 'LOGO'}</div>`;
+      const textDetails = decoration.text
+        ? `<div style="margin-top:7px;color:#536176;font-size:13px;">Text: <strong>${escapeHtml(decoration.text)}</strong>${decoration.font ? ` &middot; ${escapeHtml(decoration.font)}` : ''}${decoration.textColour ? ` &middot; ${escapeHtml(decoration.textColour)}` : ''}</div>`
+        : '';
+      return `<tr>
+        <td class="decoration-image-cell" width="82" style="padding:14px 10px 14px 0;border-top:1px solid #e6eaf0;vertical-align:middle;">${artwork}</td>
+        <td class="decoration-info-cell" style="padding:14px 7px;border-top:1px solid #e6eaf0;vertical-align:middle;">
+          <div><strong style="font-size:15px;color:#101828;">${method}</strong> <span style="display:inline-block;margin-left:5px;padding:3px 7px;border-radius:999px;background:${methodBackground};color:${methodColour};font-size:9px;font-weight:800;letter-spacing:.4px;">${methodBadge}</span></div>
+          <div style="margin-top:5px;font-size:13px;color:#667085;">Position: <strong style="color:#273b6d;">${position}</strong></div>
+          ${textDetails}
+          ${previewUrl ? `<div style="margin-top:9px;"><a href="${previewUrl}" target="_blank" rel="noopener" style="color:#ed6b00;text-decoration:none;font-size:12px;font-weight:800;">View artwork &rarr;</a></div>` : ''}
+        </td>
+        <td class="decoration-action-cell" width="78" style="padding:14px 5px;border-top:1px solid #e6eaf0;vertical-align:middle;text-align:center;">${downloadUrl ? `<a href="${downloadUrl}" target="_blank" rel="noopener" download style="display:inline-block;padding:7px 9px;border:1px solid #ccd4e0;border-radius:4px;background:#fff;color:#182b5c;text-decoration:none;font-size:10px;font-weight:850;">Download</a>` : ''}</td>
+        <td class="decoration-price-cell" width="105" style="padding:14px 0 14px 7px;border-top:1px solid #e6eaf0;vertical-align:middle;text-align:right;">
+          <div style="font-size:16px;font-weight:800;color:#182b5c;">${money(decoration.lineTotal)}</div>
+          <div style="margin-top:2px;font-size:10px;color:#8b95a7;">customisation, ex. VAT</div>
+        </td>
+      </tr>
+      <tr class="mobile-meta-row"><td class="mobile-decoration-meta" colspan="4" style="display:none;padding:8px 0 12px;border-top:1px solid #e6eaf0;">
+        <table role="presentation" width="280" class="mobile-meta-table" cellspacing="0" cellpadding="0" style="width:280px;table-layout:fixed;border-collapse:collapse;"><tr>
+          <td width="50%" style="width:50%;text-align:left;vertical-align:middle;">${downloadUrl ? `<a href="${downloadUrl}" target="_blank" rel="noopener" download style="display:inline-block;padding:7px 9px;border:1px solid #ccd4e0;border-radius:4px;background:#fff;color:#182b5c;text-decoration:none;font-size:10px;font-weight:850;">Download</a>` : '&nbsp;'}</td>
+          <td width="50%" style="width:50%;text-align:right;vertical-align:middle;"><div style="font-size:16px;font-weight:800;color:#182b5c;">${money(decoration.lineTotal)}</div><div style="margin-top:2px;font-size:10px;color:#8b95a7;">customisation, ex. VAT</div></td>
+        </tr></table>
+      </td></tr>`;
+    }).join('') : '<tr><td colspan="4" style="padding:15px 0;border-top:1px solid #e6eaf0;color:#667085;font-size:13px;">No customisation added to this item.</td></tr>';
+    const imageCell = productImage
+      ? `${productLink ? `<a href="${productLink}" target="_blank" rel="noopener" title="Open product on BrandedUK">` : ''}<img src="${productImage}" width="78" height="78" alt="${escapeHtml(item.name || 'Product')}" style="display:block;width:78px;height:78px;object-fit:contain;border:1px solid #d8dee8;border-radius:5px;background:#fff;">${productLink ? '</a>' : ''}`
+      : '<div style="width:78px;height:78px;line-height:78px;text-align:center;border:1px solid #d8dee8;border-radius:5px;background:#f8fafc;color:#98a2b3;font-size:10px;">PRODUCT</div>';
+
+    return `<table role="presentation" width="100%" class="item-table" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;background:#fff;${index ? 'border-top:14px solid #eef1f5;' : ''}">
+      <tr>
+        <td class="product-image-cell" width="94" style="padding:17px 8px 16px 16px;vertical-align:top;">${imageCell}</td>
+        <td class="product-info-cell" style="padding:17px 8px;vertical-align:top;"><div style="font-size:16px;line-height:1.3;font-weight:800;color:#111827;">${productLink ? `<a href="${productLink}" target="_blank" rel="noopener" style="color:#111827;text-decoration:none;">${escapeHtml(item.name || 'Product')}</a>` : escapeHtml(item.name || 'Product')}</div><div style="margin-top:6px;font-size:12px;color:#667085;">${details || 'Product details not supplied'}</div>${productLink ? `<div style="margin-top:8px;"><a href="${productLink}" target="_blank" rel="noopener" style="color:#ed6b00;text-decoration:none;font-size:11px;font-weight:800;">Preview item &rarr;</a></div>` : ''}</td>
+        <td class="product-qty-cell" width="65" style="padding:17px 5px;vertical-align:top;text-align:center;"><span style="display:inline-block;padding:7px 8px;border:1px solid #ccd4e0;border-radius:4px;background:#fff;font-size:12px;font-weight:800;color:#182b5c;">Qty ${quantity}</span></td>
+        <td class="product-price-cell" width="105" style="padding:17px 16px 16px 7px;vertical-align:top;text-align:right;"><div style="font-size:16px;font-weight:800;color:#182b5c;">${money(item.itemTotal)}</div><div style="margin-top:3px;font-size:10px;color:#8b95a7;">${money(item.unitPrice)} each</div></td>
+      </tr>
+      <tr class="mobile-meta-row"><td class="mobile-product-meta" colspan="4" style="display:none;padding:8px 14px 14px;">
+        <table role="presentation" width="280" class="mobile-meta-table" cellspacing="0" cellpadding="0" style="width:280px;table-layout:fixed;border-collapse:collapse;"><tr>
+          <td width="50%" style="width:50%;text-align:left;vertical-align:middle;"><span style="display:inline-block;padding:7px 8px;border:1px solid #ccd4e0;border-radius:4px;background:#fff;font-size:12px;font-weight:800;color:#182b5c;">Qty ${quantity}</span></td>
+          <td width="50%" style="width:50%;text-align:right;vertical-align:middle;"><div style="font-size:16px;font-weight:800;color:#182b5c;">${money(item.itemTotal)}</div><div style="margin-top:3px;font-size:10px;color:#8b95a7;">${money(item.unitPrice)} each</div></td>
+        </tr></table>
+      </td></tr>
+      <tr><td colspan="4" style="padding:0 16px 7px;"><div style="padding-top:13px;border-top:1px solid #e6eaf0;font-size:11px;font-weight:800;color:#344054;">Decorations applied to this item</div><table role="presentation" width="100%" class="decoration-table" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;">${decorationRows}</table></td></tr>
+      <tr><td class="item-total-cell" colspan="4" style="padding:12px 16px 14px;border-top:1px solid #e6eaf0;text-align:right;color:#667085;font-size:13px;">Total item cost: <strong style="margin-left:8px;color:#12844b;font-size:19px;">${money(itemCombinedTotal)}</strong></td></tr>
+    </table>`;
+  }).join('');
+
+  const customerName = escapeHtml(data.name || 'Anonymous');
+  const customerEmail = escapeHtml(data.email || 'Not provided');
+  const phone = data.phone ? escapeHtml(data.phone) : '';
+  const location = [data.address, data.postCode].filter(Boolean).map(escapeHtml).join(', ');
+  const interest = escapeHtml(titleCase(data.interest || 'Not specified'));
+  const message = escapeHtml(data.message || '');
+  const orderNotes = snapshot.orderNotes ? escapeHtml(snapshot.orderNotes) : '';
+  const submittedDate = new Date(data.submittedAt || Date.now()).toLocaleString('en-GB', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false
+  }).replace(',', '');
+
+  const detailCell = (label, value, href = '') => `<td class="detail-cell" width="50%" style="width:50%;padding:11px 15px;border-top:1px solid #edf0f4;vertical-align:top;"><div style="margin-bottom:3px;color:#7b8799;font-size:9px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;">${label}</div><div style="color:#14213d;font-size:13px;font-weight:700;word-break:break-word;">${href ? `<a href="${href}" style="color:#14213d;text-decoration:none;">${value}</a>` : value}</div></td>`;
+
+  return `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+    body{margin:0;padding:0;background:#eef1f5;color:#111827;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,Helvetica,sans-serif;line-height:1.45} a{color:#182b5c}
+    @media only screen and (max-width:740px){.email-shell{width:100%!important}.email-pad{padding:0!important}.content-pad{padding:12px!important}.detail-cell,.main-column,.brand-cell,.title-cell{display:block!important;width:auto!important}.main-spacer,.badge-cell{display:none!important}.summary-column{margin-top:14px!important}.title-cell{padding:11px 0 0!important;border-left:0!important}.item-table,.item-table>tbody,.item-table>tbody>tr,.decoration-table,.decoration-table>tbody,.decoration-table>tbody>tr{display:block!important;width:100%!important;max-width:100%!important}.summary-table{width:100%!important;max-width:100%!important}.product-image-cell,.product-info-cell,.decoration-image-cell,.decoration-info-cell{display:block!important;width:auto!important;text-align:left!important}.product-image-cell{padding:14px 14px 0!important}.product-info-cell{padding:10px 14px 4px!important}.product-qty-cell,.product-price-cell,.decoration-action-cell,.decoration-price-cell{display:none!important}.mobile-meta-row{display:block!important;width:100%!important}.mobile-product-meta,.mobile-decoration-meta{display:block!important;box-sizing:border-box!important;width:100%!important}.mobile-meta-table{width:calc(100vw - 52px)!important;max-width:370px!important}.decoration-image-cell{padding:12px 0 0!important}.decoration-info-cell{padding:10px 0 4px!important}.item-total-cell{display:block!important;box-sizing:border-box!important;width:100%!important;padding:12px 14px!important;text-align:left!important;white-space:normal!important}.summary-label,.summary-value{display:block!important;width:auto!important;padding-left:14px!important;padding-right:14px!important;text-align:left!important}.summary-label{padding-bottom:2px!important}.summary-value{padding-top:2px!important;font-size:13px!important;white-space:normal!important}.summary-total-value{padding-top:0!important;font-size:20px!important}.hide-mobile{display:none!important}.mobile-full{display:block!important;width:auto!important;padding-left:12px!important;padding-right:12px!important;text-align:left!important}}
+  </style></head><body>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;background:#eef1f5;border-collapse:collapse;"><tr><td align="center" class="email-pad" style="padding:30px 12px;">
+      <table role="presentation" width="940" class="email-shell" cellspacing="0" cellpadding="0" style="width:940px;max-width:940px;border-collapse:collapse;background:#fff;box-shadow:0 12px 35px rgba(16,24,40,.08);">
+        <tr><td style="height:5px;line-height:5px;background:#ff7100;font-size:0;">&nbsp;</td></tr>
+        <tr><td style="padding:22px 26px;background:#fff;border-bottom:1px solid #dde3ea;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>
+            <td class="brand-cell" width="205"><div style="font-size:28px;line-height:1;font-weight:900;letter-spacing:-1px;color:#111827;">Branded<span style="color:#ed6b00;">UK</span></div><div style="margin-top:7px;color:#667085;font-size:11px;">Custom workwear &amp; uniforms</div></td>
+            <td class="title-cell" style="padding-left:18px;border-left:1px solid #e3e8ef;"><div style="font-size:21px;font-weight:850;color:#101828;">Basket quote request</div><div style="margin-top:4px;color:#667085;font-size:12px;">Submitted for review on ${escapeHtml(submittedDate)}</div></td>
+            <td class="badge-cell" width="138" align="right"><span style="display:inline-block;padding:8px 11px;border-radius:4px;background:#fff3e8;color:#d95f00;font-size:10px;font-weight:900;letter-spacing:.65px;">NEW REQUEST</span></td>
+          </tr></table>
+        </td></tr>
+        <tr><td class="content-pad" style="padding:22px;background:#f5f6f8;border:1px solid #dce2ea;border-top:0;">
+          <div style="margin-bottom:9px;font-size:17px;font-weight:850;color:#101828;">Customer information</div>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:separate;border-spacing:0;border:1px solid #dce2ea;border-radius:10px;background:#fff;overflow:hidden;">
+            <tr>${detailCell('Name', customerName)}${detailCell('Email address', customerEmail, `mailto:${customerEmail}`)}</tr>
+            <tr>${detailCell('Phone number', phone || '&mdash;', phone ? `tel:${phone}` : '')}${detailCell('Interested in', interest)}</tr>
+            <tr>${detailCell('Location / postcode', location || '&mdash;')}${detailCell('Submitted', escapeHtml(submittedDate))}</tr>
+            ${message ? `<tr><td colspan="2" style="padding:12px 15px;border-top:1px solid #edf0f4;border-left:3px solid #ff7100;background:#fffbf7;"><div style="margin-bottom:4px;color:#9a5a24;font-size:9px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;">Customer message</div><div style="color:#344054;font-size:13px;white-space:pre-wrap;">${message}</div></td></tr>` : ''}
+          </table>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;margin-top:18px;border-collapse:collapse;"><tr>
+            <td class="main-column" width="64%" style="width:64%;vertical-align:top;">
+              <div style="border:1px solid #dce2ea;border-radius:7px;overflow:hidden;background:#fff;"><div style="padding:15px 16px;border-bottom:1px solid #dce2ea;background:#fff;font-size:17px;font-weight:850;color:#101828;">Basket items <span style="color:#98a2b3;font-size:12px;font-weight:600;">(${items.length})</span></div>${itemRows}</div>
+              ${orderNotes ? `<div style="margin-top:12px;padding:15px 16px;border:1px solid #dce2ea;border-radius:7px;background:#fff;"><strong style="color:#101828;font-size:13px;">Order notes</strong><div style="margin-top:6px;color:#475467;font-size:13px;white-space:pre-wrap;">${orderNotes}</div></div>` : ''}
+            </td>
+            <td class="main-spacer" width="2%" style="width:2%;font-size:0;">&nbsp;</td>
+            <td class="main-column summary-column" width="34%" style="width:34%;vertical-align:top;">
+              <table role="presentation" width="100%" class="summary-table" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:separate;border-spacing:0;border:1px solid #dce2ea;border-radius:7px;background:#fff;overflow:hidden;">
+                <tr><td colspan="2" style="padding:17px 17px;border-bottom:1px solid #dce2ea;font-size:18px;font-weight:850;color:#101828;">Order summary</td></tr>
+                <tr><td class="summary-label" style="padding:15px 17px 6px;color:#667085;font-size:13px;">Products</td><td class="summary-value" style="padding:15px 17px 6px;text-align:right;font-size:13px;font-weight:750;">${money(productCosts)}</td></tr>
+                <tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Customisation</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${money(customizationCosts)}</td></tr>
+                ${digitizingFee > 0 ? `<tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Embroidery setup</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${money(digitizingFee)}</td></tr>` : ''}
+                <tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Total (ex. VAT)</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${money(subtotalExVat)}</td></tr>
+                <tr><td class="summary-label" style="padding:6px 17px 15px;color:#667085;font-size:13px;border-bottom:1px solid #e5e7eb;">VAT</td><td class="summary-value" style="padding:6px 17px 15px;text-align:right;font-size:13px;font-weight:750;border-bottom:1px solid #e5e7eb;">${money(vatAmount)}</td></tr>
+                <tr><td class="summary-label" style="padding:16px 17px;font-size:15px;font-weight:850;color:#101828;">Total (inc. VAT)</td><td class="summary-value summary-total-value" style="padding:16px 17px;text-align:right;font-size:24px;font-weight:900;color:#12844b;">${money(totalIncVat)}</td></tr>
+                <tr><td colspan="2" style="padding:0 17px 17px;"><div style="padding:13px 12px;background:#effaf4;border-radius:6px;color:#235b3d;font-size:12px;line-height:1.45;"><strong style="color:#12844b;">&#10003;</strong>&nbsp; <strong>Artwork approval included</strong><br><span style="color:#5d7167;">A proof will be checked before production.</span></div></td></tr>
+                <tr><td colspan="2" style="padding:0 17px 14px;"><div style="padding-top:13px;border-top:1px solid #e7ebf0;color:#667085;font-size:11px;line-height:1.6;"><strong style="color:#344054;">Customer contact</strong><br><a href="mailto:${customerEmail}" style="color:#182b5c;text-decoration:none;">${customerEmail}</a>${phone ? `<br><a href="tel:${phone}" style="color:#182b5c;text-decoration:none;">${phone}</a>` : ''}</div></td></tr>
+                <tr><td colspan="2" style="padding:0 17px 17px;"><a href="mailto:${customerEmail}?subject=Re: Your BrandedUK enquiry" style="display:block;padding:13px 12px;border-radius:5px;background:#ff7100;color:#fff;text-align:center;text-decoration:none;font-size:14px;font-weight:850;">Reply to customer &rarr;</a></td></tr>
+              </table>
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:17px 24px;text-align:center;background:#fff;border:1px solid #dce2ea;border-top:0;color:#7b8799;font-size:11px;">BrandedUK &nbsp;&middot;&nbsp; 0208 974 2722 &nbsp;&middot;&nbsp; info@brandeduk.com</td></tr>
+      </table>
+    </td></tr></table>
+  </body></html>`;
+}
+
 function generateContactEmailHTML(data) {
+  if (data.basketSnapshot && Array.isArray(data.basketSnapshot.items) && data.basketSnapshot.items.length) {
+    return generateBasketContactEmailHTML(data);
+  }
   const name = escapeHtml(data.name || 'Anonymous');
   const email = escapeHtml(data.email || 'Not provided');
   const interest = escapeHtml(data.interest || 'Not specified');
@@ -703,10 +876,6 @@ function generateContactEmailHTML(data) {
 async function sendContactEmail(data) {
   try {
     const html = generateContactEmailHTML(data);
-
-    console.log(html);
-
-
     console.log(`[EMAIL] Attempting to send contact email to: ${process.env.EMAIL_TO}`);
     console.log(`[EMAIL] From: ${process.env.EMAIL_FROM}`);
 
@@ -714,7 +883,9 @@ async function sendContactEmail(data) {
       from: process.env.EMAIL_FROM,
       to: process.env.EMAIL_TO,
       replyTo: data.email,
-      subject: `New Contact Form: ${data.interest?.charAt(0).toUpperCase() + data.interest?.slice(1)} - ${data.name}`,
+      subject: data.basketSnapshot?.items?.length
+        ? `New Basket Quote Request - ${data.name}`
+        : `New Contact Form: ${data.interest?.charAt(0).toUpperCase() + data.interest?.slice(1)} - ${data.name}`,
       html,
     });
 
@@ -1275,6 +1446,7 @@ async function sendAdjustedQuoteEmail({ to, snapshot, quote, html }) {
 module.exports = {
   sendQuoteEmail,
   sendContactEmail,
+  generateContactEmailHTML,
   sendQuoteEmailWithAttachments,
   sendPaymentSuccessEmail,
   generateQuoteWithLogosEmailHTML,

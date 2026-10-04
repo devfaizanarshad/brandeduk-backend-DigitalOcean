@@ -16,7 +16,7 @@ const VALID_INTERESTS = ['embroidery', 'printing', 'workwear', 'uniforms', 'prom
  */
 router.post('/', async (req, res) => {
   try {
-    const { name, email, interest, phone, address, postCode, message } = req.body;
+    const { name, email, interest, phone, address, postCode, message, basketSnapshot } = req.body;
 
     // ===== VALIDATION =====
     const errors = {};
@@ -114,6 +114,9 @@ router.post('/', async (req, res) => {
       address: address ? address.trim() : null,
       postCode: postCode ? postCode.trim().toUpperCase() : null,
       message: message.trim(),
+      basketSnapshot: basketSnapshot && typeof basketSnapshot === 'object'
+        ? basketSnapshot
+        : null,
       submittedAt: new Date().toISOString()
     };
 
