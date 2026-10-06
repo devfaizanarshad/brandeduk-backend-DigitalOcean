@@ -2,6 +2,7 @@ const { pool, queryWithTimeout } = require('../config/database');
 const { getCategoryIdsFromSlugs } = require('./categoryService');
 const cache = require('./cacheService');
 const search = require('./search');
+const { resolveCustomizationTemplate } = require('./customizationTemplateResolver');
 
 // Unified cache configuration using cacheService
 const CACHE_TTL = 60 * 1000; // 1 minute base TTL (ms)
@@ -1457,6 +1458,7 @@ async function buildProductListQuery(filters, page, limit) {
         p.style_code as code,
         s.style_name as name,
         b.name as brand,
+        pt.name as product_type,
         sup.slug as supplier,
         p.colour_name,
         p.primary_colour,
@@ -1477,6 +1479,7 @@ async function buildProductListQuery(filters, page, limit) {
       FROM products p
       INNER JOIN styles s ON p.style_code = s.style_code
       LEFT JOIN brands b ON s.brand_id = b.id
+      LEFT JOIN product_types pt ON s.product_type_id = pt.id
       LEFT JOIN suppliers sup ON s.supplier_id = sup.id
       LEFT JOIN sizes sz ON p.size_id = sz.id
       LEFT JOIN tags t ON p.tag_id = t.id
@@ -1554,6 +1557,7 @@ async function buildProductListQuery(filters, page, limit) {
           code: styleCode,
           name: row.name,
           brand: row.brand,
+          productType: row.product_type || '',
           supplier: row.supplier,
           colorsMap: new Map(),
           sizesSet: new Set(),
@@ -1713,9 +1717,18 @@ async function buildProductListQuery(filters, page, limit) {
 
       // Price should match priceBreaks[0].price (1-9 tier with 0% discount)
       // Use basePrice which is the single price after markup, same as product details API
+      const customizationTemplate = resolveCustomizationTemplate({
+        name: product.name,
+        productType: product.productType,
+      });
+
       return {
         code: product.code,
         name: product.name,
+        productType: product.productType,
+        customizationTemplate,
+        customizationProductTypeSlug: customizationTemplate.productTypeSlug,
+        customizationSubtypeKey: customizationTemplate.subtypeKey,
         price: basePrice,
         image: displayImage,
         colors: Array.from(product.colorsMap.values()),
@@ -2676,7 +2689,7 @@ async function buildAlternativeProductsQuery(styleCode, limit = 5) {
 async function buildProductDetailQuery(styleCode) {
   // Versioned because the detail payload now includes resolved fabric/weight
   // metadata; do not serve an older cached response with an empty weight.
-  const cacheKey = `product:v3:${styleCode}`;
+  const cacheKey = `product:v4:${styleCode}`;
   const cached = await getCached(cacheKey);
   if (cached) {
     console.log(`[CACHE] Hit for product detail: ${styleCode}`);
@@ -2869,12 +2882,19 @@ async function buildProductDetailQuery(styleCode) {
     fabric: firstRow.fabric_description || '',
     productType: firstRow.product_type || ''
   });
+  const customizationTemplate = resolveCustomizationTemplate({
+    name: firstRow.style_name || '',
+    productType: firstRow.product_type || '',
+  });
 
   const productDetail = {
     code: styleCode,
     name: firstRow.style_name || '',
     brand: firstRow.brand || '',
     productType: firstRow.product_type || '',
+    customizationTemplate,
+    customizationProductTypeSlug: customizationTemplate.productTypeSlug,
+    customizationSubtypeKey: customizationTemplate.subtypeKey,
     price: basePrice,  // Same as basePrice - single unit price after markup
     basePrice: basePrice,  // Single price after markup (matches 1-9 tier)
     sell_price: basePrice,  // Explicit sell price (same as price)

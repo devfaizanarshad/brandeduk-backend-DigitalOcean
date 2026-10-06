@@ -297,7 +297,29 @@ async function listCustomizationProductTypes() {
         WHERE cc.scope_type = 'product_type'
           AND cc.subtype_key = ''
           AND cc.is_active = true
-      ) AS config_count
+      ) AS config_count,
+      COALESCE((
+        SELECT json_agg(
+          json_build_object(
+            'key', subtype_rows.subtype_key,
+            'positionCount', subtype_rows.position_count
+          )
+          ORDER BY subtype_rows.subtype_key
+        )
+        FROM (
+          SELECT
+            subtype_config.subtype_key,
+            COUNT(subtype_position.id) FILTER (WHERE subtype_position.is_active = true) AS position_count
+          FROM customization_configs subtype_config
+          LEFT JOIN customization_config_positions subtype_position
+            ON subtype_position.config_id = subtype_config.id
+          WHERE subtype_config.product_type_id = pt.id
+            AND subtype_config.scope_type = 'product_subtype'
+            AND subtype_config.subtype_key <> ''
+            AND subtype_config.is_active = true
+          GROUP BY subtype_config.subtype_key
+        ) subtype_rows
+      ), '[]'::json) AS subtypes
     FROM product_types pt
     LEFT JOIN customization_configs cc
       ON cc.product_type_id = pt.id
@@ -311,6 +333,14 @@ async function listCustomizationProductTypes() {
 
   return result.rows.map(row => {
     const normalized = normalizeProductTypeRow(row);
+    let subtypes = row.subtypes;
+    if (typeof subtypes === 'string') {
+      try {
+        subtypes = JSON.parse(subtypes);
+      } catch {
+        subtypes = [];
+      }
+    }
     return {
       id: normalized.id,
       name: normalized.name,
@@ -318,6 +348,10 @@ async function listCustomizationProductTypes() {
       displayOrder: normalized.display_order || 0,
       hasCustomization: Number(normalized.config_count || 0) > 0,
       positionCount: Number(normalized.position_count || 0),
+      subtypes: (Array.isArray(subtypes) ? subtypes : []).map(subtype => ({
+        key: normalizeSlug(subtype.key),
+        positionCount: Number(subtype.positionCount || 0),
+      })),
     };
   });
 }
