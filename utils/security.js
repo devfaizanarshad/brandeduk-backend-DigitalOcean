@@ -28,7 +28,7 @@ function buildCorsOptions() {
     },
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Authorization', 'Content-Type'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'Cache-Control'],
     optionsSuccessStatus: 204,
   };
 }

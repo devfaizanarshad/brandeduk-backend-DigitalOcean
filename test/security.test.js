@@ -26,4 +26,5 @@ test('CORS permits the storefront and rejects untrusted origins', async () => {
   assert.equal(serverToServer.allowed, true);
   assert.equal(attacker.allowed, undefined);
   assert.equal(attacker.error?.status, 403);
+  assert.ok(corsOptions.allowedHeaders.includes('Cache-Control'));
 });
