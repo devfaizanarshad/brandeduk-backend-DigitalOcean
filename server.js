@@ -79,6 +79,11 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
   maxAge: '7d',
   index: false
 }));
+app.use('/assets', express.static(path.join(__dirname, 'assets'), {
+  fallthrough: false,
+  maxAge: '7d',
+  index: false
+}));
 
 app.use((req, res, next) => {
   // Increase request timeout to 10 minutes (600,000ms) for long-running syncs
@@ -294,6 +299,17 @@ async function startServer() {
   if (process.env.NODE_ENV === 'production' && process.env.CATALOG_GROUP_SYNC_ON_START !== 'false') {
     const migration = path.join(__dirname, 'maintenance', 'sync-ralawise-catalog-groups.js');
     const { stdout, stderr } = await execFileAsync(process.execPath, [migration, '--apply'], {
+      cwd: __dirname,
+      env: process.env,
+      maxBuffer: 10 * 1024 * 1024
+    });
+    if (stdout) console.log(stdout.trim());
+    if (stderr) console.warn(stderr.trim());
+  }
+
+  if (process.env.NODE_ENV === 'production' && process.env.NEW_CATEGORY_TEMPLATE_SEED_ON_START !== 'false') {
+    const seed = path.join(__dirname, 'maintenance', 'seed-new-category-templates.js');
+    const { stdout, stderr } = await execFileAsync(process.execPath, [seed, '--apply'], {
       cwd: __dirname,
       env: process.env,
       maxBuffer: 10 * 1024 * 1024

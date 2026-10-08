@@ -1,0 +1,391 @@
+﻿{
+    "version":  1,
+    "source":  "BrandedUK_New_All_Categories",
+    "generatedAt":  "2026-10-07T17:20:45.1377444Z",
+    "templates":  [
+                      {
+                          "productTypeSlug":  "arm-guards",
+                          "category":  "Arm Guards",
+                          "position":  "Outer Forearm",
+                          "image":  "personalised-arm-guards-outer-forearm-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "armbands",
+                          "category":  "Armbands",
+                          "position":  "Centre Front",
+                          "image":  "personalised-armbands-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "baselayers",
+                          "category":  "Baselayers",
+                          "position":  "Left Chest",
+                          "image":  "personalised-baselayers-left-chest-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "bedding",
+                          "category":  "Bedding",
+                          "position":  "Centre Front",
+                          "image":  "personalised-bedding-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "belts",
+                          "category":  "Belts",
+                          "position":  "Buckle Front",
+                          "image":  "personalised-belts-buckle-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "bin-bags",
+                          "category":  "Bin Bags",
+                          "position":  "Centre Front",
+                          "image":  "personalised-bin-bags-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "boots",
+                          "category":  "Boots",
+                          "position":  "Outer Side",
+                          "image":  "personalised-boots-outer-side-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "bottles",
+                          "category":  "Bottles",
+                          "position":  "Centre Front",
+                          "image":  "personalised-bottles-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "boxers",
+                          "category":  "Boxers",
+                          "position":  "Left Thigh",
+                          "image":  "personalised-boxers-left-thigh-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "braces",
+                          "category":  "Braces",
+                          "position":  "Front Strap",
+                          "image":  "personalised-braces-front-strap-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "bras",
+                          "category":  "Bras",
+                          "position":  "Centre Front",
+                          "image":  "personalised-bras-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "cardigans",
+                          "category":  "Cardigans",
+                          "position":  "Left Chest",
+                          "image":  "personalised-cardigans-left-chest-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "chinos",
+                          "category":  "Chinos",
+                          "position":  "Left Thigh",
+                          "image":  "personalised-chinos-left-thigh-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "cushion-covers",
+                          "category":  "Cushion Covers",
+                          "position":  "Centre Front",
+                          "image":  "personalised-cushion-covers-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "cushions",
+                          "category":  "Cushions",
+                          "position":  "Centre Front",
+                          "image":  "personalised-cushions-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "document-wallets",
+                          "category":  "Document Wallets",
+                          "position":  "Centre Front",
+                          "image":  "personalised-document-wallets-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "dog-vests",
+                          "category":  "Dog Vests",
+                          "position":  "Centre Back",
+                          "image":  "personalised-dog-vests-centre-back-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "dresses",
+                          "category":  "Dresses",
+                          "position":  "Left Chest",
+                          "image":  "personalised-dresses-left-chest-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "ear-muffs",
+                          "category":  "Ear Muffs",
+                          "position":  "Outer Side",
+                          "image":  "personalised-ear-muffs-outer-side-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "embroidery-accessories",
+                          "category":  "Embroidery Accessories",
+                          "position":  "Centre Front",
+                          "image":  "personalised-embroidery-accessories-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "embroidery-backing",
+                          "category":  "Embroidery Backing",
+                          "position":  "Front Label",
+                          "image":  "personalised-embroidery-backing-front-label-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "first-aid-boxes",
+                          "category":  "First Aid Boxes",
+                          "position":  "Centre Front",
+                          "image":  "personalised-first-aid-boxes-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "glasses",
+                          "category":  "Glasses",
+                          "position":  "Temple Arm",
+                          "image":  "personalised-glasses-temple-arm-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "gloves",
+                          "category":  "Gloves",
+                          "position":  "Back of Hand",
+                          "image":  "personalised-gloves-back-of-hand-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "gowns",
+                          "category":  "Gowns",
+                          "position":  "Left Chest",
+                          "image":  "personalised-gowns-left-chest-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "headbands",
+                          "category":  "Headbands",
+                          "position":  "Centre Front",
+                          "image":  "personalised-headbands-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "helmets",
+                          "category":  "Helmets",
+                          "position":  "Front Panel",
+                          "image":  "personalised-helmets-front-panel-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "hot-water-bottles-covers",
+                          "category":  "Hot Water Bottles \u0026 Covers",
+                          "position":  "Centre Front",
+                          "image":  "personalised-hot-water-bottles-and-covers-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "jeans",
+                          "category":  "Jeans",
+                          "position":  "Rear Pocket",
+                          "image":  "personalised-jeans-rear-pocket-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "keyrings",
+                          "category":  "Keyrings",
+                          "position":  "Centre Front",
+                          "image":  "personalised-keyrings-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "kneepads",
+                          "category":  "Kneepads",
+                          "position":  "Front Panel",
+                          "image":  "personalised-kneepads-front-panel-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "knitted-jumpers",
+                          "category":  "Knitted Jumpers",
+                          "position":  "Left Chest",
+                          "image":  "personalised-knitted-jumpers-left-chest-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "leggings",
+                          "category":  "Leggings",
+                          "position":  "Left Thigh",
+                          "image":  "personalised-leggings-left-thigh-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "loungewear-bottoms",
+                          "category":  "Loungewear Bottoms",
+                          "position":  "Left Thigh",
+                          "image":  "personalised-loungewear-bottoms-left-thigh-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "mail-order-bags",
+                          "category":  "Mail Order Bags",
+                          "position":  "Centre Front",
+                          "image":  "personalised-mail-order-bags-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "onesies",
+                          "category":  "Onesies",
+                          "position":  "Left Chest",
+                          "image":  "personalised-onesies-left-chest-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "packing-tape",
+                          "category":  "Packing Tape",
+                          "position":  "Outer Strip",
+                          "image":  "personalised-packing-tape-outer-strip-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "paper",
+                          "category":  "Paper",
+                          "position":  "Centre Front",
+                          "image":  "personalised-paper-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "pencil-cases",
+                          "category":  "Pencil Cases",
+                          "position":  "Centre Front",
+                          "image":  "personalised-pencil-cases-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "ponchos",
+                          "category":  "Ponchos",
+                          "position":  "Centre Front",
+                          "image":  "personalised-ponchos-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "pyjamas",
+                          "category":  "Pyjamas",
+                          "position":  "Left Chest",
+                          "image":  "personalised-pyjamas-left-chest-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "quad-guards",
+                          "category":  "Quad Guards",
+                          "position":  "Front Panel",
+                          "image":  "personalised-quad-guards-front-panel-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "rain-suits",
+                          "category":  "Rain Suits",
+                          "position":  "Left Chest",
+                          "image":  "personalised-rain-suits-left-chest-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "robes",
+                          "category":  "Robes",
+                          "position":  "Left Chest",
+                          "image":  "personalised-robes-left-chest-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "scarves",
+                          "category":  "Scarves",
+                          "position":  "Lower End",
+                          "image":  "personalised-scarves-lower-end-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "shirt-bags",
+                          "category":  "Shirt Bags",
+                          "position":  "Centre Front",
+                          "image":  "personalised-shirt-bags-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "shoes",
+                          "category":  "Shoes",
+                          "position":  "Outer Side",
+                          "image":  "personalised-shoes-outer-side-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "skirts",
+                          "category":  "Skirts",
+                          "position":  "Left Front",
+                          "image":  "personalised-skirts-left-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "skorts",
+                          "category":  "Skorts",
+                          "position":  "Left Front",
+                          "image":  "personalised-skorts-left-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "sleepsuits",
+                          "category":  "Sleepsuits",
+                          "position":  "Left Chest",
+                          "image":  "personalised-sleepsuits-left-chest-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "slippers",
+                          "category":  "Slippers",
+                          "position":  "Upper Front",
+                          "image":  "personalised-slippers-upper-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "snoods",
+                          "category":  "Snoods",
+                          "position":  "Centre Front",
+                          "image":  "personalised-snoods-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "socks",
+                          "category":  "Socks",
+                          "position":  "Outer Calf",
+                          "image":  "personalised-socks-outer-calf-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "soft-toys",
+                          "category":  "Soft Toys",
+                          "position":  "Centre Front",
+                          "image":  "personalised-soft-toys-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "sports-overtops",
+                          "category":  "Sports Overtops",
+                          "position":  "Left Chest",
+                          "image":  "personalised-sports-overtops-left-chest-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "straps",
+                          "category":  "Straps",
+                          "position":  "Front Strip",
+                          "image":  "personalised-straps-front-strip-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "tablecloths",
+                          "category":  "Tablecloths",
+                          "position":  "Front Drop",
+                          "image":  "personalised-tablecloths-front-drop-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "trackwear",
+                          "category":  "Trackwear",
+                          "position":  "Left Chest",
+                          "image":  "personalised-trackwear-left-chest-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "trainers",
+                          "category":  "Trainers",
+                          "position":  "Outer Side",
+                          "image":  "personalised-trainers-outer-side-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "travel-sets",
+                          "category":  "Travel Sets",
+                          "position":  "Centre Front",
+                          "image":  "personalised-travel-sets-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "unitards",
+                          "category":  "Unitards",
+                          "position":  "Left Chest",
+                          "image":  "personalised-unitards-left-chest-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "wallets",
+                          "category":  "Wallets",
+                          "position":  "Centre Front",
+                          "image":  "personalised-wallets-centre-front-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "yoga-mats",
+                          "category":  "Yoga Mats",
+                          "position":  "Lower End",
+                          "image":  "personalised-yoga-mats-lower-end-640w.webp"
+                      },
+                      {
+                          "productTypeSlug":  "zips-pulls",
+                          "category":  "Zips Pulls",
+                          "position":  "Centre Front",
+                          "image":  "personalised-zip-pulls-centre-front-640w.webp"
+                      }
+                  ]
+}
