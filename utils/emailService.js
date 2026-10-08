@@ -298,9 +298,120 @@ function generateQuoteEmailHTML(data) {
 /* =========================
    SEND EMAIL
 ========================= */
+function normalizeQuoteAssetKey(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+}
+
+function getQuoteAssetUrl(asset) {
+  if (typeof asset === 'string') return asset;
+  return asset && typeof asset === 'object' ? asset.url || '' : '';
+}
+
+function findQuoteAsset(assets, position) {
+  if (!assets || typeof assets !== 'object') return '';
+  const target = normalizeQuoteAssetKey(position);
+  const entry = Object.entries(assets).find(([key]) => {
+    const normalizedKey = normalizeQuoteAssetKey(key);
+    return normalizedKey === target || normalizedKey.endsWith(`-${target}`);
+  });
+  return entry ? getQuoteAssetUrl(entry[1]) : '';
+}
+
+function buildQuoteBasketContactData(data, logoAssets = {}) {
+  const customer = data.customer || {};
+  const summary = data.summary || {};
+  const basket = Array.isArray(data.basket) ? data.basket : [];
+  const customizations = Array.isArray(data.customizations) ? data.customizations : [];
+  const previewImages = data.previewImages && typeof data.previewImages === 'object' ? data.previewImages : {};
+  const assignments = basket.map(() => []);
+
+  customizations.forEach(customization => {
+    const explicitCode = String(customization.code || customization.productCode || customization.sku || customization.itemCode || '').trim().toLowerCase();
+    let itemIndex = explicitCode
+      ? basket.findIndex(item => String(item.code || item.productCode || item.sku || '').trim().toLowerCase() === explicitCode)
+      : -1;
+
+    if (itemIndex < 0 && customization.designPreview) {
+      const previewSignature = JSON.stringify(customization.designPreview);
+      itemIndex = basket.findIndex(item => item.designPreview && JSON.stringify(item.designPreview) === previewSignature);
+    }
+
+    if (itemIndex < 0) {
+      const quantity = Number(customization.quantity);
+      const quantityMatches = basket
+        .map((item, index) => ({ index, quantity: Number(item.quantity || item.qty) }))
+        .filter(item => Number.isFinite(quantity) && item.quantity === quantity);
+      if (quantityMatches.length === 1) itemIndex = quantityMatches[0].index;
+    }
+
+    if (itemIndex < 0 && assignments.length) {
+      itemIndex = assignments.reduce((bestIndex, group, index, groups) =>
+        group.length < groups[bestIndex].length ? index : bestIndex, 0);
+    }
+
+    if (assignments[itemIndex]) assignments[itemIndex].push(customization);
+  });
+
+  const items = basket.map((item, itemIndex) => ({
+    name: item.name || 'Product',
+    code: item.code || item.productCode || item.sku || '',
+    color: item.color || item.colour || '',
+    size: item.size || '',
+    quantity: Number(item.quantity || item.qty) || 0,
+    unitPrice: Number(item.unitPrice) || 0,
+    itemTotal: Number(item.itemTotal) || 0,
+    imageUrl: item.imageUrl || item.image || item.colorImage || '',
+    productUrl: item.productUrl || '',
+    decorations: assignments[itemIndex].map(customization => {
+      const position = customization.position || customization.positionLabel || customization.area || 'Not specified';
+      const logoUrl = findQuoteAsset(logoAssets, position) || customization.logoUrl || customization.logo || '';
+      const previewUrl = findQuoteAsset(previewImages, position) || customization.previewUrl || '';
+      return {
+        type: customization.type || (customization.hasLogo ? 'logo' : ''),
+        method: customization.method || customization.type || 'Customisation',
+        position,
+        logoUrl,
+        previewUrl,
+        downloadUrl: logoUrl,
+        text: customization.text || '',
+        font: customization.font || '',
+        textColour: customization.textColour || customization.textColor || '',
+        unitPrice: Number(customization.unitPrice) || 0,
+        lineTotal: Number(customization.lineTotal) || 0,
+      };
+    }),
+  }));
+
+  return {
+    name: customer.fullName || customer.name || 'Customer',
+    email: customer.email || '',
+    phone: customer.phone || '',
+    address: customer.address || customer.company || '',
+    postCode: customer.postCode || customer.postcode || '',
+    interest: 'Custom workwear quote',
+    submittedAt: data.timestamp || new Date().toISOString(),
+    basketSnapshot: {
+      orderNotes: data.notes || '',
+      items,
+      summary: {
+        productCosts: summary.garmentCost ?? summary.productCosts,
+        customizationCosts: summary.customizationCost ?? summary.customisationCost ?? summary.customizationCosts,
+        digitizingFee: summary.digitizingFee ?? summary.setupFee,
+        subtotalExVat: summary.totalExVat ?? summary.subtotalExVat ?? summary.subtotal,
+        vatAmount: summary.vatAmount ?? summary.vat,
+        totalIncVat: summary.totalIncVat ?? summary.total,
+      },
+    },
+  };
+}
+
+function generateAdminQuoteEmailHTML(data, logoAssets = {}) {
+  return generateBasketContactEmailHTML(buildQuoteBasketContactData(data, logoAssets));
+}
+
 async function sendQuoteEmail(data) {
   try {
-    const html = generateQuoteEmailHTML(data);
+    const html = generateAdminQuoteEmailHTML(data);
 
     console.log(`[EMAIL] Attempting to send quote email to: ${process.env.EMAIL_TO}`);
     console.log(`[EMAIL] From: ${process.env.EMAIL_FROM}`);
@@ -963,6 +1074,8 @@ function buildInitialQuotePreviewSection(previewImages = {}) {
 }
 
 function generateQuoteWithLogosEmailHTML(data, logoAssets = {}) {
+  return generateAdminQuoteEmailHTML(data, logoAssets);
+
   // Use the existing quote HTML generator
   let html = generateQuoteEmailHTML(data);
   const previewImages = data.previewImages && typeof data.previewImages === 'object'
@@ -1450,6 +1563,7 @@ module.exports = {
   sendQuoteEmailWithAttachments,
   sendPaymentSuccessEmail,
   generateQuoteWithLogosEmailHTML,
+  generateAdminQuoteEmailHTML,
   generateAdjustedQuoteEmailHTML,
   sendAdjustedQuoteEmail,
 };

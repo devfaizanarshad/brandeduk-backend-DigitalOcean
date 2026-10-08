@@ -3,7 +3,66 @@ const assert = require('node:assert/strict');
 
 process.env.RESEND_API_KEY ||= 're_test_key';
 
-const { generateContactEmailHTML } = require('../utils/emailService');
+const {
+  generateContactEmailHTML,
+  generateAdminQuoteEmailHTML,
+  generateQuoteWithLogosEmailHTML,
+} = require('../utils/emailService');
+
+test('quote submissions use the professional basket email layout', () => {
+  const quote = {
+    customer: {
+      fullName: 'Alex Buyer',
+      email: 'alex@example.com',
+      phone: '0208 974 2722',
+    },
+    basket: [{
+      name: 'Ultra Cotton adult t-shirt',
+      code: 'GD002',
+      color: 'Cherry Red',
+      size: 'M',
+      quantity: 11,
+      unitPrice: 5.25,
+      itemTotal: 57.75,
+      image: 'https://cdn.example.com/product.png',
+    }],
+    customizations: [{
+      position: 'Front',
+      method: 'DTF Print',
+      hasLogo: true,
+      quantity: 11,
+      unitPrice: 3.95,
+      lineTotal: 43.45,
+    }],
+    summary: {
+      garmentCost: 57.75,
+      customizationCost: 43.45,
+      totalExVat: 101.20,
+      vatAmount: 20.24,
+      totalIncVat: 121.44,
+    },
+    notes: 'Please confirm production time.',
+    timestamp: '2026-10-08T10:00:00.000Z',
+  };
+  const logoAssets = {
+    front: { url: 'https://cdn.example.com/customer-logo.png' },
+  };
+
+  const html = generateAdminQuoteEmailHTML(quote, logoAssets);
+  const attachmentHtml = generateQuoteWithLogosEmailHTML(quote, logoAssets);
+
+  for (const rendered of [html, attachmentHtml]) {
+    assert.match(rendered, /Basket quote request/);
+    assert.match(rendered, /Customer information/);
+    assert.match(rendered, /Ultra Cotton adult t-shirt/);
+    assert.match(rendered, /DTF Print/);
+    assert.match(rendered, /src="https:\/\/cdn\.example\.com\/customer-logo\.png"/);
+    assert.match(rendered, />Download</);
+    assert.match(rendered, /&pound;121\.44/);
+    assert.match(rendered, /Please confirm production time\./);
+    assert.doesNotMatch(rendered, /Open This Quote/);
+  }
+});
 
 test('basket contact email renders customer, product, decoration and summary details', () => {
   const html = generateContactEmailHTML({
