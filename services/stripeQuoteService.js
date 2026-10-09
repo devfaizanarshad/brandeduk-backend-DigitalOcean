@@ -3,6 +3,8 @@ const https = require('https');
 const { queryWithTimeout } = require('../config/database');
 const { ensureCustomerTables } = require('./customerCheckoutService');
 const { sendPaymentSuccessEmail } = require('../utils/emailService');
+const { buildProductDetailQuery } = require('./productService');
+const { resolvePrice: resolveCustomizationPrice } = require('./customizationPricingService');
 
 const DEFAULT_CURRENCY = (process.env.STRIPE_CURRENCY || 'gbp').toLowerCase();
 const MIN_PAYMENT_AMOUNT = parseInt(process.env.STRIPE_MIN_AMOUNT || '50', 10);
@@ -10,6 +12,7 @@ const MAX_PAYMENT_AMOUNT = parseInt(process.env.STRIPE_MAX_AMOUNT || '100000000'
 const WEBHOOK_TOLERANCE_SECONDS = parseInt(process.env.STRIPE_WEBHOOK_TOLERANCE_SECONDS || '300', 10);
 const CHECKOUT_SUCCESS_URL = process.env.STRIPE_CHECKOUT_SUCCESS_URL || process.env.CHECKOUT_SUCCESS_URL;
 const CHECKOUT_CANCEL_URL = process.env.STRIPE_CHECKOUT_CANCEL_URL || process.env.CHECKOUT_CANCEL_URL;
+const VAT_RATE = Number(process.env.VAT_RATE || '0.20');
 
 let stripePaymentsTableReady = false;
 
@@ -76,12 +79,149 @@ function resolveQuoteAmount(summary = {}, explicitAmount) {
   return null;
 }
 
-function validatePaymentInput(body) {
+function roundMoney(value) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
+function normalizeQuantity(value) {
+  const quantity = Number(value);
+  if (!Number.isInteger(quantity) || quantity < 1) {
+    const error = new Error('Every basket item must have a positive whole-number quantity');
+    error.status = 400;
+    throw error;
+  }
+  return quantity;
+}
+
+function selectPriceBreak(product, quantity) {
+  const tiers = Array.isArray(product?.priceBreaks) ? product.priceBreaks : [];
+  const selected = tiers
+    .filter((tier) => quantity >= Number(tier.min || 0)
+      && (tier.max == null || quantity <= Number(tier.max)))
+    .sort((left, right) => Number(right.min || 0) - Number(left.min || 0))[0];
+  const price = Number(selected?.price ?? product?.basePrice ?? product?.price);
+
+  if (!Number.isFinite(price) || price <= 0) {
+    const error = new Error(`No valid live price is available for ${product?.code || 'a basket item'}`);
+    error.status = 409;
+    throw error;
+  }
+
+  return roundMoney(price);
+}
+
+async function calculateAuthoritativeQuote(quoteData, dependencies = {}) {
+  const loadProduct = dependencies.buildProductDetailQuery || buildProductDetailQuery;
+  const priceCustomization = dependencies.resolveCustomizationPrice || resolveCustomizationPrice;
+  const basket = Array.isArray(quoteData?.basket) ? quoteData.basket : [];
+  if (basket.length === 0) {
+    const error = new Error('The basket is empty');
+    error.status = 400;
+    throw error;
+  }
+
+  const quantitiesByCode = new Map();
+  for (const item of basket) {
+    const code = normalizeString(item?.code || item?.productCode).toUpperCase();
+    if (!code) {
+      const error = new Error('Every basket item must include a product code');
+      error.status = 400;
+      throw error;
+    }
+    quantitiesByCode.set(code, (quantitiesByCode.get(code) || 0) + normalizeQuantity(item.quantity || item.qty || item.totalQty));
+  }
+
+  const productEntries = await Promise.all([...quantitiesByCode.entries()].map(async ([code, quantity]) => {
+    const product = await loadProduct(code);
+    if (!product) {
+      const error = new Error(`Product ${code} is no longer available`);
+      error.status = 409;
+      throw error;
+    }
+    return [code, { product, unitPrice: selectPriceBreak(product, quantity) }];
+  }));
+  const productsByCode = new Map(productEntries);
+
+  let garmentCost = 0;
+  const pricedBasket = basket.map((item) => {
+    const code = normalizeString(item.code || item.productCode).toUpperCase();
+    const quantity = normalizeQuantity(item.quantity || item.qty || item.totalQty);
+    const unitPrice = productsByCode.get(code).unitPrice;
+    const itemTotal = roundMoney(unitPrice * quantity);
+    garmentCost = roundMoney(garmentCost + itemTotal);
+    return { ...item, code, quantity, unitPrice, itemTotal };
+  });
+
+  const customizations = Array.isArray(quoteData.customizations) ? quoteData.customizations : [];
+  let customizationCost = 0;
+  const embroideryDesigns = new Set();
+  const pricedCustomizations = [];
+  let digitisingFeePerDesign = 0;
+
+  for (let index = 0; index < customizations.length; index += 1) {
+    const customization = customizations[index] || {};
+    const quantity = normalizeQuantity(customization.quantity || customization.qty);
+    const price = await priceCustomization({
+      method: customization.method,
+      priceClass: customization.priceClass || 'standard',
+      quantity,
+    });
+
+    if (!price.allowAutomaticCheckout) {
+      const error = new Error('One or more customisations require manual approval. Please request a quote instead.');
+      error.status = 409;
+      throw error;
+    }
+
+    customizationCost = roundMoney(customizationCost + price.applicationTotal);
+    if (price.method === 'embroidery' && customization.hasLogo) {
+      digitisingFeePerDesign = Math.max(digitisingFeePerDesign, Number(price.digitisingFeePerDesign) || 0);
+      embroideryDesigns.add(normalizeString(customization.logo) || `design-${index}`);
+    }
+    pricedCustomizations.push({
+      ...customization,
+      method: price.method,
+      quantity,
+      unitPrice: price.unitPrice,
+      lineTotal: price.applicationTotal,
+      pricingVersion: price.pricingVersion,
+    });
+  }
+
+  const digitizingFee = roundMoney(embroideryDesigns.size * digitisingFeePerDesign);
+  const totalExVat = roundMoney(garmentCost + customizationCost + digitizingFee);
+  const vatAmount = roundMoney(totalExVat * VAT_RATE);
+  const totalIncVat = roundMoney(totalExVat + vatAmount);
+
+  return {
+    quoteData: {
+      ...quoteData,
+      basket: pricedBasket,
+      customizations: pricedCustomizations,
+      summary: {
+        ...(quoteData.summary || {}),
+        garmentCost,
+        customizationCost,
+        digitizingFee,
+        embroideryDesignCount: embroideryDesigns.size,
+        totalExVat,
+        vatAmount,
+        totalIncVat,
+        currency: DEFAULT_CURRENCY.toUpperCase(),
+        pricingSource: 'server',
+      },
+    },
+    amount: Math.round(totalIncVat * 100),
+  };
+}
+
+async function validatePaymentInput(body) {
   const quoteData = body.quoteData && typeof body.quoteData === 'object' ? body.quoteData : body;
   const customer = quoteData.customer || body.customer || {};
-  const summary = quoteData.summary || body.summary || {};
-  const amount = resolveQuoteAmount(summary, body.amount);
-  const currency = normalizeString(body.currency || summary.currency, DEFAULT_CURRENCY).toLowerCase();
+  const authoritative = await calculateAuthoritativeQuote(quoteData);
+  const summary = authoritative.quoteData.summary;
+  const amount = authoritative.amount;
+  const currency = DEFAULT_CURRENCY;
   const email = normalizeString(customer.email || body.customerEmail);
   const fullName = normalizeString(customer.fullName || customer.name || body.customerName);
 
@@ -110,7 +250,7 @@ function validatePaymentInput(body) {
   }
 
   return {
-    quoteData,
+    quoteData: authoritative.quoteData,
     customer,
     summary,
     amount,
@@ -315,7 +455,7 @@ async function savePaymentRecord(paymentIntent, paymentInput) {
 }
 
 async function createQuotePaymentIntent(body, idempotencyKey) {
-  const paymentInput = validatePaymentInput(body);
+  const paymentInput = await validatePaymentInput(body);
   const quoteId = normalizeString(body.quoteId) || createQuoteId();
   const orderNumber = normalizeString(body.orderNumber || body.order_number || paymentInput.quoteData?.orderNumber);
   const metadata = buildMetadata({ quoteId, orderNumber, ...paymentInput });
@@ -348,7 +488,7 @@ async function createQuotePaymentIntent(body, idempotencyKey) {
 }
 
 async function createQuoteCheckoutSession(body, idempotencyKey) {
-  const paymentInput = validatePaymentInput(body);
+  const paymentInput = await validatePaymentInput(body);
   const { successUrl, cancelUrl } = getCheckoutUrls();
   const quoteId = normalizeString(body.quoteId) || createQuoteId();
   const orderNumber = normalizeString(body.orderNumber || body.order_number || paymentInput.quoteData?.orderNumber);
@@ -624,6 +764,7 @@ async function getPaymentStatus(paymentIntentId) {
 }
 
 module.exports = {
+  calculateAuthoritativeQuote,
   createQuoteCheckoutSession,
   createQuotePaymentIntent,
   getPaymentStatus,
