@@ -1,7 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { calculateAuthoritativeQuote } = require('../services/stripeQuoteService');
+const {
+  calculateAuthoritativeQuote,
+  validatePaymentInput,
+} = require('../services/stripeQuoteService');
 
 test('Stripe quote pricing ignores browser totals and uses server prices', async () => {
   const result = await calculateAuthoritativeQuote({
@@ -56,4 +59,41 @@ test('Stripe quote pricing blocks manual-review customisations', async () => {
       digitisingFeePerDesign: 25,
     }),
   }), /require manual approval/i);
+});
+
+test('Stripe checkout temporarily charges the frontend total including VAT', async () => {
+  const result = await validatePaymentInput({
+    amount: 1,
+    quoteData: {
+      customer: {
+        fullName: 'Checkout Test',
+        email: 'checkout@example.com',
+      },
+      basket: [{ code: 'GD002', quantity: 10 }],
+      summary: {
+        totalExVat: 355.60,
+        vatAmount: 71.12,
+        totalIncVat: 426.72,
+        displayTotal: 426.72,
+      },
+    },
+  });
+
+  assert.equal(result.amount, 42672);
+  assert.equal(result.summary.totalIncVat, 426.72);
+  assert.equal(result.quoteData.summary.pricingSource, 'frontend');
+});
+
+test('Stripe checkout rejects missing or invalid frontend totals', async () => {
+  const customer = { fullName: 'Checkout Test', email: 'checkout@example.com' };
+
+  await assert.rejects(
+    () => validatePaymentInput({ quoteData: { customer, summary: {} } }),
+    /displayed basket total is required/i,
+  );
+
+  await assert.rejects(
+    () => validatePaymentInput({ quoteData: { customer, summary: { totalIncVat: 0.10 } } }),
+    /at least/i,
+  );
 });

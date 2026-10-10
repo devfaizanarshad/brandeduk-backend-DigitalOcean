@@ -13,6 +13,7 @@ const WEBHOOK_TOLERANCE_SECONDS = parseInt(process.env.STRIPE_WEBHOOK_TOLERANCE_
 const CHECKOUT_SUCCESS_URL = process.env.STRIPE_CHECKOUT_SUCCESS_URL || process.env.CHECKOUT_SUCCESS_URL;
 const CHECKOUT_CANCEL_URL = process.env.STRIPE_CHECKOUT_CANCEL_URL || process.env.CHECKOUT_CANCEL_URL;
 const VAT_RATE = Number(process.env.VAT_RATE || '0.20');
+const LARGE_PRINT_FLAT_RATE = 7.70;
 
 let stripePaymentsTableReady = false;
 
@@ -61,12 +62,12 @@ function parseAmountToMinorUnits(value) {
 
 function resolveQuoteAmount(summary = {}, explicitAmount) {
   const amountCandidates = [
-    explicitAmount,
-    summary.amount,
-    summary.displayTotal,
     summary.totalIncVat,
+    summary.displayTotal,
     summary.total,
     summary.grandTotal,
+    summary.amount,
+    explicitAmount,
     summary.subtotal,
     summary.totalExVat,
   ];
@@ -81,6 +82,20 @@ function resolveQuoteAmount(summary = {}, explicitAmount) {
 
 function roundMoney(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
+function normalizePositionSlug(value) {
+  return normalizeString(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+function isLargePrintPosition(customization) {
+  return [customization.position, customization.positionLabel, customization.posKey, customization.area]
+    .some((value) => ['large-front', 'large-back', 'front-large', 'back-large'].includes(normalizePositionSlug(value)));
+}
+
+function normalizeDesignKey(value, fallback) {
+  const key = normalizeString(value);
+  return (key || fallback).slice(0, 500);
 }
 
 function normalizeQuantity(value) {
@@ -161,10 +176,28 @@ async function calculateAuthoritativeQuote(quoteData, dependencies = {}) {
   for (let index = 0; index < customizations.length; index += 1) {
     const customization = customizations[index] || {};
     const quantity = normalizeQuantity(customization.quantity || customization.qty);
+    const productCode = normalizeString(customization.productCode).toUpperCase();
+    const pricingQuantity = quantitiesByCode.get(productCode) || quantity;
+    const isText = normalizeString(customization.type).toLowerCase() === 'text';
+    const submittedMethod = normalizeString(customization.method).toLowerCase();
+
+    if (isText && submittedMethod !== 'embroidery') {
+      const unitPrice = Number(customization.unitPrice);
+      if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+        const error = new Error('A text customisation has an invalid price');
+        error.status = 400;
+        throw error;
+      }
+      const lineTotal = roundMoney(unitPrice * quantity);
+      customizationCost = roundMoney(customizationCost + lineTotal);
+      pricedCustomizations.push({ ...customization, productCode, quantity, unitPrice, lineTotal });
+      continue;
+    }
+
     const price = await priceCustomization({
       method: customization.method,
       priceClass: customization.priceClass || 'standard',
-      quantity,
+      quantity: pricingQuantity,
     });
 
     if (!price.allowAutomaticCheckout) {
@@ -173,17 +206,25 @@ async function calculateAuthoritativeQuote(quoteData, dependencies = {}) {
       throw error;
     }
 
-    customizationCost = roundMoney(customizationCost + price.applicationTotal);
-    if (price.method === 'embroidery' && customization.hasLogo) {
+    const unitPrice = price.method === 'dtf' && isLargePrintPosition(customization)
+      ? LARGE_PRINT_FLAT_RATE
+      : price.unitPrice;
+    const lineTotal = roundMoney(unitPrice * quantity);
+    customizationCost = roundMoney(customizationCost + lineTotal);
+    if (price.method === 'embroidery' && (customization.hasLogo || isText)) {
       digitisingFeePerDesign = Math.max(digitisingFeePerDesign, Number(price.digitisingFeePerDesign) || 0);
-      embroideryDesigns.add(normalizeString(customization.logo) || `design-${index}`);
+      embroideryDesigns.add(normalizeDesignKey(
+        customization.designKey || customization.logo,
+        `design-${index}`,
+      ));
     }
     pricedCustomizations.push({
       ...customization,
+      productCode,
       method: price.method,
       quantity,
-      unitPrice: price.unitPrice,
-      lineTotal: price.applicationTotal,
+      unitPrice,
+      lineTotal,
       pricingVersion: price.pricingVersion,
     });
   }
@@ -218,15 +259,20 @@ async function calculateAuthoritativeQuote(quoteData, dependencies = {}) {
 async function validatePaymentInput(body) {
   const quoteData = body.quoteData && typeof body.quoteData === 'object' ? body.quoteData : body;
   const customer = quoteData.customer || body.customer || {};
-  const authoritative = await calculateAuthoritativeQuote(quoteData);
-  const summary = authoritative.quoteData.summary;
-  const amount = authoritative.amount;
+  const summary = quoteData.summary && typeof quoteData.summary === 'object' ? quoteData.summary : {};
+  const amount = resolveQuoteAmount(summary, body.amount);
   const currency = DEFAULT_CURRENCY;
   const email = normalizeString(customer.email || body.customerEmail);
   const fullName = normalizeString(customer.fullName || customer.name || body.customerName);
 
   if (!email) {
     const error = new Error('customer.email is required');
+    error.status = 400;
+    throw error;
+  }
+
+  if (amount == null) {
+    const error = new Error('The displayed basket total is required');
     error.status = 400;
     throw error;
   }
@@ -250,7 +296,14 @@ async function validatePaymentInput(body) {
   }
 
   return {
-    quoteData: authoritative.quoteData,
+    quoteData: {
+      ...quoteData,
+      summary: {
+        ...summary,
+        currency: currency.toUpperCase(),
+        pricingSource: 'frontend',
+      },
+    },
     customer,
     summary,
     amount,
@@ -769,5 +822,6 @@ module.exports = {
   createQuotePaymentIntent,
   getPaymentStatus,
   updatePaymentFromWebhook,
+  validatePaymentInput,
   verifyWebhookPayload,
 };
