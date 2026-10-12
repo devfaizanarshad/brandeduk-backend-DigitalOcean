@@ -48,6 +48,10 @@ function isAllowed(value) {
 }
 
 function scanLine(line) {
+  if (/\b(?:grep|sed|printf)\b/.test(line) && /\bJWT_SECRET\b/.test(line)) {
+    return providerKeyPatterns.some((pattern) => pattern.test(line));
+  }
+
   for (const name of sensitiveNames) {
     const assignment = new RegExp(`\\b${name}\\b\\s*(?:=|:)\\s*(.+)$`, 'i').exec(line);
     if (!assignment) continue;
