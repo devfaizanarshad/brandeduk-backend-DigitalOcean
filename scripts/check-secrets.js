@@ -27,6 +27,7 @@ const allowedValuePatterns = [
   /(?:example|placeholder|your[_ -]|test[_ -]?key)/i,
   /\boptional\b/i,
   /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*(?:\s|[,)};]|$)/,
+  /^\$\d/,
   /crypto\.randomBytes\(/,
 ];
 

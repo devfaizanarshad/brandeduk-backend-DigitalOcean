@@ -1,0 +1,29 @@
+name: Rotate Admin Credentials
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rotate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
+
+      - name: Rotate admin password
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_ROTATION_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_ROTATION_PASSWORD }}
+        run: |
+          test -n "$SERVER_IP" || { echo "SERVER_IP secret is required"; exit 1; }
+          test -n "$ADMIN_EMAIL" || { echo "ADMIN_ROTATION_EMAIL secret is required"; exit 1; }
+          test -n "$ADMIN_PASSWORD" || { echo "ADMIN_ROTATION_PASSWORD secret is required"; exit 1; }
+
+          ssh -o StrictHostKeyChecking=no "root@$SERVER_IP" bash -s -- "$ADMIN_EMAIL" "$ADMIN_PASSWORD" <<'REMOTE'
+          set -euo pipefail
+          cd /root/app
+          ADMIN_EMAIL="$1" ADMIN_PASSWORD="$2" ADMIN_NAME="BrandedUK Administrator" npm run admin:create
+          REMOTE
