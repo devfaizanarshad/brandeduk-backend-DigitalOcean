@@ -16,9 +16,6 @@ function validateEnvironment(environment = process.env) {
   if (environment.NODE_ENV !== 'production') return;
 
   const missing = REQUIRED_PRODUCTION_VARIABLES.filter((name) => !String(environment[name] || '').trim());
-  if (!String(environment.CORS_ORIGIN || environment.CORS_ORIGINS || '').trim()) {
-    missing.push('CORS_ORIGIN or CORS_ORIGINS');
-  }
   if (missing.length > 0) {
     throw new Error(`Missing required production environment variables: ${missing.join(', ')}`);
   }
