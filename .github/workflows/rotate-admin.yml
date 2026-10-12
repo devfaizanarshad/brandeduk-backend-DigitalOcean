@@ -25,5 +25,30 @@ jobs:
           ssh -o StrictHostKeyChecking=no "root@$SERVER_IP" bash -s -- "$ADMIN_EMAIL" "$ADMIN_PASSWORD" <<'REMOTE'
           set -euo pipefail
           cd /root/app
-          ADMIN_EMAIL="$1" ADMIN_PASSWORD="$2" ADMIN_NAME="BrandedUK Administrator" npm run admin:create
+          node - "$1" "$2" <<'NODE'
+          const { queryWithTimeout, closePool } = require('./config/database');
+          const { ensureCustomerTables } = require('./services/customerCheckoutService');
+          const { hashPassword } = require('./utils/auth');
+
+          const email = String(process.argv[2] || '').trim().toLowerCase();
+          const password = String(process.argv[3] || '');
+
+          (async () => {
+            if (!email || !password) throw new Error('Admin credentials are required');
+            await ensureCustomerTables();
+            await queryWithTimeout(`
+              INSERT INTO customer_users (name, email, password_hash, provider, role)
+              VALUES ($1, $2, $3, 'local', 'admin')
+              ON CONFLICT (email) DO UPDATE SET
+                password_hash = EXCLUDED.password_hash,
+                provider = 'local',
+                role = 'admin',
+                updated_at = CURRENT_TIMESTAMP
+            `, ['BrandedUK Administrator', email, hashPassword(password)], 10000);
+            console.log('Administrator password rotated');
+          })().catch((error) => {
+            console.error(error.message);
+            process.exitCode = 1;
+          }).finally(closePool);
+          NODE
           REMOTE
