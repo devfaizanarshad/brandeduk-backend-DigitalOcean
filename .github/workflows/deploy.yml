@@ -46,6 +46,20 @@ jobs:
           fi
 
           chmod 600 .env
+
+          current_jwt_secret="$(sed -n 's/^JWT_SECRET=//p' .env | tail -n 1 | tr -d '\r\"' | xargs)"
+          if [ "${#current_jwt_secret}" -lt 32 ]; then
+            new_jwt_secret="$(openssl rand -hex 32)"
+            if grep -q '^JWT_SECRET=' .env; then
+              sed -i "s/^JWT_SECRET=.*/JWT_SECRET=$new_jwt_secret/" .env
+            else
+              printf '\nJWT_SECRET=%s\n' "$new_jwt_secret" >> .env
+            fi
+            unset new_jwt_secret
+            echo "Rotated weak JWT secret in the protected server environment"
+          fi
+          unset current_jwt_secret
+
           git fetch origin main
           git reset --hard origin/main
           npm ci --omit=dev
