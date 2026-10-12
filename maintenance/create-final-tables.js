@@ -7,7 +7,7 @@ const destConfig = {
   port: 5432,
   database: 'brandeduk_prod',
   user: 'brandeduk',
-  password: 'omglol123',
+  password: process.env.DB_PASSWORD,
   ssl: { rejectUnauthorized: false },
 };
 
@@ -19,7 +19,7 @@ const sourceConfig = {
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || 'Branded_UK',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || '1234',
+    password: process.env.DB_PASSWORD,
   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
 };
 

@@ -5,7 +5,7 @@ const { Pool } = require('pg');
 const fs = require('fs');
 
 const pool = new Pool({
-    host: 'localhost', port: 5432, database: 'brandeduk_ralawise_backup', user: 'postgres', password: '1234', ssl: false
+    host: 'localhost', port: 5432, database: 'brandeduk_ralawise_backup', user: 'postgres', password: process.env.DB_PASSWORD, ssl: false
 });
 
 async function masterUnify() {

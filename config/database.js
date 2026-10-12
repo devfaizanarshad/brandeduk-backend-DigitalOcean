@@ -4,15 +4,10 @@ require('dotenv').config();
 
 const NODE_ENV = (process.env.NODE_ENV || 'development').toLowerCase();
 
-// Defaults: safe for local testing, explicit for production
+// Non-sensitive defaults are available for local development only.
 const DEFAULTS =
   NODE_ENV === 'production'
     ? {
-      host: 'localhost',
-      port: 5432,
-      database: 'brandeduk_prod',
-      user: 'brandeduk',
-      password: 'omglol123',
       ssl: true,
     }
     : {
@@ -20,16 +15,23 @@ const DEFAULTS =
       port: 5432,
       database: 'brandeduk_ralawise_backup',
       user: 'postgres',
-      password: '1234',
       ssl: false,
     };
+
+if (NODE_ENV === 'production') {
+  const requiredDatabaseVariables = ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'];
+  const missingDatabaseVariables = requiredDatabaseVariables.filter((name) => !process.env[name]?.trim());
+  if (missingDatabaseVariables.length > 0) {
+    throw new Error(`[DB] Missing required environment variables: ${missingDatabaseVariables.join(', ')}`);
+  }
+}
 
 const resolved = {
   host: process.env.DB_HOST || DEFAULTS.host,
   port: parseInt(process.env.DB_PORT || DEFAULTS.port, 10),
   database: process.env.DB_NAME || DEFAULTS.database,
   user: process.env.DB_USER || DEFAULTS.user,
-  password: process.env.DB_PASSWORD || DEFAULTS.password,
+  password: process.env.DB_PASSWORD,
 };
 
 

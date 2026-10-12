@@ -32,12 +32,12 @@ Uses `.env` for production creds; local uses:
 
 ```powershell
 # 1. Dump production
-$env:PGPASSWORD="omglol123"
+$env:PGPASSWORD="<production-database-password>"
 $env:PGSSLMODE="require"
 pg_dump -h 206.189.119.150 -p 5432 -U brandeduk -d brandeduk_prod -Fc -f maintenance/backups/ralawise.dump
 
 # 2. Create local DB
-$env:PGPASSWORD="1234"
+$env:PGPASSWORD="<local-database-password>"
 dropdb -h localhost -U postgres brandeduk_ralawise_backup  # if exists
 createdb -h localhost -U postgres brandeduk_ralawise_backup
 

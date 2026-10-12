@@ -46,7 +46,7 @@ const PROD = {
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || 'brandeduk_prod',
   user: process.env.DB_USER || 'brandeduk',
-  password: process.env.DB_PASSWORD || 'omglol123',
+  password: process.env.DB_PASSWORD,
 };
 
 const BACKUP_DIR = path.join(__dirname, 'backups');

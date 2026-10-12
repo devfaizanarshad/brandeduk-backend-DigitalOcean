@@ -8,7 +8,7 @@ const pool = new Pool({
     port: 5432,
     database: 'brandeduk_prod',
     user: 'brandeduk',
-    password: 'omglol123',
+    password: process.env.DB_PASSWORD,
     ssl: { rejectUnauthorized: false }
 });
 

@@ -17,7 +17,7 @@ For the **promote** run, production target is read from env. Set these (in `.env
 DB_HOST=206.189.119.150
 DB_NAME=brandeduk_prod
 DB_USER=brandeduk
-DB_PASSWORD=omglol123
+DB_PASSWORD=<production-database-password>
 DB_PORT=5432
 DB_SSL=true
 ```
@@ -38,7 +38,7 @@ $env:CONFIRM_PROMOTE_PROD = "YES"
 $env:DB_HOST = "206.189.119.150"
 $env:DB_NAME = "brandeduk_prod"
 $env:DB_USER = "brandeduk"
-$env:DB_PASSWORD = "omglol123"
+$env:DB_PASSWORD = "<production-database-password>"
 $env:DB_PORT = "5432"
 $env:DB_SSL = "true"
 node maintenance/promote-local-backup-to-production.js
@@ -51,7 +51,7 @@ export CONFIRM_PROMOTE_PROD=YES
 export DB_HOST=206.189.119.150
 export DB_NAME=brandeduk_prod
 export DB_USER=brandeduk
-export DB_PASSWORD=omglol123
+export DB_PASSWORD='<production-database-password>'
 export DB_PORT=5432
 export DB_SSL=true
 node maintenance/promote-local-backup-to-production.js

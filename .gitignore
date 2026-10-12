@@ -23,6 +23,8 @@ maintenance/backups/
 
 # Config
 .env
+.env.*
+!.env.example
 
 # Temp and Uploads
 uploads/

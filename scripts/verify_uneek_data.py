@@ -27,7 +27,7 @@ BACKUP_DB = {
     "port": int(os.getenv("PGPORT", 5432)),
     "database": "brandeduk_ralawise_backup",
     "user": os.getenv("PGUSER", "postgres"),
-    "password": os.getenv("PGPASSWORD", "1234"),
+    "password": os.getenv("PGPASSWORD"),
 }
 
 ECOMMERCE_DB = {
@@ -35,7 +35,7 @@ ECOMMERCE_DB = {
     "port": int(os.getenv("PGPORT", 5432)),
     "database": "ecommerce",
     "user": os.getenv("PGUSER", "postgres"),
-    "password": os.getenv("PGPASSWORD", "1234"),
+    "password": os.getenv("PGPASSWORD"),
 }
 
 

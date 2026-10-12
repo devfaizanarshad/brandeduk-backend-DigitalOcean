@@ -9,7 +9,7 @@
 $env:PGHOST = "localhost"
 $env:PGDATABASE = "brandeduk_ralawise_backup"
 $env:PGUSER = "postgres"
-$env:PGPASSWORD = "1234"
+$env:PGPASSWORD = "<local-database-password>"
 
 node maintenance/run-uneek-merge.js
 ```

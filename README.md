@@ -16,7 +16,7 @@ DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=Branded_UK
 DB_USER=postgres
-DB_PASSWORD=1234
+DB_PASSWORD=<local-database-password>
 PORT=3000
 ```
 
@@ -113,8 +113,8 @@ Create a Stripe PaymentIntent for a quote. The frontend uses the returned `clien
 
 Required environment variables:
 ```bash
-STRIPE_SECRET_KEY=sk_live_or_test_key_here
-STRIPE_WEBHOOK_SECRET=whsec_webhook_secret_here
+STRIPE_SECRET_KEY=<stripe-secret-key>
+STRIPE_WEBHOOK_SECRET=<stripe-webhook-secret>
 STRIPE_CURRENCY=gbp
 ```
 
@@ -174,8 +174,8 @@ This is the simplest + smoothest flow for plain HTML/JS frontends and does not r
 
 Required environment variables:
 ```bash
-STRIPE_SECRET_KEY=sk_live_or_test_key_here
-STRIPE_WEBHOOK_SECRET=whsec_webhook_secret_here
+STRIPE_SECRET_KEY=<stripe-secret-key>
+STRIPE_WEBHOOK_SECRET=<stripe-webhook-secret>
 STRIPE_CHECKOUT_SUCCESS_URL=https://your-frontend.com/payment/success
 STRIPE_CHECKOUT_CANCEL_URL=https://your-frontend.com/payment/cancel
 STRIPE_CURRENCY=gbp

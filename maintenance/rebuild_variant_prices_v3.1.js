@@ -9,7 +9,7 @@ const pool = new Pool({
   port: parseInt(process.env.DB_PORT || '5432', 10),
   database: process.env.DB_NAME || 'brandeduk_ralawise_backup',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || '1234',
+    password: process.env.DB_PASSWORD,
   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false
 });
 

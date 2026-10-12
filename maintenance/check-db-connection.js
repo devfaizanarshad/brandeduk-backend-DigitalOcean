@@ -6,7 +6,7 @@ console.log('DB_HOST:', process.env.DB_HOST || 'localhost (default)');
 console.log('DB_PORT:', process.env.DB_PORT || '5432 (default)');
 console.log('DB_NAME:', process.env.DB_NAME || 'Branded_UK (default)');
 console.log('DB_USER:', process.env.DB_USER || 'postgres (default)');
-console.log('DB_PASSWORD:', process.env.DB_PASSWORD ? '***' : '1234 (default)');
+console.log('DB_PASSWORD:', process.env.DB_PASSWORD ? 'set' : 'not set');
 console.log('DB_SSL:', process.env.DB_SSL || 'false (default)');
 console.log('');
 
@@ -16,7 +16,7 @@ const pool = new Pool({
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || 'Branded_UK',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || '1234',
+  password: process.env.DB_PASSWORD,
   ssl: false, // Force SSL off for localhost check
 });
 

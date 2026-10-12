@@ -1,3 +1,8 @@
+require('dotenv').config();
+
+const { validateEnvironment } = require('./config/environment');
+validateEnvironment();
+
 const express = require('express');
 const cors = require('cors');
 const swaggerUi = require('swagger-ui-express');
@@ -6,7 +11,6 @@ const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { checkDatabaseHealth, closePool } = require('./config/database');
-require('dotenv').config();
 
 const productsRoutes = require('./routes/products');
 const categoriesRoutes = require('./routes/categories');

@@ -5,7 +5,22 @@ on:
     branches: [main]
 
 jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Reject committed secrets
+        run: node scripts/check-secrets.js
+
   deploy:
+    needs: security
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -16,93 +31,33 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SERVER_SSH_KEY }}
 
-      - name: Deploy to Server
+      - name: Deploy to server
         env:
           SERVER_IP: ${{ secrets.SERVER_IP }}
-          REPO_URL: https://github.com/${{ github.repository }}.git
         run: |
-          if [ -z "$SERVER_IP" ]; then
-            echo "Error: SERVER_IP secret is not set"
+          test -n "$SERVER_IP" || { echo "SERVER_IP secret is required"; exit 1; }
+          ssh -o StrictHostKeyChecking=no "root@$SERVER_IP" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          cd /root/app
+
+          if [ ! -f .env ]; then
+            echo "Missing /root/app/.env. Provision production secrets on the server before deployment."
             exit 1
           fi
 
-          # Create deployment script locally first to be uploaded
-          cat << 'EOF' > deploy_remote.sh
-          set -e
-          echo "🚀 Starting deployment on server..."
-          
-          # Navigate to root or app directory
-          cd /root
-          
-          if [ ! -d "app" ]; then
-            echo "📁 Cloning repository for the first time..."
-            git clone $1 app
-          fi
-          
-          cd app
-          echo "📥 Fetching latest changes from main..."
+          chmod 600 .env
           git fetch origin main
           git reset --hard origin/main
-          
-          # Ensure .env exists with production settings
-          echo "⚙️ Configuring environment variables..."
-          if [ ! -f .env ]; then
-            cat << 'ENV' > .env
-          EMAIL_FROM="BrandedUK <info@brandeduk.com>"
-          EMAIL_TO=info@brandeduk.com
-          NODE_ENV=production
-          QUOTE_EMAIL_DEV=info@brandeduk.com
-          RESEND_API_KEY=re_5NxbK1kB_5BFDWnjGszj5BF51Mj7qXo1r
-          SMTP_HOST=smtp.gmail.com
-          SMTP_PASS=wpowirmmtibzucow
-          SMTP_PORT=587
-          SMTP_USER=faizanarshaddev@gmail.com
-          DB_POOL_MAX=50
-          DB_POOL_MIN=5
-          DB_SSL=false
-          DB_HOST=localhost
-          DB_NAME=brandeduk_prod
-          DB_PASSWORD=omglol123
-          DB_PORT=5432
-          DB_USER=brandeduk
-          ENV
-          else
-            # Ensure DB points to local for production if script is on same server
-            sed -i 's/DB_HOST=.*/DB_HOST=localhost/' .env
-            sed -i 's/DB_SSL=true/DB_SSL=false/' .env || true
-          fi
-          
-          # Clean up any potential hardcoded IP issues (legacy)
-          find . -name "*.js" -type f -exec sed -i 's/206\.189\.119\.150/localhost/g' {} \;
-          
-          echo "📦 Installing production dependencies..."
-          npm install --production
-          
-          echo "🔄 Managing PM2 process..."
-          if pm2 list | grep -q "branded-api"; then
-            echo "Restarting existing process..."
+          npm ci --omit=dev
+          npm run config:check
+
+          if pm2 describe branded-api >/dev/null 2>&1; then
             pm2 restart branded-api --update-env
           else
-            echo "Starting new PM2 process..."
-            pm2 start server.js --name "branded-api"
+            pm2 start server.js --name branded-api
             pm2 save
           fi
-          
-          echo "⏳ Waiting for application to stabilize..."
-          sleep 5
-          
-          echo "🔍 Performing health check..."
-          if curl -s -f http://localhost:3004/health; then
-            echo "✅ Deployment successful! Service is healthy."
-          else
-            echo "❌ Health check failed! Check 'pm2 logs branded-api' on the server."
-            exit 1
-          fi
-          EOF
 
-          # Copy and execute on server
-          echo "📤 Uploading deployment script to server..."
-          scp -o StrictHostKeyChecking=no deploy_remote.sh root@$SERVER_IP:/tmp/deploy_script.sh
-          
-          echo "🖥️  Executing remote deployment script..."
-          ssh -o StrictHostKeyChecking=no root@$SERVER_IP "bash /tmp/deploy_script.sh $REPO_URL && rm /tmp/deploy_script.sh"
+          sleep 5
+          curl --silent --show-error --fail http://localhost:3004/health/live >/dev/null
+          REMOTE

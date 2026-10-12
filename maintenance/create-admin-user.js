@@ -10,7 +10,7 @@ async function createAdminUser() {
   const name = String(process.env.ADMIN_NAME || 'Administrator').trim();
 
   if (!email || !email.includes('@')) throw new Error('ADMIN_EMAIL must be a valid email address');
-  if (password.length < 8) throw new Error('ADMIN_PASSWORD must contain at least 8 characters');
+  if (password.length < 14) throw new Error('ADMIN_PASSWORD must contain at least 14 characters');
 
   await ensureCustomerTables();
   const result = await queryWithTimeout(`

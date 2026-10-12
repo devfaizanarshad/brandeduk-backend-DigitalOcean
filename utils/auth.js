@@ -1,7 +1,8 @@
 const crypto = require('crypto');
 const { queryWithTimeout } = require('../config/database');
 
-const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'brandeduk-development-secret';
+const configuredJwtSecret = process.env.JWT_SECRET || process.env.SESSION_SECRET;
+const JWT_SECRET = configuredJwtSecret || crypto.randomBytes(32).toString('hex');
 const JWT_EXPIRES_SECONDS = parseInt(process.env.JWT_EXPIRES_SECONDS || '604800', 10);
 
 if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET && !process.env.SESSION_SECRET) {

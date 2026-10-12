@@ -31,7 +31,7 @@ const PROD = {
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || 'brandeduk_prod',
   user: process.env.DB_USER || 'brandeduk',
-  password: process.env.DB_PASSWORD || 'omglol123',
+    password: process.env.DB_PASSWORD,
   ssl:
     typeof process.env.DB_SSL === 'string' &&
     process.env.DB_SSL.toLowerCase() === 'true'

@@ -413,7 +413,7 @@ CREATE TABLE IF NOT EXISTS customization_decoration_fees (
 
 -- DB_HOST=206.189.119.150
 -- DB_NAME=brandeduk_prod
--- # DB_PASSWORD=omglol123
+-- # DB_PASSWORD=<production-database-password>
 -- # DB_POOL_MAX=50
 -- # DB_POOL_MIN=5
 -- # DB_PORT=5432

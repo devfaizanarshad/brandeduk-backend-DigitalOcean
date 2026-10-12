@@ -11,7 +11,7 @@ const pool = new Pool({
     port: 5432,
     database: 'brandeduk_ralawise_backup',
     user: 'postgres',
-    password: '1234',
+    password: process.env.DB_PASSWORD,
     ssl: false // User specified SSL=false
 });
 

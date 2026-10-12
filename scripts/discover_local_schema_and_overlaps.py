@@ -28,7 +28,7 @@ LOCAL_DB = {
     "port": int(os.getenv("PGPORT", 5432)),
     "database": os.getenv("PGDATABASE", "ecommerce"),
     "user": os.getenv("PGUSER", "postgres"),
-    "password": os.getenv("PGPASSWORD", "1234"),
+    "password": os.getenv("PGPASSWORD"),
     "connect_timeout": 5,
 }
 
@@ -37,7 +37,7 @@ PROD_DB = {
     "port": int(os.getenv("DB_PORT", 5432)),
     "database": os.getenv("DB_NAME", "brandeduk_prod"),
     "user": os.getenv("DB_USER", "brandeduk"),
-    "password": os.getenv("DB_PASSWORD", "omglol123"),
+    "password": os.getenv("DB_PASSWORD"),
     "sslmode": "require",
     "connect_timeout": 10,
 }
