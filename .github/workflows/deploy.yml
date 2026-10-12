@@ -72,6 +72,15 @@ jobs:
             pm2 save
           fi
 
-          sleep 5
-          curl --silent --show-error --fail http://localhost:3004/health/live >/dev/null
+          for attempt in $(seq 1 12); do
+            if curl --silent --show-error --fail http://localhost:3004/health/live >/dev/null; then
+              echo "Backend health check passed"
+              exit 0
+            fi
+            echo "Waiting for backend startup ($attempt/12)"
+            sleep 5
+          done
+
+          pm2 logs branded-api --lines 80 --nostream
+          exit 1
           REMOTE
