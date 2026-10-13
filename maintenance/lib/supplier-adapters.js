@@ -23,7 +23,8 @@ const { resolveUneekProductTypeSlug } = require('./resolve-uneek-product-type');
 const SUPPLIERS = {
   ralawise: { slug: 'ralawise', name: 'Ralawise' },
   uneek: { slug: 'uneek', name: 'Uneek' },
-  'absolute-apparel': { slug: 'absolute-apparel', name: 'Absolute Apparel' }
+  'absolute-apparel': { slug: 'absolute-apparel', name: 'Absolute Apparel' },
+  pencarrie: { slug: 'pencarrie', name: 'Pencarrie' }
 };
 
 const UNEEK_TYPES = {
@@ -165,6 +166,29 @@ function normalizeUneekRow(row) {
   });
 }
 
+function normalizePencarrieRow(row) {
+  const discontinued = cleanText(row.Discontinued).toLowerCase() === 'true';
+  const features = splitValues(row.Features, /[;|]/);
+  const attributes = splitValues(row.Attributes, /[;|]/);
+  return baseRecord({
+    supplierSlug: 'pencarrie', supplierName: 'Pencarrie',
+    styleCode: row['Style Code'], externalStyleCode: row['Supplier Code'] || row['Style Code'],
+    skuCode: row.SKU, externalSku: row.SKU, styleName: row.Title, brand: row.Brand,
+    productType: row.Type, gender: row.Gender, ageGroup: row.Gender,
+    fabric: row.Material, weight: row.Weight,
+    specification: [row.Body, ...features, ...attributes].map(cleanText).filter(Boolean).join('\n'),
+    features: [...features, ...attributes], colourName: row['Colourway Name'],
+    primaryColour: row['Colour Group'], colourHex: row.RGB,
+    size: row.Size, status: discontinued ? 'Discontinued' : 'Live',
+    cartonPrice: price(row['Carton List Price']), packPrice: price(row['Pack List Price']),
+    singlePrice: price(row['Single List Price']),
+    primaryImageUrl: row['Model Image'] || row['Front Image'],
+    colourImageUrl: row['Front Image'] || row['Model Image'], stockQuantity: 0,
+    categories: splitValues(row['Suggested Categories'], /[;|]/),
+    accreditations: splitValues(row.Certifications, /[;|]/)
+  });
+}
+
 function absoluteProductType(category) {
   const broad = cleanText(category).split('\\')[0].trim();
   const match = ABSOLUTE_TYPE_RULES.find(([pattern]) => pattern.test(broad));
@@ -202,6 +226,7 @@ module.exports = {
   SUPPLIERS,
   normalizeRalawiseRow,
   normalizeUneekRow,
+  normalizePencarrieRow,
   normalizeAbsoluteProduct,
   absoluteProductType
 };

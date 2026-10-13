@@ -13,6 +13,7 @@
     "catalog:audit": "node maintenance/audit-supplier-catalog.js",
     "catalog:sync": "node maintenance/sync-supplier-catalog.js",
     "catalog:verify": "node maintenance/verify-supplier-catalog.js",
+    "catalog:import-pencarrie": "node maintenance/import-pencarrie-selected-brands.js",
     "catalog:groups": "node maintenance/sync-ralawise-catalog-groups.js",
     "customization:replace-images": "node maintenance/replace-customization-images-via-api.js",
     "customization:prepare-63": "python maintenance/prepare-customization-63-assets.py",

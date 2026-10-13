@@ -16,6 +16,7 @@ const {
 const {
   normalizeRalawiseRow,
   normalizeUneekRow,
+  normalizePencarrieRow,
   absoluteProductType
 } = require('../maintenance/lib/supplier-adapters');
 
@@ -73,6 +74,25 @@ test('Uneek product names override overly broad supplier categories', () => {
     'Price Single': '10', 'Model Large Image': 'https://example.test/model.webp'
   });
   assert.equal(record.productType.slug, 'gilets-body-warmers');
+});
+
+test('Pencarrie adapter maps catalogue prices, images and status', () => {
+  const record = normalizePencarrieRow({
+    SKU: 'NS300 BLK XS', 'Style Code': 'NS300', Title: 'Unisex eco sweatshirt',
+    Brand: 'Native Spirit', Gender: 'Unisex', Type: 'Sweatshirts',
+    Body: '<p>Organic sweatshirt.</p>', Material: '85% organic cotton/15% recycled polyester',
+    Weight: '300 gsm', 'Colourway Name': 'Black', 'Colour Group': 'Black', RGB: '#000000',
+    Size: 'XS', 'Single List Price': '15.00', 'Pack List Price': '14.00',
+    'Carton List Price': '12.50', 'Model Image': 'https://example.test/model.jpg',
+    'Front Image': 'https://example.test/front.jpg', Discontinued: 'FALSE',
+    Certifications: 'OEKO-TEX;Organic', 'Suggested Categories': 'Sweatshirts;Eco'
+  });
+  assert.equal(record.supplierSlug, 'pencarrie');
+  assert.equal(record.styleCode, 'NS300');
+  assert.equal(record.cartonPrice, 12.5);
+  assert.equal(record.status, 'Live');
+  assert.equal(record.primaryImageUrl, 'https://example.test/model.jpg');
+  assert.equal(record.gsm, 300);
 });
 
 test('Absolute Apparel garment families are not silently dropped or misclassified', () => {
