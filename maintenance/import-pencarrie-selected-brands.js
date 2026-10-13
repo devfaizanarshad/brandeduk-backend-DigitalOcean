@@ -32,12 +32,23 @@ function parseArgs(argv) {
 }
 
 async function apiRequest(apiBase, route, options = {}) {
-  const response = await fetch(`${apiBase}${route}`, options);
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`${route} returned ${response.status}: ${body.slice(0, 500)}`);
+  let lastError;
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try {
+      const response = await fetch(`${apiBase}${route}`, options);
+      if (response.ok) return response.json();
+      const body = await response.text();
+      const error = new Error(`${route} returned ${response.status}: ${body.slice(0, 500)}`);
+      if (response.status < 500 && response.status !== 429) error.nonRetryable = true;
+      if (error.nonRetryable) throw error;
+      lastError = error;
+    } catch (error) {
+      if (error.nonRetryable) throw error;
+      lastError = error;
+    }
+    if (attempt < 5) await new Promise(resolve => setTimeout(resolve, attempt * 2000));
   }
-  return response.json();
+  throw new Error(`${route} failed after 5 attempts: ${lastError?.message || 'unknown error'}`);
 }
 
 async function login(options) {
