@@ -2689,7 +2689,7 @@ async function buildAlternativeProductsQuery(styleCode, limit = 5) {
 async function buildProductDetailQuery(styleCode) {
   // Versioned because the detail payload now includes resolved fabric/weight
   // metadata; do not serve an older cached response with an empty weight.
-  const cacheKey = `product:v4:${styleCode}`;
+  const cacheKey = `product:v6:${styleCode}`;
   const cached = await getCached(cacheKey);
   if (cached) {
     console.log(`[CACHE] Hit for product detail: ${styleCode}`);
@@ -2764,6 +2764,7 @@ async function buildProductDetailQuery(styleCode) {
   let mainImage = rawMainImage === 'Not available' ? '' : rawMainImage;
   let minSellPrice = 0; 
   let cartonPrice = null;
+  let singlePrice = null;
   let markupPercent = null;
 
   detailResult.rows.forEach(row => {
@@ -2788,17 +2789,24 @@ async function buildProductDetailQuery(styleCode) {
     // This ensures that the header "basePrice" and "carton_price" are consistent with the "From" price shown to the customer
     if (row.sell_price) {
       const sell = parseFloat(row.sell_price);
-      const cp = row.carton_price != null ? parseFloat(row.carton_price) : null;
+      const rawCartonPrice = row.carton_price != null ? parseFloat(row.carton_price) : null;
+      const rawSinglePrice = row.single_price != null ? parseFloat(row.single_price) : null;
+      const cp = Number.isFinite(rawCartonPrice) && rawCartonPrice > 0
+        ? rawCartonPrice
+        : (Number.isFinite(rawSinglePrice) && rawSinglePrice > 0 ? rawSinglePrice : null);
+      const sp = Number.isFinite(rawSinglePrice) && rawSinglePrice > 0 ? rawSinglePrice : null;
       const mp = row.markup_percent != null ? parseFloat(row.markup_percent) : null;
 
       if (minSellPrice === 0 || sell < minSellPrice) {
         minSellPrice = sell;
         cartonPrice = cp;
+        singlePrice = sp;
         markupPercent = mp;
       } else if (sell === minSellPrice) {
         // If prices match, pick the one with lower cost for the header
         if (cp !== null && (cartonPrice === null || cp < cartonPrice)) {
             cartonPrice = cp;
+            singlePrice = sp;
             markupPercent = mp;
         }
       }
@@ -2898,6 +2906,12 @@ async function buildProductDetailQuery(styleCode) {
     price: basePrice,  // Same as basePrice - single unit price after markup
     basePrice: basePrice,  // Single price after markup (matches 1-9 tier)
     sell_price: basePrice,  // Explicit sell price (same as price)
+    carton_price: basePriceForMarkup || null,
+    cartonPrice: basePriceForMarkup || null,
+    single_price: singlePrice,
+    singlePrice: singlePrice,
+    markup_tier: markupPercent,
+    markupPercent: markupPercent,
     priceBreaks: priceBreaks || [],
     colors: colors,
     sizes: sizes.length > 0 ? sizes : [],
