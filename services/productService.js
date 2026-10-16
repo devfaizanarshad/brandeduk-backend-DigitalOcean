@@ -2689,7 +2689,7 @@ async function buildAlternativeProductsQuery(styleCode, limit = 5) {
 async function buildProductDetailQuery(styleCode) {
   // Versioned because the detail payload now includes resolved fabric/weight
   // metadata; do not serve an older cached response with an empty weight.
-  const cacheKey = `product:v6:${styleCode}`;
+  const cacheKey = `product:v7:${styleCode}`;
   const cached = await getCached(cacheKey);
   if (cached) {
     console.log(`[CACHE] Hit for product detail: ${styleCode}`);
@@ -2729,7 +2729,7 @@ async function buildProductDetailQuery(styleCode) {
     LEFT JOIN brands b ON s.brand_id = b.id
     LEFT JOIN product_types pt ON s.product_type_id = pt.id
     LEFT JOIN suppliers sup ON s.supplier_id = sup.id
-    LEFT JOIN products p ON p.style_code = s.style_code AND p.sku_status IN ('Live', 'Discontinued')
+    LEFT JOIN products p ON p.style_code = s.style_code AND p.sku_status = 'Live'
     LEFT JOIN sizes sz ON p.size_id = sz.id
     LEFT JOIN tags t ON p.tag_id = t.id
     LEFT JOIN LATERAL (
