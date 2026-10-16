@@ -66,6 +66,20 @@ test('Ralawise adapter preserves the supplier record and creates canonical filte
   assert.equal(record.fabrics[0].slug, 'cotton-100');
 });
 
+test('Ralawise placeholder prices are unavailable rather than customer prices', () => {
+  const record = normalizeRalawiseRow({
+    'Style Code': 'CO110', 'Sku Code': 'CO110BLACS',
+    'Style Name': 'Heavyweight adult t-shirt', Brand: 'Comfort Colors',
+    'Product Type': 'T-Shirts', 'Sku Status': 'Live',
+    'Carton Price': '999.99', 'Pack Price': '999.99', 'Single Price': '999.99'
+  });
+
+  assert.equal(record.cartonPrice, null);
+  assert.equal(record.packPrice, null);
+  assert.equal(record.singlePrice, null);
+  assert.equal(record.status, 'Unavailable');
+});
+
 test('Uneek product names override overly broad supplier categories', () => {
   const record = normalizeUneekRow({
     Category: 'Jackets', 'Product Code': 'UC640', 'Short Code': 'UC640BKXS',

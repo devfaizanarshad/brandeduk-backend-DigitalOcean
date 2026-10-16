@@ -27,6 +27,13 @@ const SUPPLIERS = {
   pencarrie: { slug: 'pencarrie', name: 'Pencarrie' }
 };
 
+const RALAWISE_UNAVAILABLE_PRICE = 999.99;
+
+function ralawisePrice(value) {
+  const normalized = price(value);
+  return normalized === RALAWISE_UNAVAILABLE_PRICE ? null : normalized;
+}
+
 const UNEEK_TYPES = {
   polos: 'Polos', sweatshirts: 'Sweatshirts', sweatshirt: 'Sweatshirts',
   't-shirts': 'T-Shirts', tshirts: 'T-Shirts', childrenswear: 'T-Shirts', childrens: 'T-Shirts',
@@ -144,7 +151,8 @@ function normalizeRalawiseRow(row) {
     features, colourName: row['Colour Name'], primaryColour: row['Primary Colour'],
     colourShade: row['Colour Shade'], colourHex: row.RGB,
     size: row['Size Name'], tag: row.Tag, status: row['Sku Status'],
-    cartonPrice: price(row['Carton Price']), packPrice: price(row['Pack Price']), singlePrice: price(row['Single Price']),
+    cartonPrice: ralawisePrice(row['Carton Price']), packPrice: ralawisePrice(row['Pack Price']),
+    singlePrice: ralawisePrice(row['Single Price']),
     primaryImageUrl: row['Primary Product Image URL'], colourImageUrl: row['Colour Image'], stockQuantity: 0,
     categories: splitValues(row.Categorisation), accreditations: splitValues(row.Accreditations)
   });
@@ -224,6 +232,7 @@ function normalizeAbsoluteProduct(master) {
 
 module.exports = {
   SUPPLIERS,
+  ralawisePrice,
   normalizeRalawiseRow,
   normalizeUneekRow,
   normalizePencarrieRow,
