@@ -32,6 +32,14 @@ npm run dev
 
 ## API Endpoints
 
+### Commerce journey analytics
+
+`POST /api/analytics/events` accepts consented storefront journey events for searches, product views, basket changes, checkout starts, and completed orders. It uses random visitor/session identifiers and does not accept customer names, emails, phone numbers, IP addresses, raw user agents, or artwork.
+
+`GET /api/admin/analytics/abandoned-baskets` is administrator-only and returns abandoned basket totals, funnel counts, top abandoned products, top searches, and paginated basket journeys. A basket is considered abandoned after 30 minutes by default; use `days` and `abandonedAfterMinutes` to adjust the report.
+
+The tables are created on first use. The equivalent deployment migration is `maintenance/migrations/002_commerce_journey_analytics.sql`.
+
 ### GET /api/products
 Product list with filtering, search, and pagination.
 
