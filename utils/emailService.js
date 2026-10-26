@@ -426,6 +426,9 @@ function buildQuoteBasketContactData(data, logoAssets = {}) {
         productCosts: summary.garmentCost ?? summary.productCosts,
         customizationCosts: summary.customizationCost ?? summary.customisationCost ?? summary.customizationCosts,
         digitizingFee: summary.digitizingFee ?? summary.setupFee,
+        deliveryExVat: summary.deliveryExVat,
+        deliveryIncVat: summary.deliveryIncVat ?? summary.deliveryFee,
+        deliveryVatAmount: summary.deliveryVatAmount,
         subtotalExVat: summary.totalExVat ?? summary.subtotalExVat ?? summary.subtotal,
         vatAmount: summary.vatAmount ?? summary.vat,
         totalIncVat: summary.totalIncVat ?? summary.total,
@@ -779,7 +782,9 @@ function generateBasketContactEmailHTML(data) {
   const productCosts = amountOr(summary.productCosts, productFallback);
   const customizationCosts = amountOr(summary.customizationCosts, customizationFallback);
   const digitizingFee = amountOr(summary.digitizingFee, 0);
-  const subtotalExVat = amountOr(summary.subtotalExVat, productCosts + customizationCosts + digitizingFee);
+  const deliveryExVat = amountOr(summary.deliveryExVat, 0);
+  const deliveryIncVat = amountOr(summary.deliveryIncVat, deliveryExVat * 1.2);
+  const subtotalExVat = amountOr(summary.subtotalExVat, productCosts + customizationCosts + digitizingFee + deliveryExVat);
   const vatAmount = amountOr(summary.vatAmount, subtotalExVat * 0.2);
   const totalIncVat = amountOr(summary.totalIncVat, subtotalExVat + vatAmount);
   const originalTotalIncVat = amountOr(summary.originalTotalIncVat, totalIncVat);
@@ -917,6 +922,7 @@ function generateBasketContactEmailHTML(data) {
                 <tr><td class="summary-label" style="padding:15px 17px 6px;color:#667085;font-size:13px;">Products</td><td class="summary-value" style="padding:15px 17px 6px;text-align:right;font-size:13px;font-weight:750;">${money(productCosts)}</td></tr>
                 <tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Customisation</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${money(customizationCosts)}</td></tr>
                 ${digitizingFee > 0 ? `<tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Embroidery setup</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${money(digitizingFee)}</td></tr>` : ''}
+                ${deliveryExVat > 0 ? `<tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Delivery <span style="display:block;font-size:10px;color:#98a2b3;">${money(deliveryIncVat)} inc. VAT</span></td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${money(deliveryExVat)}</td></tr>` : ''}
                 <tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Total (ex. VAT)</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${money(subtotalExVat)}</td></tr>
                 ${discountAmount > 0 ? `<tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Discount, ex. VAT (${formatQuotePercent(discountPercent)})</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;color:#166534;">&minus;${money(discountAmount)}</td></tr>` : ''}
                 <tr><td class="summary-label" style="padding:6px 17px 15px;color:#667085;font-size:13px;border-bottom:1px solid #e5e7eb;">VAT</td><td class="summary-value" style="padding:6px 17px 15px;text-align:right;font-size:13px;font-weight:750;border-bottom:1px solid #e5e7eb;">${money(vatAmount)}</td></tr>
@@ -1591,6 +1597,7 @@ function generateLegacyAdjustedQuoteEmailHTML(snapshot = {}, quote = {}) {
               <h2>Quote Summary</h2>
               <table class="totals">
                 ${Number(totals.originalSubtotal) > Number(totals.adjustedSubtotal) ? `<tr><td>Original subtotal</td><td class="total-value old-price">${formatQuoteMoney(totals.originalSubtotal)}</td></tr>` : ''}
+                ${Number(totals.deliveryAdjustedLineTotal) > 0 ? `<tr><td>Delivery (ex. VAT)</td><td class="total-value">${renderAdjustedAmount(totals.deliveryOriginalLineTotal, totals.deliveryAdjustedLineTotal)}</td></tr>` : ''}
                 <tr><td>Adjusted subtotal</td><td class="total-value">${formatQuoteMoney(totals.adjustedSubtotal)}</td></tr>
                 ${Number(totals.discountAmount) > 0 ? `<tr><td>Discount${discountPercent ? ` (${discountPercent})` : ''}</td><td class="total-value">${formatQuoteMoney(totals.discountAmount)}</td></tr>` : ''}
                 <tr><td>VAT (${formatQuotePercent(Number(totals.vatRate || 0) * 100) || '0%'})</td><td class="total-value">${formatQuoteMoney(totals.vatAmount)}</td></tr>

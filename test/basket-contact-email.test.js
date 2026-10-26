@@ -122,6 +122,44 @@ test('basket contact email renders customer, product, decoration and summary det
   assert.match(html, /Pack sizes separately\./);
 });
 
+test('admin quote email shows delivery when the submitted total includes it', () => {
+  const html = generateAdminQuoteEmailHTML({
+    quoteId: 'quote_delivery_123',
+    customer: { fullName: 'Delivery Check', email: 'delivery@example.com' },
+    basket: [{
+      name: 'Classic hoodie',
+      code: 'SS224',
+      quantity: 4,
+      unitPrice: 13.90,
+      itemTotal: 55.60,
+    }],
+    customizations: [{
+      productCode: 'SS224',
+      method: 'Print',
+      position: 'Large Front',
+      quantity: 4,
+      unitPrice: 7.70,
+      lineTotal: 30.80,
+    }],
+    summary: {
+      garmentCost: 55.60,
+      customizationCost: 30.80,
+      deliveryExVat: 6.62,
+      deliveryIncVat: 7.95,
+      deliveryVatAmount: 1.33,
+      totalExVat: 93.02,
+      vatAmount: 18.61,
+      totalIncVat: 111.63,
+    },
+  });
+
+  assert.match(html, /Delivery/);
+  assert.match(html, /&pound;6\.62/);
+  assert.match(html, /&pound;7\.95 inc\. VAT/);
+  assert.match(html, /&pound;93\.02/);
+  assert.match(html, /&pound;111\.63/);
+});
+
 test('basket contact email escapes content and rejects unsafe artwork links', () => {
   const html = generateContactEmailHTML({
     name: '<script>alert(1)</script>',
