@@ -758,14 +758,12 @@ function generateBasketContactEmailHTML(data) {
     const hasAdjusted = Number.isFinite(adjusted);
     const finalAmount = hasAdjusted ? adjusted : (hasOriginal ? original : 0);
     const discounted = hasOriginal && original > finalAmount + 0.009;
-    const discount = discounted && original > 0 ? ((original - finalAmount) / original) * 100 : 0;
     const align = options.align || 'right';
     const finalColour = options.finalColour || '#182b5c';
     const finalSize = options.finalSize || '16px';
     return `<div style="text-align:${align};">
       ${discounted ? `<div style="color:#98a2b3;font-size:11px;text-decoration:line-through;">${money(original)}</div>` : ''}
       <div style="font-size:${finalSize};font-weight:800;color:${finalColour};">${money(finalAmount)}</div>
-      ${discounted ? `<div style="display:inline-block;margin-top:3px;padding:2px 6px;border-radius:999px;background:#dcfce7;color:#166534;font-size:9px;font-weight:800;">${formatQuotePercent(discount)} off</div>` : ''}
     </div>`;
   };
   const titleCase = value => String(value || '')
@@ -782,7 +780,9 @@ function generateBasketContactEmailHTML(data) {
   const productCosts = amountOr(summary.productCosts, productFallback);
   const customizationCosts = amountOr(summary.customizationCosts, customizationFallback);
   const digitizingFee = amountOr(summary.digitizingFee, 0);
+  const originalDigitizingFee = amountOr(summary.originalDigitizingFee, digitizingFee);
   const deliveryExVat = amountOr(summary.deliveryExVat, 0);
+  const originalDeliveryExVat = amountOr(summary.originalDeliveryExVat, deliveryExVat);
   const deliveryIncVat = amountOr(summary.deliveryIncVat, deliveryExVat * 1.2);
   const subtotalExVat = amountOr(summary.subtotalExVat, productCosts + customizationCosts + digitizingFee + deliveryExVat);
   const vatAmount = amountOr(summary.vatAmount, subtotalExVat * 0.2);
@@ -921,8 +921,8 @@ function generateBasketContactEmailHTML(data) {
                 <tr><td colspan="2" style="padding:17px 17px;border-bottom:1px solid #dce2ea;font-size:18px;font-weight:850;color:#101828;">Order summary</td></tr>
                 <tr><td class="summary-label" style="padding:15px 17px 6px;color:#667085;font-size:13px;">Products</td><td class="summary-value" style="padding:15px 17px 6px;text-align:right;font-size:13px;font-weight:750;">${money(productCosts)}</td></tr>
                 <tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Customisation</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${money(customizationCosts)}</td></tr>
-                ${digitizingFee > 0 ? `<tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Embroidery setup</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${money(digitizingFee)}</td></tr>` : ''}
-                ${deliveryExVat > 0 ? `<tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Delivery <span style="display:block;font-size:10px;color:#98a2b3;">${money(deliveryIncVat)} inc. VAT</span></td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${money(deliveryExVat)}</td></tr>` : ''}
+                ${digitizingFee > 0 || originalDigitizingFee > 0 ? `<tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Embroidery setup</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${adjustedMoney(originalDigitizingFee, digitizingFee, { finalSize: '13px' })}</td></tr>` : ''}
+                ${deliveryExVat > 0 || originalDeliveryExVat > 0 ? `<tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Delivery <span style="display:block;font-size:10px;color:#98a2b3;">${money(deliveryIncVat)} inc. VAT</span></td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${adjustedMoney(originalDeliveryExVat, deliveryExVat, { finalSize: '13px' })}</td></tr>` : ''}
                 <tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Total (ex. VAT)</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${money(subtotalExVat)}</td></tr>
                 ${discountAmount > 0 ? `<tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Discount, ex. VAT (${formatQuotePercent(discountPercent)})</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;color:#166534;">&minus;${money(discountAmount)}</td></tr>` : ''}
                 <tr><td class="summary-label" style="padding:6px 17px 15px;color:#667085;font-size:13px;border-bottom:1px solid #e5e7eb;">VAT</td><td class="summary-value" style="padding:6px 17px 15px;text-align:right;font-size:13px;font-weight:750;border-bottom:1px solid #e5e7eb;">${money(vatAmount)}</td></tr>
@@ -1695,9 +1695,14 @@ function buildAdjustedQuoteBasketContactData(snapshot = {}, quote = {}) {
   const productCosts = normalizedLines.products.reduce((sum, product) => sum + Number(product._quoteAdjustedTotal || 0), 0);
   const customizationCosts = normalizedLines.customizations.reduce((sum, customization) => sum + Number(customization._quoteAdjustedTotal || 0), 0);
   const adjustedDigitizingFee = numberOrNull(totals.digitizingAdjustedLineTotal) ?? numberOrNull(totals.digitizingFee) ?? 0;
+  const originalDigitizingFee = numberOrNull(totals.digitizingOriginalLineTotal) ?? adjustedDigitizingFee;
+  const adjustedDeliveryExVat = numberOrNull(totals.deliveryAdjustedLineTotal) ?? numberOrNull(totals.deliveryExVat) ?? 0;
+  const originalDeliveryExVat = numberOrNull(totals.deliveryOriginalLineTotal) ?? adjustedDeliveryExVat;
+  const vatRate = numberOrNull(totals.vatRate) ?? 0.2;
 
   return {
     emailType: 'customer-quote',
+    brandLogoSource: `cid:${EMAIL_BRAND_LOGO_CONTENT_ID}`,
     quoteRef: quote.quote_id || quote.id || '',
     name: customer.name || customer.fullName || quote.customer_name || 'Customer',
     email: customer.email || quote.customer_email || '',
@@ -1713,6 +1718,10 @@ function buildAdjustedQuoteBasketContactData(snapshot = {}, quote = {}) {
         productCosts,
         customizationCosts,
         digitizingFee: adjustedDigitizingFee,
+        originalDigitizingFee,
+        deliveryExVat: adjustedDeliveryExVat,
+        originalDeliveryExVat,
+        deliveryIncVat: adjustedDeliveryExVat * (1 + vatRate),
         subtotalExVat: totals.adjustedSubtotal,
         vatAmount: totals.vatAmount,
         totalIncVat: totals.totalIncVat,
@@ -1765,7 +1774,7 @@ function buildStoredQuoteImageAttachments(snapshot = {}) {
 async function sendAdjustedQuoteEmail({ to, snapshot, quote, html }) {
   const customerName = snapshot?.customer?.name || snapshot?.customer?.fullName || quote?.customer_name || 'Customer';
   const quoteRef = quote?.quote_id || quote?.id || 'Quote';
-  const attachments = buildStoredQuoteImageAttachments(snapshot);
+  const attachments = [buildEmailBrandLogoAttachment(), ...buildStoredQuoteImageAttachments(snapshot)];
   const emailOptions = {
     from: process.env.EMAIL_FROM,
     to,

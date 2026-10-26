@@ -272,6 +272,10 @@ test('adjusted customer quote uses the admin basket design and preserves discoun
       totalIncVat: 126.60,
       discountAmount: 8.64,
       discountPercent: 6.39,
+      digitizingOriginalLineTotal: 25,
+      digitizingAdjustedLineTotal: 20,
+      deliveryOriginalLineTotal: 6.62,
+      deliveryAdjustedLineTotal: 5,
     },
   }, {
     id: 42,
@@ -280,6 +284,7 @@ test('adjusted customer quote uses the admin basket design and preserves discoun
   });
 
   assert.match(html, /Your BrandedUK quote/);
+  assert.match(html, /src="cid:brandeduk-brand-logo"/);
   assert.match(html, /QUOTE READY/);
   assert.match(html, /Basket items/);
   assert.match(html, /The AWDIS 180 T/);
@@ -289,6 +294,13 @@ test('adjusted customer quote uses the admin basket design and preserves discoun
   assert.match(html, /&pound;56\.00/);
   assert.match(html, /text-decoration:line-through/);
   assert.match(html, /6\.39%/);
+  assert.match(html, /Embroidery setup/);
+  assert.match(html, /Delivery/);
+  assert.match(html, /&pound;25\.00/);
+  assert.match(html, /&pound;20\.00/);
+  assert.match(html, /&pound;6\.62/);
+  assert.match(html, /&pound;5\.00/);
+  assert.doesNotMatch(html, /\d+(?:\.\d+)?% off/);
   assert.match(html, /&pound;135\.24/);
   assert.match(html, /&pound;126\.60/);
   assert.match(html, /Contact BrandedUK/);
