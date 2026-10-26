@@ -3,12 +3,23 @@ const { Resend } = require("resend");
 const fs = require('fs');
 const path = require('path');
 const { extractQuoteNotes } = require('./quoteNotes');
+const emailBrandLogoBase64 = require('../assets/emailBrandLogo');
 
 if (!process.env.RESEND_API_KEY) {
   throw new Error("❌ RESEND_API_KEY is missing in environment variables");
 }
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+const EMAIL_BRAND_LOGO_CONTENT_ID = 'brandeduk-brand-logo';
+
+function buildEmailBrandLogoAttachment() {
+  return {
+    filename: 'brandeduk-logo.png',
+    content: emailBrandLogoBase64,
+    contentType: 'image/png',
+    contentId: EMAIL_BRAND_LOGO_CONTENT_ID,
+  };
+}
 
 // Never log API keys or client objects (security).
 
@@ -398,6 +409,9 @@ function buildQuoteBasketContactData(data, logoAssets = {}) {
   }));
 
   return {
+    quoteId: data.quoteId || '',
+    adminQuoteUrl: buildAdminQuoteUrl(data.quoteId),
+    brandLogoSource: `cid:${EMAIL_BRAND_LOGO_CONTENT_ID}`,
     name: customer.fullName || customer.name || 'Customer',
     email: customer.email || '',
     phone: customer.phone || '',
@@ -433,7 +447,7 @@ async function sendQuoteEmail(data) {
 
     // Extract base64 logos from customizations as email attachments
     const customizations = data.customizations || [];
-    const logoAttachments = [];
+    const logoAttachments = [buildEmailBrandLogoAttachment()];
     for (const c of customizations) {
       if (!c.logo) continue;
 
@@ -858,21 +872,29 @@ function generateBasketContactEmailHTML(data) {
     : `Submitted for review on ${escapeHtml(submittedDate)}`;
   const headerBadge = isCustomerQuote ? 'QUOTE READY' : 'NEW REQUEST';
   const contactAddress = escapeHtml(process.env.EMAIL_TO || process.env.EMAIL_FROM || 'info@brandeduk.com');
+  const brandLogoSource = safeImageSource(data.brandLogoSource);
+  const adminQuoteUrl = !isCustomerQuote ? safeLinkUrl(data.adminQuoteUrl) : '';
+  const brandHeader = brandLogoSource
+    ? `<img src="${brandLogoSource}" width="178" alt="BrandedUK" style="display:block;width:178px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;">`
+    : '<div style="font-size:28px;line-height:1;font-weight:900;letter-spacing:-1px;color:#111827;">Branded<span style="color:#ed6b00;">UK</span></div>';
 
   const detailCell = (label, value, href = '') => `<td class="detail-cell" width="50%" style="width:50%;padding:11px 15px;border-top:1px solid #edf0f4;vertical-align:top;"><div style="margin-bottom:3px;color:#7b8799;font-size:9px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;">${label}</div><div style="color:#14213d;font-size:13px;font-weight:700;word-break:break-word;">${href ? `<a href="${href}" style="color:#14213d;text-decoration:none;">${value}</a>` : value}</div></td>`;
 
   return `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
     body{margin:0;padding:0;background:#eef1f5;color:#111827;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,Helvetica,sans-serif;line-height:1.45} a{color:#182b5c}
-    @media only screen and (max-width:740px){.email-shell{width:100%!important}.email-pad{padding:0!important}.content-pad{padding:12px!important}.detail-cell,.main-column,.brand-cell,.title-cell{display:block!important;width:auto!important}.main-spacer,.badge-cell{display:none!important}.summary-column{margin-top:14px!important}.title-cell{padding:11px 0 0!important;border-left:0!important}.item-table,.item-table>tbody,.item-table>tbody>tr,.decoration-table,.decoration-table>tbody,.decoration-table>tbody>tr{display:block!important;width:100%!important;max-width:100%!important}.summary-table{width:100%!important;max-width:100%!important}.product-image-cell,.product-info-cell,.decoration-image-cell,.decoration-info-cell{display:block!important;width:auto!important;text-align:left!important}.product-image-cell{padding:14px 14px 0!important}.product-info-cell{padding:10px 14px 4px!important}.product-qty-cell,.product-price-cell,.decoration-action-cell,.decoration-price-cell{display:none!important}.mobile-meta-row{display:block!important;width:100%!important}.mobile-product-meta,.mobile-decoration-meta{display:block!important;box-sizing:border-box!important;width:100%!important}.mobile-meta-table{width:calc(100vw - 52px)!important;max-width:370px!important}.decoration-image-cell{padding:12px 0 0!important}.decoration-info-cell{padding:10px 0 4px!important}.item-total-cell{display:block!important;box-sizing:border-box!important;width:100%!important;padding:12px 14px!important;text-align:left!important;white-space:normal!important}.summary-label,.summary-value{display:block!important;width:auto!important;padding-left:14px!important;padding-right:14px!important;text-align:left!important}.summary-label{padding-bottom:2px!important}.summary-value{padding-top:2px!important;font-size:13px!important;white-space:normal!important}.summary-total-value{padding-top:0!important;font-size:20px!important}.hide-mobile{display:none!important}.mobile-full{display:block!important;width:auto!important;padding-left:12px!important;padding-right:12px!important;text-align:left!important}}
+    @media only screen and (max-width:740px){.email-shell{width:100%!important}.email-pad{padding:0!important}.content-pad{padding:12px!important}.detail-cell,.main-column,.brand-cell,.title-cell,.badge-cell{display:block!important;width:auto!important}.main-spacer{display:none!important}.badge-cell{padding-top:12px!important;text-align:left!important}.summary-column{margin-top:14px!important}.title-cell{padding:11px 0 0!important;border-left:0!important}.item-table,.item-table>tbody,.item-table>tbody>tr,.decoration-table,.decoration-table>tbody>tr{display:block!important;width:100%!important;max-width:100%!important}.summary-table{width:100%!important;max-width:100%!important}.product-image-cell,.product-info-cell,.decoration-image-cell,.decoration-info-cell{display:block!important;width:auto!important;text-align:left!important}.product-image-cell{padding:14px 14px 0!important}.product-info-cell{padding:10px 14px 4px!important}.product-qty-cell,.product-price-cell,.decoration-action-cell,.decoration-price-cell{display:none!important}.mobile-meta-row{display:block!important;width:100%!important}.mobile-product-meta,.mobile-decoration-meta{display:block!important;box-sizing:border-box!important;width:100%!important}.mobile-meta-table{width:calc(100vw - 52px)!important;max-width:370px!important}.decoration-image-cell{padding:12px 0 0!important}.decoration-info-cell{padding:10px 0 4px!important}.item-total-cell{display:block!important;box-sizing:border-box!important;width:100%!important;padding:12px 14px!important;text-align:left!important;white-space:normal!important}.summary-label,.summary-value{display:block!important;width:auto!important;padding-left:14px!important;padding-right:14px!important;text-align:left!important}.summary-label{padding-bottom:2px!important}.summary-value{padding-top:2px!important;font-size:13px!important;white-space:normal!important}.summary-total-value{padding-top:0!important;font-size:20px!important}.hide-mobile{display:none!important}.mobile-full{display:block!important;width:auto!important;padding-left:12px!important;padding-right:12px!important;text-align:left!important}}
   </style></head><body>
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;background:#eef1f5;border-collapse:collapse;"><tr><td align="center" class="email-pad" style="padding:30px 12px;">
       <table role="presentation" width="940" class="email-shell" cellspacing="0" cellpadding="0" style="width:940px;max-width:940px;border-collapse:collapse;background:#fff;box-shadow:0 12px 35px rgba(16,24,40,.08);">
         <tr><td style="height:5px;line-height:5px;background:#ff7100;font-size:0;">&nbsp;</td></tr>
         <tr><td style="padding:22px 26px;background:#fff;border-bottom:1px solid #dde3ea;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>
-            <td class="brand-cell" width="205"><div style="font-size:28px;line-height:1;font-weight:900;letter-spacing:-1px;color:#111827;">Branded<span style="color:#ed6b00;">UK</span></div><div style="margin-top:7px;color:#667085;font-size:11px;">Custom workwear &amp; uniforms</div></td>
+            <td class="brand-cell" width="205">${brandHeader}<div style="margin-top:7px;color:#667085;font-size:11px;">Custom workwear &amp; uniforms</div></td>
             <td class="title-cell" style="padding-left:18px;border-left:1px solid #e3e8ef;"><div style="font-size:21px;font-weight:850;color:#101828;">${headerTitle}</div><div style="margin-top:4px;color:#667085;font-size:12px;">${headerSubtitle}</div></td>
-            <td class="badge-cell" width="138" align="right"><span style="display:inline-block;padding:8px 11px;border-radius:4px;background:#fff3e8;color:#d95f00;font-size:10px;font-weight:900;letter-spacing:.65px;">${headerBadge}</span></td>
+            <td class="badge-cell" width="170" align="right">
+              <span style="display:inline-block;padding:7px 10px;border-radius:4px;background:#fff3e8;color:#d95f00;font-size:9px;font-weight:900;letter-spacing:.65px;">${headerBadge}</span>
+              ${adminQuoteUrl ? `<div style="margin-top:9px;"><a href="${adminQuoteUrl}" target="_blank" rel="noopener" style="display:inline-block;padding:10px 14px;border-radius:5px;background:#111827;color:#fff;text-decoration:none;font-size:12px;font-weight:850;white-space:nowrap;">Open in Admin &rarr;</a></div>` : ''}
+            </td>
           </tr></table>
         </td></tr>
         <tr><td class="content-pad" style="padding:22px;background:#f5f6f8;border:1px solid #dce2ea;border-top:0;">
@@ -1210,8 +1232,9 @@ async function sendQuoteEmailWithAttachments(data, attachments = [], logoAssets 
     };
 
     // Add attachments if provided (Resend supports attachments)
-    if (attachments.length > 0) {
-      emailOptions.attachments = attachments.map(att => ({
+    const attachmentsWithBrand = [buildEmailBrandLogoAttachment(), ...attachments];
+    if (attachmentsWithBrand.length > 0) {
+      emailOptions.attachments = attachmentsWithBrand.map(att => ({
         filename: att.filename,
         content: Buffer.isBuffer(att.content) ? att.content.toString('base64') : att.content,
         contentType: att.contentType,

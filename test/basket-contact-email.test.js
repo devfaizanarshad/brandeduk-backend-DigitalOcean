@@ -12,6 +12,7 @@ const {
 
 test('quote submissions use the professional basket email layout', () => {
   const quote = {
+    quoteId: 'quote_admin_123',
     customer: {
       fullName: 'Alex Buyer',
       email: 'alex@example.com',
@@ -54,6 +55,9 @@ test('quote submissions use the professional basket email layout', () => {
 
   for (const rendered of [html, attachmentHtml]) {
     assert.match(rendered, /Basket quote request/);
+    assert.match(rendered, /src="cid:brandeduk-brand-logo"/);
+    assert.match(rendered, /Open in Admin/);
+    assert.match(rendered, /\/orders\/quote_admin_123/);
     assert.match(rendered, /Customer information/);
     assert.match(rendered, /Ultra Cotton adult t-shirt/);
     assert.match(rendered, /DTF Print/);
@@ -61,7 +65,6 @@ test('quote submissions use the professional basket email layout', () => {
     assert.match(rendered, />Download</);
     assert.match(rendered, /&pound;121\.44/);
     assert.match(rendered, /Please confirm production time\./);
-    assert.doesNotMatch(rendered, /Open This Quote/);
   }
 });
 
