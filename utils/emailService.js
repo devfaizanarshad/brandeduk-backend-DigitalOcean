@@ -1597,12 +1597,18 @@ function buildAdjustedQuoteBasketContactData(snapshot = {}, quote = {}) {
   normalizedLines.customizations.forEach((customization, customizationIndex) => {
     if (!assignments.length) return;
 
+    const requestedItemIndex = Number(customization.itemIndex);
+    let productIndex = Number.isInteger(requestedItemIndex)
+      && requestedItemIndex >= 0
+      && requestedItemIndex < normalizedLines.products.length
+      ? requestedItemIndex
+      : -1;
     const explicitProductCode = String(
       customization.productCode || customization.code || customization.sku || ''
     ).trim().toLowerCase();
-    let productIndex = explicitProductCode
+    productIndex = productIndex < 0 && explicitProductCode
       ? normalizedLines.products.findIndex(product => String(product.code || product.productCode || product.sku || '').trim().toLowerCase() === explicitProductCode)
-      : -1;
+      : productIndex;
 
     if (productIndex < 0) {
       const quantity = Number(customization.quantity);

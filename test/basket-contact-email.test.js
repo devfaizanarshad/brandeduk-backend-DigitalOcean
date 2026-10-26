@@ -253,3 +253,28 @@ test('adjusted customer quote uses the admin basket design and preserves discoun
   assert.match(html, /Contact BrandedUK/);
   assert.doesNotMatch(html, /Reply to customer/);
 });
+
+test('adjusted quote keeps each decoration with its selected garment', () => {
+  const html = generateAdjustedQuoteEmailHTML({
+    customer: { name: 'Multi Item', email: 'multi@example.com' },
+    products: [
+      { name: 'Garment Alpha', code: 'ALPHA', quantity: 3, unitPrice: 10, originalLineTotal: 30, adjustedLineTotal: 27 },
+      { name: 'Garment Beta', code: 'BETA', quantity: 3, unitPrice: 20, originalLineTotal: 60, adjustedLineTotal: 51 },
+    ],
+    customizations: [
+      { itemIndex: 1, productCode: 'BETA', method: 'Print', position: 'Large Back', quantity: 3, originalLineTotal: 24, adjustedLineTotal: 21 },
+      { itemIndex: 0, productCode: 'ALPHA', method: 'Embroidery', position: 'Left Chest', quantity: 3, originalLineTotal: 18, adjustedLineTotal: 15 },
+    ],
+    totals: { adjustedSubtotal: 114, vatAmount: 22.8, totalIncVat: 136.8, originalTotalIncVat: 158.4, discountAmount: 18, discountPercent: 13.64 },
+  }, { quote_id: 'quote_multi' });
+
+  const alpha = html.indexOf('Garment Alpha');
+  const chest = html.indexOf('Left Chest');
+  const beta = html.indexOf('Garment Beta');
+  const back = html.indexOf('Large Back');
+  assert.ok(alpha >= 0 && alpha < chest && chest < beta && beta < back);
+  assert.match(html, /&pound;30\.00/);
+  assert.match(html, /&pound;27\.00/);
+  assert.match(html, /&pound;60\.00/);
+  assert.match(html, /&pound;51\.00/);
+});
