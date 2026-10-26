@@ -6,6 +6,7 @@ process.env.RESEND_API_KEY ||= 're_test_key';
 const {
   generateContactEmailHTML,
   generateAdminQuoteEmailHTML,
+  generateAdjustedQuoteEmailHTML,
   generateQuoteWithLogosEmailHTML,
 } = require('../utils/emailService');
 
@@ -153,4 +154,65 @@ test('ordinary contact submissions retain the standard contact email', () => {
 
   assert.match(html, /New Contact Form Submission/);
   assert.doesNotMatch(html, /Basket items/);
+});
+
+test('adjusted customer quote uses the admin basket design and preserves discounts', () => {
+  const html = generateAdjustedQuoteEmailHTML({
+    customer: {
+      name: 'Alex Buyer',
+      email: 'alex@example.com',
+      phone: '0208 974 2722',
+    },
+    products: [{
+      name: 'The AWDIS 180 T',
+      code: 'AT002',
+      colour: 'Royal Blue',
+      image: 'https://cdn.example.com/at002.png',
+      sizes: { M: 10 },
+      quantity: 10,
+      unitPrice: 6.02,
+      originalLineTotal: 60.20,
+      adjustedLineTotal: 56.00,
+    }],
+    customizations: [{
+      method: 'Print',
+      position: 'Left Chest',
+      quantity: 10,
+      unitPrice: 5.25,
+      originalLineTotal: 52.50,
+      adjustedLineTotal: 49.50,
+    }],
+    logos: {
+      'left-chest': { url: 'https://cdn.example.com/logo.png' },
+    },
+    totals: {
+      originalSubtotal: 112.70,
+      adjustedSubtotal: 105.50,
+      vatRate: 0.2,
+      vatAmount: 21.10,
+      originalTotalIncVat: 135.24,
+      totalIncVat: 126.60,
+      discountAmount: 8.64,
+      discountPercent: 6.39,
+    },
+  }, {
+    id: 42,
+    quote_id: 'quote_abc123',
+    created_at: '2026-10-21T13:42:00.000Z',
+  });
+
+  assert.match(html, /Your BrandedUK quote/);
+  assert.match(html, /QUOTE READY/);
+  assert.match(html, /Basket items/);
+  assert.match(html, /The AWDIS 180 T/);
+  assert.match(html, /Left Chest/);
+  assert.match(html, /src="https:\/\/cdn\.example\.com\/logo\.png"/);
+  assert.match(html, /&pound;60\.20/);
+  assert.match(html, /&pound;56\.00/);
+  assert.match(html, /text-decoration:line-through/);
+  assert.match(html, /6\.39%/);
+  assert.match(html, /&pound;135\.24/);
+  assert.match(html, /&pound;126\.60/);
+  assert.match(html, /Contact BrandedUK/);
+  assert.doesNotMatch(html, /Reply to customer/);
 });

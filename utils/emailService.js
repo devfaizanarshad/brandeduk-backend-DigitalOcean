@@ -702,6 +702,7 @@ function generateBasketContactEmailHTML(data) {
   const snapshot = data.basketSnapshot || {};
   const items = Array.isArray(snapshot.items) ? snapshot.items.slice(0, 50) : [];
   const summary = snapshot.summary && typeof snapshot.summary === 'object' ? snapshot.summary : {};
+  const isCustomerQuote = data.emailType === 'customer-quote';
   const safeLinkUrl = value => {
     const url = String(value || '').trim();
     return /^https?:\/\//i.test(url) ? escapeHtml(url) : '';
@@ -717,6 +718,23 @@ function generateBasketContactEmailHTML(data) {
   const money = value => {
     const amount = Number(value);
     return Number.isFinite(amount) ? `&pound;${amount.toFixed(2)}` : '&mdash;';
+  };
+  const adjustedMoney = (originalValue, adjustedValue, options = {}) => {
+    const original = Number(originalValue);
+    const adjusted = Number(adjustedValue);
+    const hasOriginal = Number.isFinite(original);
+    const hasAdjusted = Number.isFinite(adjusted);
+    const finalAmount = hasAdjusted ? adjusted : (hasOriginal ? original : 0);
+    const discounted = hasOriginal && original > finalAmount + 0.009;
+    const discount = discounted && original > 0 ? ((original - finalAmount) / original) * 100 : 0;
+    const align = options.align || 'right';
+    const finalColour = options.finalColour || '#182b5c';
+    const finalSize = options.finalSize || '16px';
+    return `<div style="text-align:${align};">
+      ${discounted ? `<div style="color:#98a2b3;font-size:11px;text-decoration:line-through;">${money(original)}</div>` : ''}
+      <div style="font-size:${finalSize};font-weight:800;color:${finalColour};">${money(finalAmount)}</div>
+      ${discounted ? `<div style="display:inline-block;margin-top:3px;padding:2px 6px;border-radius:999px;background:#dcfce7;color:#166534;font-size:9px;font-weight:800;">${formatQuotePercent(discount)} off</div>` : ''}
+    </div>`;
   };
   const titleCase = value => String(value || '')
     .replace(/[-_]+/g, ' ')
@@ -735,6 +753,9 @@ function generateBasketContactEmailHTML(data) {
   const subtotalExVat = amountOr(summary.subtotalExVat, productCosts + customizationCosts + digitizingFee);
   const vatAmount = amountOr(summary.vatAmount, subtotalExVat * 0.2);
   const totalIncVat = amountOr(summary.totalIncVat, subtotalExVat + vatAmount);
+  const originalTotalIncVat = amountOr(summary.originalTotalIncVat, totalIncVat);
+  const discountAmount = amountOr(summary.discountAmount, Math.max(0, originalTotalIncVat - totalIncVat));
+  const discountPercent = amountOr(summary.discountPercent, originalTotalIncVat > 0 ? (discountAmount / originalTotalIncVat) * 100 : 0);
 
   const itemRows = items.map((item, index) => {
     const productImage = safeImageSource(item.imageUrl || item.image);
@@ -747,6 +768,7 @@ function generateBasketContactEmailHTML(data) {
     const decorations = Array.isArray(item.decorations) ? item.decorations.slice(0, 20) : [];
     const itemCustomisationTotal = decorations.reduce((total, decoration) => total + (Number(decoration.lineTotal) || 0), 0);
     const itemCombinedTotal = (Number(item.itemTotal) || 0) + itemCustomisationTotal;
+    const originalItemCombinedTotal = amountOr(item.originalItemTotal, item.itemTotal) + decorations.reduce((total, decoration) => total + amountOr(decoration.originalLineTotal, decoration.lineTotal), 0);
     const decorationRows = decorations.length ? decorations.map(decoration => {
       const logoUrl = safeImageSource(decoration.logoUrl || decoration.logo);
       const previewUrl = safeLinkUrl(decoration.previewUrl) || safeLinkUrl(decoration.logoUrl || decoration.logo);
@@ -772,14 +794,14 @@ function generateBasketContactEmailHTML(data) {
         </td>
         <td class="decoration-action-cell" width="78" style="padding:14px 5px;border-top:1px solid #e6eaf0;vertical-align:middle;text-align:center;">${downloadUrl ? `<a href="${downloadUrl}" target="_blank" rel="noopener" download style="display:inline-block;padding:7px 9px;border:1px solid #ccd4e0;border-radius:4px;background:#fff;color:#182b5c;text-decoration:none;font-size:10px;font-weight:850;">Download</a>` : ''}</td>
         <td class="decoration-price-cell" width="105" style="padding:14px 0 14px 7px;border-top:1px solid #e6eaf0;vertical-align:middle;text-align:right;">
-          <div style="font-size:16px;font-weight:800;color:#182b5c;">${money(decoration.lineTotal)}</div>
+          ${adjustedMoney(decoration.originalLineTotal, decoration.lineTotal)}
           <div style="margin-top:2px;font-size:10px;color:#8b95a7;">customisation, ex. VAT</div>
         </td>
       </tr>
       <tr class="mobile-meta-row"><td class="mobile-decoration-meta" colspan="4" style="display:none;padding:8px 0 12px;border-top:1px solid #e6eaf0;">
         <table role="presentation" width="280" class="mobile-meta-table" cellspacing="0" cellpadding="0" style="width:280px;table-layout:fixed;border-collapse:collapse;"><tr>
           <td width="50%" style="width:50%;text-align:left;vertical-align:middle;">${downloadUrl ? `<a href="${downloadUrl}" target="_blank" rel="noopener" download style="display:inline-block;padding:7px 9px;border:1px solid #ccd4e0;border-radius:4px;background:#fff;color:#182b5c;text-decoration:none;font-size:10px;font-weight:850;">Download</a>` : '&nbsp;'}</td>
-          <td width="50%" style="width:50%;text-align:right;vertical-align:middle;"><div style="font-size:16px;font-weight:800;color:#182b5c;">${money(decoration.lineTotal)}</div><div style="margin-top:2px;font-size:10px;color:#8b95a7;">customisation, ex. VAT</div></td>
+          <td width="50%" style="width:50%;text-align:right;vertical-align:middle;">${adjustedMoney(decoration.originalLineTotal, decoration.lineTotal)}<div style="margin-top:2px;font-size:10px;color:#8b95a7;">customisation, ex. VAT</div></td>
         </tr></table>
       </td></tr>`;
     }).join('') : '<tr><td colspan="4" style="padding:15px 0;border-top:1px solid #e6eaf0;color:#667085;font-size:13px;">No customisation added to this item.</td></tr>';
@@ -792,16 +814,16 @@ function generateBasketContactEmailHTML(data) {
         <td class="product-image-cell" width="94" style="padding:17px 8px 16px 16px;vertical-align:top;">${imageCell}</td>
         <td class="product-info-cell" style="padding:17px 8px;vertical-align:top;"><div style="font-size:16px;line-height:1.3;font-weight:800;color:#111827;">${productLink ? `<a href="${productLink}" target="_blank" rel="noopener" style="color:#111827;text-decoration:none;">${escapeHtml(item.name || 'Product')}</a>` : escapeHtml(item.name || 'Product')}</div><div style="margin-top:6px;font-size:12px;color:#667085;">${details || 'Product details not supplied'}</div>${productLink ? `<div style="margin-top:8px;"><a href="${productLink}" target="_blank" rel="noopener" style="color:#ed6b00;text-decoration:none;font-size:11px;font-weight:800;">Preview item &rarr;</a></div>` : ''}</td>
         <td class="product-qty-cell" width="65" style="padding:17px 5px;vertical-align:top;text-align:center;"><span style="display:inline-block;padding:7px 8px;border:1px solid #ccd4e0;border-radius:4px;background:#fff;font-size:12px;font-weight:800;color:#182b5c;">Qty ${quantity}</span></td>
-        <td class="product-price-cell" width="105" style="padding:17px 16px 16px 7px;vertical-align:top;text-align:right;"><div style="font-size:16px;font-weight:800;color:#182b5c;">${money(item.itemTotal)}</div><div style="margin-top:3px;font-size:10px;color:#8b95a7;">${money(item.unitPrice)} each</div></td>
+        <td class="product-price-cell" width="105" style="padding:17px 16px 16px 7px;vertical-align:top;text-align:right;">${adjustedMoney(item.originalItemTotal, item.itemTotal)}<div style="margin-top:3px;font-size:10px;color:#8b95a7;">${money(item.unitPrice)} each</div></td>
       </tr>
       <tr class="mobile-meta-row"><td class="mobile-product-meta" colspan="4" style="display:none;padding:8px 14px 14px;">
         <table role="presentation" width="280" class="mobile-meta-table" cellspacing="0" cellpadding="0" style="width:280px;table-layout:fixed;border-collapse:collapse;"><tr>
           <td width="50%" style="width:50%;text-align:left;vertical-align:middle;"><span style="display:inline-block;padding:7px 8px;border:1px solid #ccd4e0;border-radius:4px;background:#fff;font-size:12px;font-weight:800;color:#182b5c;">Qty ${quantity}</span></td>
-          <td width="50%" style="width:50%;text-align:right;vertical-align:middle;"><div style="font-size:16px;font-weight:800;color:#182b5c;">${money(item.itemTotal)}</div><div style="margin-top:3px;font-size:10px;color:#8b95a7;">${money(item.unitPrice)} each</div></td>
+          <td width="50%" style="width:50%;text-align:right;vertical-align:middle;">${adjustedMoney(item.originalItemTotal, item.itemTotal)}<div style="margin-top:3px;font-size:10px;color:#8b95a7;">${money(item.unitPrice)} each</div></td>
         </tr></table>
       </td></tr>
       <tr><td colspan="4" style="padding:0 16px 7px;"><div style="padding-top:13px;border-top:1px solid #e6eaf0;font-size:11px;font-weight:800;color:#344054;">Decorations applied to this item</div><table role="presentation" width="100%" class="decoration-table" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;">${decorationRows}</table></td></tr>
-      <tr><td class="item-total-cell" colspan="4" style="padding:12px 16px 14px;border-top:1px solid #e6eaf0;text-align:right;color:#667085;font-size:13px;">Total item cost: <strong style="margin-left:8px;color:#12844b;font-size:19px;">${money(itemCombinedTotal)}</strong></td></tr>
+      <tr><td class="item-total-cell" colspan="4" style="padding:12px 16px 14px;border-top:1px solid #e6eaf0;text-align:right;color:#667085;font-size:13px;">Total item cost: <span style="display:inline-block;margin-left:8px;vertical-align:middle;">${adjustedMoney(originalItemCombinedTotal, itemCombinedTotal, { finalColour: '#12844b', finalSize: '19px' })}</span></td></tr>
     </table>`;
   }).join('');
 
@@ -815,6 +837,12 @@ function generateBasketContactEmailHTML(data) {
   const submittedDate = new Date(data.submittedAt || Date.now()).toLocaleString('en-GB', {
     day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false
   }).replace(',', '');
+  const headerTitle = isCustomerQuote ? 'Your BrandedUK quote' : 'Basket quote request';
+  const headerSubtitle = isCustomerQuote
+    ? `Prepared on ${escapeHtml(submittedDate)}${data.quoteRef ? ` &nbsp;&middot;&nbsp; ${escapeHtml(data.quoteRef)}` : ''}`
+    : `Submitted for review on ${escapeHtml(submittedDate)}`;
+  const headerBadge = isCustomerQuote ? 'QUOTE READY' : 'NEW REQUEST';
+  const contactAddress = escapeHtml(process.env.EMAIL_TO || process.env.EMAIL_FROM || 'info@brandeduk.com');
 
   const detailCell = (label, value, href = '') => `<td class="detail-cell" width="50%" style="width:50%;padding:11px 15px;border-top:1px solid #edf0f4;vertical-align:top;"><div style="margin-bottom:3px;color:#7b8799;font-size:9px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;">${label}</div><div style="color:#14213d;font-size:13px;font-weight:700;word-break:break-word;">${href ? `<a href="${href}" style="color:#14213d;text-decoration:none;">${value}</a>` : value}</div></td>`;
 
@@ -828,8 +856,8 @@ function generateBasketContactEmailHTML(data) {
         <tr><td style="padding:22px 26px;background:#fff;border-bottom:1px solid #dde3ea;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>
             <td class="brand-cell" width="205"><div style="font-size:28px;line-height:1;font-weight:900;letter-spacing:-1px;color:#111827;">Branded<span style="color:#ed6b00;">UK</span></div><div style="margin-top:7px;color:#667085;font-size:11px;">Custom workwear &amp; uniforms</div></td>
-            <td class="title-cell" style="padding-left:18px;border-left:1px solid #e3e8ef;"><div style="font-size:21px;font-weight:850;color:#101828;">Basket quote request</div><div style="margin-top:4px;color:#667085;font-size:12px;">Submitted for review on ${escapeHtml(submittedDate)}</div></td>
-            <td class="badge-cell" width="138" align="right"><span style="display:inline-block;padding:8px 11px;border-radius:4px;background:#fff3e8;color:#d95f00;font-size:10px;font-weight:900;letter-spacing:.65px;">NEW REQUEST</span></td>
+            <td class="title-cell" style="padding-left:18px;border-left:1px solid #e3e8ef;"><div style="font-size:21px;font-weight:850;color:#101828;">${headerTitle}</div><div style="margin-top:4px;color:#667085;font-size:12px;">${headerSubtitle}</div></td>
+            <td class="badge-cell" width="138" align="right"><span style="display:inline-block;padding:8px 11px;border-radius:4px;background:#fff3e8;color:#d95f00;font-size:10px;font-weight:900;letter-spacing:.65px;">${headerBadge}</span></td>
           </tr></table>
         </td></tr>
         <tr><td class="content-pad" style="padding:22px;background:#f5f6f8;border:1px solid #dce2ea;border-top:0;">
@@ -853,11 +881,12 @@ function generateBasketContactEmailHTML(data) {
                 <tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Customisation</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${money(customizationCosts)}</td></tr>
                 ${digitizingFee > 0 ? `<tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Embroidery setup</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${money(digitizingFee)}</td></tr>` : ''}
                 <tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Total (ex. VAT)</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${money(subtotalExVat)}</td></tr>
+                ${discountAmount > 0 ? `<tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Discount (${formatQuotePercent(discountPercent)})</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;color:#166534;">&minus;${money(discountAmount)}</td></tr>` : ''}
                 <tr><td class="summary-label" style="padding:6px 17px 15px;color:#667085;font-size:13px;border-bottom:1px solid #e5e7eb;">VAT</td><td class="summary-value" style="padding:6px 17px 15px;text-align:right;font-size:13px;font-weight:750;border-bottom:1px solid #e5e7eb;">${money(vatAmount)}</td></tr>
-                <tr><td class="summary-label" style="padding:16px 17px;font-size:15px;font-weight:850;color:#101828;">Total (inc. VAT)</td><td class="summary-value summary-total-value" style="padding:16px 17px;text-align:right;font-size:24px;font-weight:900;color:#12844b;">${money(totalIncVat)}</td></tr>
+                <tr><td class="summary-label" style="padding:16px 17px;font-size:15px;font-weight:850;color:#101828;">Total (inc. VAT)</td><td class="summary-value summary-total-value" style="padding:16px 17px;text-align:right;">${adjustedMoney(originalTotalIncVat, totalIncVat, { finalColour: '#12844b', finalSize: '24px' })}</td></tr>
                 <tr><td colspan="2" style="padding:0 17px 17px;"><div style="padding:13px 12px;background:#effaf4;border-radius:6px;color:#235b3d;font-size:12px;line-height:1.45;"><strong style="color:#12844b;">&#10003;</strong>&nbsp; <strong>Artwork approval included</strong><br><span style="color:#5d7167;">A proof will be checked before production.</span></div></td></tr>
-                <tr><td colspan="2" style="padding:0 17px 14px;"><div style="padding-top:13px;border-top:1px solid #e7ebf0;color:#667085;font-size:11px;line-height:1.6;"><strong style="color:#344054;">Customer contact</strong><br><a href="mailto:${customerEmail}" style="color:#182b5c;text-decoration:none;">${customerEmail}</a>${phone ? `<br><a href="tel:${phone}" style="color:#182b5c;text-decoration:none;">${phone}</a>` : ''}</div></td></tr>
-                <tr><td colspan="2" style="padding:0 17px 17px;"><a href="mailto:${customerEmail}?subject=Re: Your BrandedUK enquiry" style="display:block;padding:13px 12px;border-radius:5px;background:#ff7100;color:#fff;text-align:center;text-decoration:none;font-size:14px;font-weight:850;">Reply to customer &rarr;</a></td></tr>
+                <tr><td colspan="2" style="padding:0 17px 14px;"><div style="padding-top:13px;border-top:1px solid #e7ebf0;color:#667085;font-size:11px;line-height:1.6;"><strong style="color:#344054;">${isCustomerQuote ? 'Need help?' : 'Customer contact'}</strong><br><a href="mailto:${isCustomerQuote ? contactAddress : customerEmail}" style="color:#182b5c;text-decoration:none;">${isCustomerQuote ? contactAddress : customerEmail}</a>${!isCustomerQuote && phone ? `<br><a href="tel:${phone}" style="color:#182b5c;text-decoration:none;">${phone}</a>` : ''}</div></td></tr>
+                <tr><td colspan="2" style="padding:0 17px 17px;"><a href="mailto:${isCustomerQuote ? contactAddress : customerEmail}?subject=Re: ${encodeURIComponent(isCustomerQuote ? `BrandedUK quote ${data.quoteRef || ''}` : 'Your BrandedUK enquiry')}" style="display:block;padding:13px 12px;border-radius:5px;background:#ff7100;color:#fff;text-align:center;text-decoration:none;font-size:14px;font-weight:850;">${isCustomerQuote ? 'Contact BrandedUK' : 'Reply to customer'} &rarr;</a></td></tr>
               </table>
             </td>
           </tr></table>
@@ -1388,7 +1417,7 @@ function renderQuoteLogoGallery(snapshot = {}) {
   `;
 }
 
-function generateAdjustedQuoteEmailHTML(snapshot = {}, quote = {}) {
+function generateLegacyAdjustedQuoteEmailHTML(snapshot = {}, quote = {}) {
   const customer = snapshot.customer || {};
   const rawProducts = Array.isArray(snapshot.products) ? snapshot.products : [];
   const rawCustomizations = Array.isArray(snapshot.customizations) ? snapshot.customizations : [];
@@ -1538,6 +1567,113 @@ function generateAdjustedQuoteEmailHTML(snapshot = {}, quote = {}) {
     </body>
   </html>
   `;
+}
+
+function buildAdjustedQuoteBasketContactData(snapshot = {}, quote = {}) {
+  const customer = snapshot.customer || {};
+  const totals = snapshot.totals || {};
+  const normalizedLines = normalizeQuoteLines(
+    Array.isArray(snapshot.products) ? snapshot.products : [],
+    Array.isArray(snapshot.customizations) ? snapshot.customizations : [],
+    totals
+  );
+  const assignments = normalizedLines.products.map(() => []);
+
+  normalizedLines.customizations.forEach((customization, customizationIndex) => {
+    if (!assignments.length) return;
+
+    const explicitProductCode = String(
+      customization.productCode || customization.code || customization.sku || ''
+    ).trim().toLowerCase();
+    let productIndex = explicitProductCode
+      ? normalizedLines.products.findIndex(product => String(product.code || product.productCode || product.sku || '').trim().toLowerCase() === explicitProductCode)
+      : -1;
+
+    if (productIndex < 0) {
+      const quantity = Number(customization.quantity);
+      const quantityMatches = normalizedLines.products
+        .map((product, index) => ({ index, quantity: Number(product.quantity) }))
+        .filter(product => Number.isFinite(quantity) && product.quantity === quantity);
+      if (quantityMatches.length === 1) productIndex = quantityMatches[0].index;
+    }
+
+    if (productIndex < 0) {
+      productIndex = assignments.reduce((bestIndex, group, index, groups) =>
+        group.length < groups[bestIndex].length ? index : bestIndex, 0);
+    }
+
+    const position = customization.position || customization.positionLabel || customization.area || 'Not specified';
+    const logoUrl = findQuoteAsset(snapshot.logos || {}, position) || customization.logoUrl || customization.logo || '';
+    const previewUrl = findQuoteAsset(snapshot.previewImages || snapshot.preview_images || {}, position) || customization.previewUrl || logoUrl;
+    assignments[productIndex].push({
+      ...customization,
+      _sourceIndex: customizationIndex,
+      position,
+      logoUrl,
+      previewUrl,
+      downloadUrl: logoUrl,
+      originalLineTotal: customization._quoteOriginalTotal,
+      lineTotal: customization._quoteAdjustedTotal,
+    });
+  });
+
+  const items = normalizedLines.products.map((product, index) => {
+    const sizes = product.sizes && typeof product.sizes === 'object'
+      ? Object.entries(product.sizes)
+        .filter(([, quantity]) => Number(quantity) > 0)
+        .map(([size, quantity]) => `${size}: ${quantity}`)
+        .join(', ')
+      : (product.size || '');
+
+    return {
+      name: product.name || 'Product',
+      code: product.code || product.productCode || product.sku || '',
+      color: product.colour || product.color || '',
+      size: sizes,
+      quantity: Number(product.quantity) || 0,
+      unitPrice: Number(product.unitPrice) || 0,
+      originalItemTotal: product._quoteOriginalTotal,
+      itemTotal: product._quoteAdjustedTotal,
+      imageUrl: product.imageUrl || product.image || product.colorImage || '',
+      productUrl: product.productUrl || '',
+      decorations: assignments[index],
+    };
+  });
+
+  const productCosts = normalizedLines.products.reduce((sum, product) => sum + Number(product._quoteAdjustedTotal || 0), 0);
+  const customizationCosts = normalizedLines.customizations.reduce((sum, customization) => sum + Number(customization._quoteAdjustedTotal || 0), 0);
+  const adjustedDigitizingFee = numberOrNull(totals.digitizingAdjustedLineTotal) ?? numberOrNull(totals.digitizingFee) ?? 0;
+
+  return {
+    emailType: 'customer-quote',
+    quoteRef: quote.quote_id || quote.id || '',
+    name: customer.name || customer.fullName || quote.customer_name || 'Customer',
+    email: customer.email || quote.customer_email || '',
+    phone: customer.phone || quote.customer_phone || '',
+    address: customer.address || customer.company || quote.customer_address || quote.customer_company || '',
+    postCode: customer.postCode || customer.postcode || '',
+    interest: 'Custom workwear quote',
+    submittedAt: quote.updated_at || quote.created_at || new Date().toISOString(),
+    basketSnapshot: {
+      orderNotes: snapshot.orderNotes || snapshot.notes || '',
+      items,
+      summary: {
+        productCosts,
+        customizationCosts,
+        digitizingFee: adjustedDigitizingFee,
+        subtotalExVat: totals.adjustedSubtotal,
+        vatAmount: totals.vatAmount,
+        totalIncVat: totals.totalIncVat,
+        originalTotalIncVat: totals.originalTotalIncVat,
+        discountAmount: totals.discountAmount,
+        discountPercent: totals.discountPercent,
+      },
+    },
+  };
+}
+
+function generateAdjustedQuoteEmailHTML(snapshot = {}, quote = {}) {
+  return generateBasketContactEmailHTML(buildAdjustedQuoteBasketContactData(snapshot, quote));
 }
 
 async function sendAdjustedQuoteEmail({ to, snapshot, quote, html }) {

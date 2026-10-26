@@ -162,6 +162,7 @@ function nonEmptyObject(value) {
 
 function withStoredQuoteAssets(snapshot, quote) {
   const storedQuoteData = quote?.quote_data && typeof quote.quote_data === 'object' ? quote.quote_data : {};
+  const { notes: storedOrderNotes } = extractQuoteNotes(storedQuoteData);
   const logos = nonEmptyObject(snapshot?.logos)
     || nonEmptyObject(storedQuoteData.logos);
   const previewImages = nonEmptyObject(snapshot?.previewImages)
@@ -183,6 +184,7 @@ function withStoredQuoteAssets(snapshot, quote) {
     ...(logos ? { logos } : {}),
     ...(previewImages ? { previewImages } : {}),
     ...(previewImage ? { previewImage } : {}),
+    ...(!snapshot?.orderNotes && !snapshot?.notes && storedOrderNotes ? { orderNotes: storedOrderNotes } : {}),
   };
 }
 
