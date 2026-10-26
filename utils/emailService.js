@@ -1,5 +1,7 @@
 // services/emailService.js
 const { Resend } = require("resend");
+const fs = require('fs');
+const path = require('path');
 const { extractQuoteNotes } = require('./quoteNotes');
 
 if (!process.env.RESEND_API_KEY) {
@@ -304,7 +306,19 @@ function normalizeQuoteAssetKey(value) {
 
 function getQuoteAssetUrl(asset) {
   if (typeof asset === 'string') return asset;
-  return asset && typeof asset === 'object' ? asset.url || '' : '';
+  if (!asset || typeof asset !== 'object') return '';
+  return asset.contentId ? `cid:${asset.contentId}` : (asset.url || '');
+}
+
+function findProductPreviewAsset(previewImages, item, itemIndex) {
+  if (!previewImages || typeof previewImages !== 'object') return '';
+  const code = normalizeQuoteAssetKey(item.code || item.productCode || item.sku || '');
+  const itemPrefix = `item-${itemIndex + 1}-`;
+  const preferredPrefix = code ? `${itemPrefix}${code}-` : itemPrefix;
+  const entries = Object.entries(previewImages);
+  const match = entries.find(([key]) => normalizeQuoteAssetKey(key).startsWith(preferredPrefix))
+    || entries.find(([key]) => normalizeQuoteAssetKey(key).startsWith(itemPrefix));
+  return match ? getQuoteAssetUrl(match[1]) : '';
 }
 
 function findQuoteAsset(assets, position) {
@@ -360,7 +374,8 @@ function buildQuoteBasketContactData(data, logoAssets = {}) {
     quantity: Number(item.quantity || item.qty) || 0,
     unitPrice: Number(item.unitPrice) || 0,
     itemTotal: Number(item.itemTotal) || 0,
-    imageUrl: item.imageUrl || item.image || item.colorImage || '',
+    imageUrl: findProductPreviewAsset(previewImages, item, itemIndex)
+      || item.imageUrl || item.image || item.colorImage || '',
     productUrl: item.productUrl || '',
     decorations: assignments[itemIndex].map(customization => {
       const position = customization.position || customization.positionLabel || customization.area || 'Not specified';
@@ -881,7 +896,7 @@ function generateBasketContactEmailHTML(data) {
                 <tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Customisation</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${money(customizationCosts)}</td></tr>
                 ${digitizingFee > 0 ? `<tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Embroidery setup</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${money(digitizingFee)}</td></tr>` : ''}
                 <tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Total (ex. VAT)</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;">${money(subtotalExVat)}</td></tr>
-                ${discountAmount > 0 ? `<tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Discount (${formatQuotePercent(discountPercent)})</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;color:#166534;">&minus;${money(discountAmount)}</td></tr>` : ''}
+                ${discountAmount > 0 ? `<tr><td class="summary-label" style="padding:6px 17px;color:#667085;font-size:13px;">Discount, ex. VAT (${formatQuotePercent(discountPercent)})</td><td class="summary-value" style="padding:6px 17px;text-align:right;font-size:13px;font-weight:750;color:#166534;">&minus;${money(discountAmount)}</td></tr>` : ''}
                 <tr><td class="summary-label" style="padding:6px 17px 15px;color:#667085;font-size:13px;border-bottom:1px solid #e5e7eb;">VAT</td><td class="summary-value" style="padding:6px 17px 15px;text-align:right;font-size:13px;font-weight:750;border-bottom:1px solid #e5e7eb;">${money(vatAmount)}</td></tr>
                 <tr><td class="summary-label" style="padding:16px 17px;font-size:15px;font-weight:850;color:#101828;">Total (inc. VAT)</td><td class="summary-value summary-total-value" style="padding:16px 17px;text-align:right;">${adjustedMoney(originalTotalIncVat, totalIncVat, { finalColour: '#12844b', finalSize: '24px' })}</td></tr>
                 <tr><td colspan="2" style="padding:0 17px 17px;"><div style="padding:13px 12px;background:#effaf4;border-radius:6px;color:#235b3d;font-size:12px;line-height:1.45;"><strong style="color:#12844b;">&#10003;</strong>&nbsp; <strong>Artwork approval included</strong><br><span style="color:#5d7167;">A proof will be checked before production.</span></div></td></tr>
@@ -1634,7 +1649,8 @@ function buildAdjustedQuoteBasketContactData(snapshot = {}, quote = {}) {
       unitPrice: Number(product.unitPrice) || 0,
       originalItemTotal: product._quoteOriginalTotal,
       itemTotal: product._quoteAdjustedTotal,
-      imageUrl: product.imageUrl || product.image || product.colorImage || '',
+      imageUrl: findProductPreviewAsset(snapshot.previewImages || snapshot.preview_images || {}, product, index)
+        || product.imageUrl || product.image || product.colorImage || '',
       productUrl: product.productUrl || '',
       decorations: assignments[index],
     };
@@ -1676,16 +1692,53 @@ function generateAdjustedQuoteEmailHTML(snapshot = {}, quote = {}) {
   return generateBasketContactEmailHTML(buildAdjustedQuoteBasketContactData(snapshot, quote));
 }
 
+function buildStoredQuoteImageAttachments(snapshot = {}) {
+  const groups = [
+    { assets: snapshot.logos, directory: path.join(__dirname, '..', 'uploads', 'logos') },
+    { assets: snapshot.previewImages || snapshot.preview_images, directory: path.join(__dirname, '..', 'uploads', 'quote-previews') },
+  ];
+  const attachments = [];
+  const usedContentIds = new Set();
+
+  groups.forEach(({ assets, directory }) => {
+    if (!assets || typeof assets !== 'object' || Array.isArray(assets)) return;
+    Object.values(assets).forEach(asset => {
+      if (!asset || typeof asset !== 'object' || !asset.contentId || !asset.filename) return;
+      if (usedContentIds.has(asset.contentId)) return;
+
+      const safeFilename = path.basename(String(asset.filename));
+      if (safeFilename !== String(asset.filename)) return;
+      const filePath = path.join(directory, safeFilename);
+      if (!fs.existsSync(filePath)) return;
+
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile() || stat.size <= 0 || stat.size > 5 * 1024 * 1024) return;
+      attachments.push({
+        filename: path.basename(String(asset.originalName || safeFilename)),
+        content: fs.readFileSync(filePath).toString('base64'),
+        contentType: asset.mimetype || 'application/octet-stream',
+        contentId: String(asset.contentId),
+      });
+      usedContentIds.add(asset.contentId);
+    });
+  });
+
+  return attachments;
+}
+
 async function sendAdjustedQuoteEmail({ to, snapshot, quote, html }) {
   const customerName = snapshot?.customer?.name || snapshot?.customer?.fullName || quote?.customer_name || 'Customer';
   const quoteRef = quote?.quote_id || quote?.id || 'Quote';
-  const result = await resend.emails.send({
+  const attachments = buildStoredQuoteImageAttachments(snapshot);
+  const emailOptions = {
     from: process.env.EMAIL_FROM,
     to,
     replyTo: process.env.EMAIL_TO || process.env.EMAIL_FROM,
     subject: `Your BrandedUK Quote - ${quoteRef}`,
     html: html || generateAdjustedQuoteEmailHTML(snapshot, quote),
-  });
+  };
+  if (attachments.length > 0) emailOptions.attachments = attachments;
+  const result = await resend.emails.send(emailOptions);
 
   const emailId = result?.data?.id || result?.id || null;
   console.log(`[EMAIL] Adjusted quote sent to ${to} for ${customerName}. ID: ${emailId || 'n/a'}`);

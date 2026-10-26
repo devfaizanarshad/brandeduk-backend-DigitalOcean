@@ -144,6 +144,43 @@ test('basket contact email escapes content and rejects unsafe artwork links', ()
   assert.match(html, /&lt;b&gt;Product&lt;\/b&gt;/);
 });
 
+test('quote email renders uploaded artwork and garment previews from inline attachments', () => {
+  const html = generateAdminQuoteEmailHTML({
+    customer: { fullName: 'Inline Images', email: 'inline@example.com' },
+    basket: [{
+      name: 'Heavy Blend hoodie',
+      code: 'GD057',
+      quantity: 4,
+      unitPrice: 21.31,
+      itemTotal: 85.24,
+      image: 'https://cdn.example.com/fallback.jpg',
+    }],
+    customizations: [{
+      position: 'Left Chest',
+      method: 'Print',
+      quantity: 4,
+      unitPrice: 7.50,
+      lineTotal: 30,
+    }],
+    previewImages: {
+      'item-1-gd057-front': {
+        url: 'https://api.example.com/uploads/preview.jpg',
+        contentId: 'quote-preview-gd057',
+      },
+    },
+    summary: { totalExVat: 115.24, vatAmount: 23.05, totalIncVat: 138.29 },
+  }, {
+    'left-chest': {
+      url: 'https://api.example.com/uploads/logo.png',
+      contentId: 'quote-logo-left-chest',
+    },
+  });
+
+  assert.match(html, /src="cid:quote-preview-gd057"/);
+  assert.match(html, /src="cid:quote-logo-left-chest"/);
+  assert.doesNotMatch(html, /src="https:\/\/cdn\.example\.com\/fallback\.jpg"/);
+});
+
 test('ordinary contact submissions retain the standard contact email', () => {
   const html = generateContactEmailHTML({
     name: 'Normal Contact',

@@ -90,7 +90,10 @@ const upload = multer({
 });
 
 const MAX_TOTAL_ATTACHMENT_BYTES = 28 * 1024 * 1024;
-const shouldAttachQuoteLogos = String(process.env.QUOTE_EMAIL_ATTACH_LOGOS || '').toLowerCase() === 'true';
+// Embed customer artwork by default. Remote upload URLs are less reliable in
+// Gmail and other clients, and can disappear after a deployment. Set this to
+// "false" only if attachments must explicitly be disabled.
+const shouldAttachQuoteLogos = String(process.env.QUOTE_EMAIL_ATTACH_LOGOS || 'true').toLowerCase() !== 'false';
 
 const cleanupFiles = (files) => {
   if (!files || !Array.isArray(files)) return;
@@ -271,6 +274,7 @@ router.post('/', upload.any(), async (req, res) => {
               filename: getAttachmentFilename(file, `logo-${positionSlug}`),
               content: fs.readFileSync(file.path),
               contentType: file.mimetype,
+              contentId,
               url: logoFiles[positionSlug].url,
             });
           } catch (e) {}
