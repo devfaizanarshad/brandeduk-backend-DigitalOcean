@@ -81,6 +81,13 @@ test('parser separates strict identity filters from descriptive signals', async 
   assert.deepEqual(parsed.freeText, []);
 });
 
+test('partial style codes match products with a longer code suffix', async () => {
+  const search = await buildSearchConditions('R239');
+
+  assert.match(search.conditions.join(' AND '), /style_code ILIKE \$1/);
+  assert.deepEqual(search.params, ['R239%']);
+});
+
 test('multiple descriptors use controlled OR matching with exact-match ranking', async () => {
   const search = await buildSearchConditions('waterproof zip hoodies');
   const where = search.conditions.join(' AND ');

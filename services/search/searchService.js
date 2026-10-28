@@ -83,7 +83,7 @@ async function buildSearchConditions(rawQuery, viewAlias = 'psm', paramIndex = 1
   }
 
   if (parsed.styleCode) {
-    styleCodeParamIndex = addParam(parsed.styleCode);
+    styleCodeParamIndex = addParam(`${parsed.styleCode}%`);
     conditions.push(`${viewAlias}.style_code ILIKE $${styleCodeParamIndex}`);
   }
 
