@@ -209,13 +209,26 @@ async function buildFuzzyFallback(rawQuery, viewAlias = 'psm', paramIndex = 1) {
 
 async function getSearchSuggestions(query, requestedLimit = 12) {
   const searchTerm = String(query || '').trim();
-  if (searchTerm.length < 2) return { brands: [], types: [], products: [] };
+  if (!searchTerm) return { brands: [], types: [], products: [], total: 0 };
 
   const limit = Math.min(12, Math.max(1, Number(requestedLimit) || 12));
-  const words = searchTerm.toLowerCase().split(/\s+/).filter(word => word.length >= 2);
+  const words = searchTerm.toLowerCase().split(/\s+/).filter(Boolean);
   const lookupParams = words.map(word => `%${word}%`);
   const lookupCondition = words.map((_, index) => `name ILIKE $${index + 1}`).join(' OR ') || 'FALSE';
-  const search = await buildSearchConditions(searchTerm, 'psm', 1);
+  const search = searchTerm.length === 1
+    ? {
+        conditions: ['(psm.style_code ILIKE $1 OR psm.brand ILIKE $1 OR psm.style_name ILIKE $1)'],
+        params: [`${searchTerm}%`],
+        relevanceSelect: `(
+          CASE
+            WHEN psm.style_code ILIKE $1 THEN 200
+            WHEN psm.brand ILIKE $1 THEN 100
+            WHEN psm.style_name ILIKE $1 THEN 80
+            ELSE 0
+          END
+        )::int as relevance_score`
+      }
+    : await buildSearchConditions(searchTerm, 'psm', 1);
   const productLimitIndex = search.params.length + 1;
   const productWhere = search.conditions.length > 0 ? `AND ${search.conditions.join(' AND ')}` : '';
 
@@ -233,7 +246,7 @@ async function getSearchSuggestions(query, requestedLimit = 12) {
       LIMIT 3
     `, lookupParams),
     queryWithTimeout(`
-      WITH ranked AS (
+      WITH matching AS (
         SELECT
           ranked_rows.style_code,
           MAX(ranked_rows.relevance_score) AS relevance_score
@@ -244,7 +257,13 @@ async function getSearchSuggestions(query, requestedLimit = 12) {
             ${productWhere}
         ) ranked_rows
         GROUP BY ranked_rows.style_code
-        ORDER BY relevance_score DESC, ranked_rows.style_code ASC
+      ), ranked AS (
+        SELECT
+          matching.style_code,
+          matching.relevance_score,
+          COUNT(*) OVER()::int AS total_count
+        FROM matching
+        ORDER BY relevance_score DESC, matching.style_code ASC
         LIMIT $${productLimitIndex}
       )
       SELECT
@@ -252,7 +271,8 @@ async function getSearchSuggestions(query, requestedLimit = 12) {
         MIN(s.style_name) AS style_name,
         MIN(NULLIF(p.primary_image_url, 'Not available')) AS primary_image_url,
         MIN(b.name) AS brand,
-        MIN(p.sell_price) AS price
+        MIN(p.sell_price) AS price,
+        MAX(ranked.total_count)::int AS total_count
       FROM ranked
       INNER JOIN styles s ON s.style_code = ranked.style_code
       INNER JOIN products p ON p.style_code = ranked.style_code AND p.sku_status = 'Live'
@@ -265,6 +285,7 @@ async function getSearchSuggestions(query, requestedLimit = 12) {
   return {
     brands: brandsResult.rows.map(row => ({ label: row.name, value: row.slug, type: 'brand' })),
     types: typesResult.rows.map(row => ({ label: row.name, value: row.slug, type: 'type' })),
+    total: productsResult.rows.length > 0 ? Number(productsResult.rows[0].total_count) || 0 : 0,
     products: productsResult.rows.map(row => ({
       label: row.style_name,
       value: row.style_code,

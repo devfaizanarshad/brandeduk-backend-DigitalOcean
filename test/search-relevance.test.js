@@ -7,6 +7,14 @@ const synonymsPath = require.resolve('../services/search/searchSynonyms');
 const servicePath = require.resolve('../services/search/searchService');
 
 const rowsForQuery = sql => {
+  if (sql.includes('WITH matching AS')) return [{
+    style_code: 'R239X',
+    style_name: 'Thermoquilt gilet',
+    primary_image_url: 'https://example.com/r239x.jpg',
+    brand: 'Result Recycled',
+    price: '28.38',
+    total_count: 13
+  }];
   if (sql.includes('FROM brands')) return [{ name: 'Pro RTX' }];
   if (sql.includes('FROM product_types')) return [
     { name: 'Hooded Sweatshirts' },
@@ -68,7 +76,7 @@ delete require.cache[synonymsPath];
 delete require.cache[servicePath];
 
 const { parseSearchQuery } = require(parserPath);
-const { buildSearchConditions, prefixTsQuery } = require(servicePath);
+const { buildSearchConditions, getSearchSuggestions, prefixTsQuery } = require(servicePath);
 
 test('parser separates strict identity filters from descriptive signals', async () => {
   const parsed = await parseSearchQuery('mens black organic zip hoodies');
@@ -86,6 +94,13 @@ test('partial style codes match products with a longer code suffix', async () =>
 
   assert.match(search.conditions.join(' AND '), /style_code ILIKE \$1/);
   assert.deepEqual(search.params, ['R239%']);
+});
+
+test('suggestions support one-character searches and include the full match count', async () => {
+  const suggestions = await getSearchSuggestions('r', 12);
+
+  assert.equal(suggestions.total, 13);
+  assert.equal(suggestions.products[0].code, 'R239X');
 });
 
 test('multiple descriptors use controlled OR matching with exact-match ranking', async () => {
