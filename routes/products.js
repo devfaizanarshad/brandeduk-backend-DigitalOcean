@@ -436,7 +436,7 @@ router.get('/filters', async (req, res) => {
 router.get('/suggest', async (req, res) => {
   try {
     const { q, limit } = req.query;
-    if (!q || q.length < 2) return res.json({ brands: [], types: [], products: [] });
+    if (!q || !String(q).trim()) return res.json({ brands: [], types: [], products: [], total: 0 });
 
     const rc = await routeCache(req, cache.TTL.PRODUCTS);
     if (rc.cached) return res.json(rc.cached);
@@ -447,7 +447,7 @@ router.get('/suggest', async (req, res) => {
     await rc.store(suggestions);
     res.json(suggestions);
   } catch (error) {
-    res.json({ brands: [], types: [], products: [] });
+    res.json({ brands: [], types: [], products: [], total: 0 });
   }
 });
 
