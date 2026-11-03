@@ -276,12 +276,24 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
         return normalized;
       };
       const uniqueProductTypes = [...new Set(filters.productType.map(normalizeProductType))];
-      productTypeJoin = `
-        INNER JOIN styles s_pt ON psm.style_code = s_pt.style_code
-        INNER JOIN product_types pt_pt ON s_pt.product_type_id = pt_pt.id 
-          AND LOWER(REGEXP_REPLACE(pt_pt.name, '[^a-zA-Z0-9]', '', 'g')) = ANY($${paramIndex}::text[])`;
-      params.push(uniqueProductTypes);
-      paramIndex++;
+      const isPpeFilter = uniqueProductTypes.some(type => type === 'ppe' || type === 'ppesafetywear');
+      if (isPpeFilter) {
+        productTypeJoin = `
+          INNER JOIN (
+            SELECT DISTINCT p_ppe.style_code
+            FROM products p_ppe
+            INNER JOIN product_categories pc_ppe ON pc_ppe.product_id = p_ppe.id
+            INNER JOIN categories c_ppe ON c_ppe.id = pc_ppe.category_id
+            WHERE c_ppe.slug IN ('ppe-safety-wear', 'safetywear', 'ppe', 'personal-protection')
+          ) ppe_pt ON psm.style_code = ppe_pt.style_code`;
+      } else {
+        productTypeJoin = `
+          INNER JOIN styles s_pt ON psm.style_code = s_pt.style_code
+          INNER JOIN product_types pt_pt ON s_pt.product_type_id = pt_pt.id
+            AND LOWER(REGEXP_REPLACE(pt_pt.name, '[^a-zA-Z0-9]', '', 'g')) = ANY($${paramIndex}::text[])`;
+        params.push(uniqueProductTypes);
+        paramIndex++;
+      }
     }
 
     // Price filters
@@ -1080,13 +1092,25 @@ async function buildProductListQuery(filters, page, limit) {
 
     const normalizedProductTypes = filters.productType.map(normalizeProductType);
     const uniqueProductTypes = [...new Set(normalizedProductTypes)];
+    const isPpeFilter = uniqueProductTypes.some(type => type === 'ppe' || type === 'ppesafetywear');
 
-    productTypeJoin = `
-      INNER JOIN styles s_pt ON ${viewAlias}.style_code = s_pt.style_code
-      INNER JOIN product_types pt_pt ON s_pt.product_type_id = pt_pt.id
-        AND LOWER(REGEXP_REPLACE(pt_pt.name, '[^a-zA-Z0-9]', '', 'g')) = ANY($${paramIndex}::text[])`;
-    params.push(uniqueProductTypes);
-    paramIndex++;
+    if (isPpeFilter) {
+      productTypeJoin = `
+        INNER JOIN (
+          SELECT DISTINCT p_ppe.style_code
+          FROM products p_ppe
+          INNER JOIN product_categories pc_ppe ON pc_ppe.product_id = p_ppe.id
+          INNER JOIN categories c_ppe ON c_ppe.id = pc_ppe.category_id
+          WHERE c_ppe.slug IN ('ppe-safety-wear', 'safetywear', 'ppe', 'personal-protection')
+        ) ppe_pt ON ${viewAlias}.style_code = ppe_pt.style_code`;
+    } else {
+      productTypeJoin = `
+        INNER JOIN styles s_pt ON ${viewAlias}.style_code = s_pt.style_code
+        INNER JOIN product_types pt_pt ON s_pt.product_type_id = pt_pt.id
+          AND LOWER(REGEXP_REPLACE(pt_pt.name, '[^a-zA-Z0-9]', '', 'g')) = ANY($${paramIndex}::text[])`;
+      params.push(uniqueProductTypes);
+      paramIndex++;
+    }
   }
 
   // Always filter by Live status - MUST be first for index matching
