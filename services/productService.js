@@ -409,13 +409,16 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
     // Materialized view has 'brand' column (name), match against both slug format and name
     // Uneek: when filtering by uneek-clothing, also include styles with supplier=uneek (covers brand_id NULL)
     if (hasItems(filters.brand)) {
+      const normalizeBrandSlug = value => String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
       const brandConditions = filters.brand.map(b => {
-        const normalized = b.toLowerCase().trim();
-        // Match by slug format (LOWER(REPLACE(brand, ' ', '-')) or by name (LOWER(brand))
-        return `(LOWER(REPLACE(psm.brand, ' ', '-')) = $${paramIndex} OR LOWER(psm.brand) = $${paramIndex})`;
+        return `(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(psm.brand, '[^a-zA-Z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g')) = $${paramIndex})`;
       });
       const isUneekBrand = filters.brand.some(b => {
-        const n = b.toLowerCase().trim().replace(/\s+/g, '-');
+        const n = normalizeBrandSlug(b);
         return n === 'uneek-clothing' || n === 'uneek';
       });
       let brandClause = `(${brandConditions.join(' OR ')})`;
@@ -424,7 +427,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
       }
       conditions.push(`(${brandClause})`);
       filters.brand.forEach(b => {
-        params.push(b.toLowerCase().trim());
+        params.push(normalizeBrandSlug(b));
       });
       paramIndex += filters.brand.length;
     }
@@ -736,12 +739,12 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
       brand_agg AS (
         SELECT 
           'brand' as filter_type,
-          LOWER(REPLACE(bp.brand, ' ', '-')) as slug,
+          LOWER(REGEXP_REPLACE(REGEXP_REPLACE(bp.brand, '[^a-zA-Z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g')) as slug,
           bp.brand as name,
           COUNT(DISTINCT bp.style_code)::int as count
         FROM base_products bp
         WHERE bp.brand IS NOT NULL AND bp.brand != ''
-        GROUP BY LOWER(REPLACE(bp.brand, ' ', '-')), bp.brand
+        GROUP BY LOWER(REGEXP_REPLACE(REGEXP_REPLACE(bp.brand, '[^a-zA-Z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g')), bp.brand
         ORDER BY count DESC
         LIMIT 50
       ),
@@ -994,12 +997,16 @@ async function buildProductListQuery(filters, page, limit) {
   // Brand filter - Match by brand name or slug format
   // Uneek: when filtering by uneek-clothing, also include styles with supplier=uneek (covers brand_id NULL)
   if (hasItems(filters.brand)) {
+    const normalizeBrandSlug = value => String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
     const brandConditions = filters.brand.map(b => {
-      const normalized = b.toLowerCase().trim();
-      return `(LOWER(REPLACE(${viewAlias}.brand, ' ', '-')) = $${paramIndex} OR LOWER(${viewAlias}.brand) = $${paramIndex})`;
+      return `(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(${viewAlias}.brand, '[^a-zA-Z0-9]+', '-', 'g'), '(^-+|-+$)', '', 'g')) = $${paramIndex})`;
     });
     const isUneekBrand = filters.brand.some(b => {
-      const n = b.toLowerCase().trim().replace(/\s+/g, '-');
+      const n = normalizeBrandSlug(b);
       return n === 'uneek-clothing' || n === 'uneek';
     });
     let brandClause = `(${brandConditions.join(' OR ')})`;
@@ -1008,7 +1015,7 @@ async function buildProductListQuery(filters, page, limit) {
     }
     conditions.push(`(${brandClause})`);
     filters.brand.forEach(b => {
-      params.push(b.toLowerCase().trim());
+      params.push(normalizeBrandSlug(b));
     });
     paramIndex += filters.brand.length;
   }
