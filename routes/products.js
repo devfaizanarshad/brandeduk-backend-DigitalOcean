@@ -157,9 +157,12 @@ router.get('/', async (req, res) => {
 
     const styleArray = parseArray(style || styles);
     const normalizedStyles = [...new Set(styleArray.map(normalizeStyleSlug).filter(s => s))];
+    const rawQuery = String(q || text || '').trim();
+    const isPpeQuery = /^ppe(?:\s*(?:&|and)\s*safety(?:\s*wear)?)?$/i.test(rawQuery);
+    const requestedProductTypes = parseArray(productType || productTypes || category || categories);
 
     const filters = {
-      q: q || text || null,
+      q: isPpeQuery ? null : (rawQuery || null),
       supplier: parseArray(supplier),
       priceMin: priceMin ? parseFloat(priceMin) : null,
       priceMax: priceMax ? parseFloat(priceMax) : null,
@@ -186,7 +189,7 @@ router.get('/', async (req, res) => {
       tag: parseArray(tag),
       effect: parseArray(effect),
       brand: parseArray(brand || brands),
-      productType: parseArray(productType || productTypes || category || categories),
+      productType: isPpeQuery ? ['ppe'] : requestedProductTypes,
       sort: normalizedSort,
       order: normalizedOrder ? (normalizedOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC') : 'DESC'
     };
