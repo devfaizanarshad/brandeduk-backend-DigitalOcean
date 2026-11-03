@@ -69,7 +69,9 @@ async function stageProducts(client, sourceRootId) {
       JOIN categories seed ON seed.id = seed_pc.category_id
       WHERE seed_pc.product_id = p.id
         AND (seed.id = $1 OR seed.slug IN ('ppe', 'personal-protection'))
-    ) OR s.style_name ~* '(disposable face mask|respirator|dust mask)'
+    )
+      AND LOWER(COALESCE(pt.name, '')) <> 'snoods'
+      AND LOWER(COALESCE(s.style_name, '')) !~ '(snood|morf|face covering|disposable face mask)'
     GROUP BY p.id, p.style_code, pt.name, s.style_name
   `, [sourceRootId]);
 
@@ -89,8 +91,8 @@ async function stageProducts(client, sourceRootId) {
     ['safety-footwear', `product_type IN ('boots', 'trainers', 'shoes', 'footwear') OR style_name ~ '(safety|steel toe|composite toe).{0,20}(boot|shoe|trainer)'`],
     ['head-protection', `product_type IN ('helmets', 'caps', 'beanies') OR style_name ~ '(helmet|hard hat|bump cap)'`],
     ['eye-hearing-protection', `product_type IN ('glasses', 'goggles', 'ear defenders', 'ear plugs') OR style_name ~ '(safety spectacle|safety glasses|goggle|hearing protection|ear defender|ear plug)'`],
-    ['respiratory-protection', `style_name ~ '(respirat|disposable face mask|dust mask|filter mask)'`],
-    ['ppe-accessories', `product_type IN ('accessories', 'armbands', 'bags', 'first aid boxes', 'kneepads', 'snoods')`]
+    ['respiratory-protection', `style_name ~ '(certified respirator|ffp[123]|en 149)'`],
+    ['ppe-accessories', `product_type IN ('accessories', 'armbands', 'bags', 'first aid boxes', 'kneepads')`]
   ];
 
   for (const [slug, condition] of rules) {
@@ -145,7 +147,7 @@ async function report(client, rootId) {
 
 async function applyAssignments(client, rootId, groupIds) {
   const managedIds = [...groupIds.values()];
-  await client.query('DELETE FROM product_categories WHERE category_id = ANY($1::int[])', [managedIds]);
+  await client.query('DELETE FROM product_categories WHERE category_id = $1 OR category_id = ANY($2::int[])', [rootId, managedIds]);
   await client.query(`
     INSERT INTO product_categories (product_id, category_id)
     SELECT DISTINCT a.product_id, mapping.category_id

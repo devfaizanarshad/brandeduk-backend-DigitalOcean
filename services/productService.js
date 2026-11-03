@@ -284,7 +284,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
             FROM products p_ppe
             INNER JOIN product_categories pc_ppe ON pc_ppe.product_id = p_ppe.id
             INNER JOIN categories c_ppe ON c_ppe.id = pc_ppe.category_id
-            WHERE c_ppe.slug IN ('ppe-safety-wear', 'safetywear', 'ppe', 'personal-protection')
+            WHERE c_ppe.slug IN ('ppe-safety-wear', 'safetywear')
           ) ppe_pt ON psm.style_code = ppe_pt.style_code`;
       } else {
         productTypeJoin = `
@@ -1083,6 +1083,7 @@ async function buildProductListQuery(filters, page, limit) {
   // Normalize all variations (tshirts, tshirt, t shirt, t-shirt, t-shirts) to "tshirts"
   // Store product type filter info for use in query CTE
   let productTypeJoin = '';
+  let isPpeCategoryFilter = false;
   if (hasItems(filters.productType)) {
     // Normalize product type: remove hyphens and spaces, convert to DB format (e.g., "tshirts")
     // Handles: tshirts, tshirt, t shirt, t-shirt, t-shirts -> all match "tshirts" in DB
@@ -1100,6 +1101,7 @@ async function buildProductListQuery(filters, page, limit) {
     const normalizedProductTypes = filters.productType.map(normalizeProductType);
     const uniqueProductTypes = [...new Set(normalizedProductTypes)];
     const isPpeFilter = uniqueProductTypes.some(type => type === 'ppe' || type === 'ppesafetywear');
+    isPpeCategoryFilter = isPpeFilter;
 
     if (isPpeFilter) {
       productTypeJoin = `
@@ -1108,7 +1110,7 @@ async function buildProductListQuery(filters, page, limit) {
           FROM products p_ppe
           INNER JOIN product_categories pc_ppe ON pc_ppe.product_id = p_ppe.id
           INNER JOIN categories c_ppe ON c_ppe.id = pc_ppe.category_id
-          WHERE c_ppe.slug IN ('ppe-safety-wear', 'safetywear', 'ppe', 'personal-protection')
+          WHERE c_ppe.slug IN ('ppe-safety-wear', 'safetywear')
         ) ppe_pt ON ${viewAlias}.style_code = ppe_pt.style_code`;
     } else {
       productTypeJoin = `
@@ -1192,23 +1194,24 @@ async function buildProductListQuery(filters, page, limit) {
   // If prioritizeCustomOrder is true, put custom_display_order FIRST
   let orderByClause = '';
   const searchSort = (hasSearch && searchRelevanceOrder) ? `${searchRelevanceOrder}, ` : '';
+  const ppeSort = isPpeCategoryFilter ? 'ppe_relevance_priority ASC, ' : '';
 
   if (hasSearch && searchRelevanceOrder && prioritizeCustomOrder) {
     // Search intent must outrank merchandising order. Merchandising remains
     // the deterministic tie-breaker between equally relevant products.
-    orderByClause = `${searchRelevanceOrder}, custom_display_order ASC, product_type_priority ASC, created_at ${order}, style_code ASC`;
+    orderByClause = `${searchRelevanceOrder}, ${ppeSort}custom_display_order ASC, product_type_priority ASC, created_at ${order}, style_code ASC`;
   } else if (prioritizeCustomOrder) {
     // Default (newest/best-sellers proxy) – honour custom display order first
-    orderByClause = `custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}, style_code ASC`;
+    orderByClause = `${ppeSort}custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}, style_code ASC`;
   } else if (prioritizeBest) {
     // "Best" sort: prioritise products flagged as best seller with custom order
-    orderByClause = `is_best DESC, best_seller_order ASC, is_recommended DESC, recommended_order ASC, is_featured DESC, featured_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}, style_code ASC`;
+    orderByClause = `${ppeSort}is_best DESC, best_seller_order ASC, is_recommended DESC, recommended_order ASC, is_featured DESC, featured_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}, style_code ASC`;
   } else if (prioritizeRecommended) {
     // "Recommended" sort: prioritise products flagged as recommended with custom order
-    orderByClause = `is_recommended DESC, recommended_order ASC, is_best DESC, best_seller_order ASC, is_featured DESC, featured_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}, style_code ASC`;
+    orderByClause = `${ppeSort}is_recommended DESC, recommended_order ASC, is_best DESC, best_seller_order ASC, is_featured DESC, featured_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}, style_code ASC`;
   } else if (prioritizeFeatured) {
     // "Featured" sort: prioritise products flagged as featured with custom order
-    orderByClause = `is_featured DESC, featured_order ASC, is_best DESC, best_seller_order ASC, is_recommended DESC, recommended_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}, style_code ASC`;
+    orderByClause = `${ppeSort}is_featured DESC, featured_order ASC, is_best DESC, best_seller_order ASC, is_recommended DESC, recommended_order ASC, custom_display_order ASC, ${searchSort}product_type_priority ASC, created_at ${order}, style_code ASC`;
   } else {
     // Normal sorting
     if (sort === 'price') {
@@ -1220,7 +1223,7 @@ async function buildProductListQuery(filters, page, limit) {
     } else if (sort === 'code') {
       orderByClause = `style_code ${order}, ${searchSort}product_type_priority ASC`;
     } else {
-      orderByClause = `${searchSort}product_type_priority ASC, created_at ${order}, style_code ASC`;
+      orderByClause = `${ppeSort}${searchSort}product_type_priority ASC, created_at ${order}, style_code ASC`;
     }
   }
 
@@ -1251,6 +1254,30 @@ async function buildProductListQuery(filters, page, limit) {
         MIN(p.sell_price) as sell_price,
         MIN(${viewAlias}.created_at) as created_at,
         MIN(COALESCE(pt.display_order, 999)) as product_type_priority,
+        MIN(CASE LOWER(COALESCE(pt.name, ''))
+          WHEN 'gloves' THEN 10
+          WHEN 'hi vis' THEN 20
+          WHEN 'trousers' THEN 30
+          WHEN 'coveralls' THEN 30
+          WHEN 'coverall' THEN 30
+          WHEN 'glasses' THEN 40
+          WHEN 'goggles' THEN 40
+          WHEN 'helmets' THEN 50
+          WHEN 'caps' THEN 50
+          WHEN 'boots' THEN 60
+          WHEN 'shoes' THEN 60
+          WHEN 'trainers' THEN 60
+          WHEN 'footwear' THEN 60
+          WHEN 'jackets' THEN 70
+          WHEN 'softshells' THEN 70
+          WHEN 'rain suits' THEN 70
+          WHEN 'gilets & body warmers' THEN 70
+          WHEN 'fleece' THEN 70
+          WHEN 'polos' THEN 80
+          WHEN 't-shirts' THEN 80
+          WHEN 'tabards' THEN 80
+          ELSE 90
+        END) as ppe_relevance_priority,
         MIN(COALESCE(b.name, '')) as brand_name,
         MIN(COALESCE(pdo.display_order, 999999)) as custom_display_order,
         -- Flag-based priorities (only computed when sorting by best/recommended)
