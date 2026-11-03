@@ -1371,6 +1371,30 @@ async function buildProductListQuery(filters, page, limit) {
             MIN(p.sell_price) as sell_price,
             MIN(${viewAlias}.created_at) as created_at,
             MIN(COALESCE(pt.display_order, 999)) as product_type_priority,
+            MIN(CASE LOWER(COALESCE(pt.name, ''))
+              WHEN 'gloves' THEN 10
+              WHEN 'hi vis' THEN 20
+              WHEN 'trousers' THEN 30
+              WHEN 'coveralls' THEN 30
+              WHEN 'coverall' THEN 30
+              WHEN 'glasses' THEN 40
+              WHEN 'goggles' THEN 40
+              WHEN 'helmets' THEN 50
+              WHEN 'caps' THEN 50
+              WHEN 'boots' THEN 60
+              WHEN 'shoes' THEN 60
+              WHEN 'trainers' THEN 60
+              WHEN 'footwear' THEN 60
+              WHEN 'jackets' THEN 70
+              WHEN 'softshells' THEN 70
+              WHEN 'rain suits' THEN 70
+              WHEN 'gilets & body warmers' THEN 70
+              WHEN 'fleece' THEN 70
+              WHEN 'polos' THEN 80
+              WHEN 't-shirts' THEN 80
+              WHEN 'tabards' THEN 80
+              ELSE 90
+            END) as ppe_relevance_priority,
             MIN(COALESCE(b.name, '')) as brand_name,
             MIN(COALESCE(pdo.display_order, 999999)) as custom_display_order,
             MAX(${viewAlias}.is_best_seller::int) as is_best,
