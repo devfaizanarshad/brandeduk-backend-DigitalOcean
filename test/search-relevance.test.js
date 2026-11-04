@@ -15,6 +15,11 @@ const rowsForQuery = sql => {
     price: '28.38',
     total_count: 13
   }];
+  if (sql.includes('keyword_candidates')) return [
+    { label: 'Polo Shirts' },
+    { label: 'Polos' },
+    { label: 'Polyester' }
+  ];
   if (sql.includes('FROM brands')) return [{ name: 'Pro RTX' }];
   if (sql.includes('FROM product_types')) return [
     { name: 'Hooded Sweatshirts', product_count: 336 },
@@ -114,6 +119,7 @@ test('suggestions support one-character searches and include the full match coun
 
   assert.equal(suggestions.total, 13);
   assert.equal(suggestions.products[0].code, 'R239X');
+  assert.deepEqual(suggestions.keywords.map(item => item.label), ['Polo Shirts', 'Polos', 'Polyester']);
 });
 
 test('multiple descriptors use controlled OR matching with exact-match ranking', async () => {

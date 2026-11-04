@@ -247,7 +247,7 @@ async function getSearchSuggestions(query, requestedLimit = 12) {
   const productLimitIndex = search.params.length + 1;
   const productWhere = search.conditions.length > 0 ? `AND ${search.conditions.join(' AND ')}` : '';
 
-  const [brandsResult, typesResult, productsResult] = await Promise.all([
+  const [brandsResult, typesResult, keywordsResult, productsResult] = await Promise.all([
     queryWithTimeout(`
       SELECT name, slug FROM brands
       WHERE ${lookupCondition}
@@ -260,6 +260,41 @@ async function getSearchSuggestions(query, requestedLimit = 12) {
       ORDER BY name ASC
       LIMIT 3
     `, typeLookupParams),
+    queryWithTimeout(`
+      WITH keyword_candidates AS (
+        SELECT name AS label, 100 AS source_priority
+        FROM product_types
+        UNION ALL
+        SELECT name AS label, 70 AS source_priority
+        FROM style_keywords
+        WHERE keyword_type IN ('feature', 'style', 'sector', 'sport')
+        UNION ALL
+        SELECT canonical AS label, 50 AS source_priority
+        FROM search_synonyms
+        WHERE synonym_type IN ('product_type', 'attribute')
+      ), ranked_keywords AS (
+        SELECT
+          label,
+          MAX(source_priority) AS source_priority,
+          word_similarity($1, label) AS match_score
+        FROM keyword_candidates
+        WHERE label IS NOT NULL
+          AND (label ILIKE $2 OR word_similarity($1, label) >= 0.42)
+        GROUP BY label
+      )
+      SELECT label
+      FROM ranked_keywords
+      ORDER BY
+        CASE
+          WHEN LOWER(label) = $1 THEN 0
+          WHEN LOWER(label) LIKE ($1 || '%') THEN 1
+          ELSE 2
+        END,
+        match_score DESC,
+        source_priority DESC,
+        label ASC
+      LIMIT 3
+    `, [brandLookupTerm, `%${brandLookupTerm}%`]),
     queryWithTimeout(`
       WITH matching AS (
         SELECT
@@ -300,6 +335,7 @@ async function getSearchSuggestions(query, requestedLimit = 12) {
   return {
     brands: brandsResult.rows.map(row => ({ label: row.name, value: row.slug, type: 'brand' })),
     types: typesResult.rows.map(row => ({ label: row.name, value: row.slug, type: 'type' })),
+    keywords: keywordsResult.rows.map(row => ({ label: row.label, value: row.label, type: 'keyword' })),
     total: productsResult.rows.length > 0 ? Number(productsResult.rows[0].total_count) || 0 : 0,
     products: productsResult.rows.map(row => ({
       label: row.style_name,
