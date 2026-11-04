@@ -4,13 +4,14 @@ const { pool, queryWithTimeout } = require('../config/database');
 const { buildProductListQuery, buildProductDetailQuery, buildRelatedProductsQuery, buildAlternativeProductsQuery } = require('../services/productService');
 const { applyMarkup } = require('../utils/priceMarkup');
 const cache = require('../services/cacheService');
+const { parsePpeSearchIntent } = require('../services/ppeCatalog');
 
 /**
  * Helper: wrap a route handler's response in Redis cache.
  * Uses the full URL as cache key. TTL defaults to PRODUCTS (3 days).
  */
 async function routeCache(req, ttl) {
-  const rawKey = `products:route:v8:${req.originalUrl}`;
+  const rawKey = `products:route:v9:${req.originalUrl}`;
   let hash = 0;
   for (let i = 0; i < rawKey.length; i++) {
     const char = rawKey.charCodeAt(i);
@@ -158,11 +159,11 @@ router.get('/', async (req, res) => {
     const styleArray = parseArray(style || styles);
     const normalizedStyles = [...new Set(styleArray.map(normalizeStyleSlug).filter(s => s))];
     const rawQuery = String(q || text || '').trim();
-    const isPpeQuery = /^ppe(?:\s*(?:&|and)\s*safety(?:\s*wear)?)?$/i.test(rawQuery);
+    const ppeIntent = parsePpeSearchIntent(rawQuery);
     const requestedProductTypes = parseArray(productType || productTypes || category || categories);
 
     const filters = {
-      q: isPpeQuery ? null : (rawQuery || null),
+      q: ppeIntent.remainingQuery,
       supplier: parseArray(supplier),
       priceMin: priceMin ? parseFloat(priceMin) : null,
       priceMax: priceMax ? parseFloat(priceMax) : null,
@@ -189,7 +190,7 @@ router.get('/', async (req, res) => {
       tag: parseArray(tag),
       effect: parseArray(effect),
       brand: parseArray(brand || brands),
-      productType: isPpeQuery ? ['ppe'] : requestedProductTypes,
+      productType: ppeIntent.isPpe ? ['ppe'] : requestedProductTypes,
       sort: normalizedSort,
       order: normalizedOrder ? (normalizedOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC') : 'DESC'
     };
@@ -393,8 +394,10 @@ router.get('/filters', async (req, res) => {
       return [normalized, `${normalized}-1`, `${normalized}-2`];
     }))];
 
+    const rawQuery = String(q || text || '').trim();
+    const ppeIntent = parsePpeSearchIntent(rawQuery);
     const filters = {
-      q: q || text || null,
+      q: ppeIntent.remainingQuery,
       supplier: parseArray(req.query.supplier),
       priceMin: priceMin ? parseFloat(priceMin) : null,
       priceMax: priceMax ? parseFloat(priceMax) : null,
@@ -418,7 +421,9 @@ router.get('/filters', async (req, res) => {
       effect: parseArray(effect),
       flag: parseArray(flag),
       brand: parseArray(brand || brands),
-      productType: parseArray(productType || productTypes || category || categories)
+      productType: ppeIntent.isPpe
+        ? ['ppe']
+        : parseArray(productType || productTypes || category || categories)
     };
 
     const { buildFilterAggregations } = require('../services/productService');

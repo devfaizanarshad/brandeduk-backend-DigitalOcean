@@ -17,14 +17,21 @@ const rowsForQuery = sql => {
   }];
   if (sql.includes('FROM brands')) return [{ name: 'Pro RTX' }];
   if (sql.includes('FROM product_types')) return [
-    { name: 'Hooded Sweatshirts' },
+    { name: 'Hooded Sweatshirts', product_count: 336 },
     { name: 'Vests (t-shirt)' },
     { name: 'Hi Vis' },
     { name: 'Beanies' },
     { name: 'Hats' },
+    { name: 'Caps', product_count: 180 },
+    { name: 'Aprons', product_count: 120 },
     { name: 'Fleece' },
-    { name: 'Jackets' },
-    { name: 'Sweatshirts' },
+    { name: 'Jackets', product_count: 387 },
+    { name: 'Sweatshirts', product_count: 240 },
+    { name: 'Sweatpants', product_count: 104 },
+    { name: 'Trousers', product_count: 206 },
+    { name: 'Gloves', product_count: 80 },
+    { name: 'Helmets', product_count: 40 },
+    { name: 'Goggles', product_count: 30 },
     { name: 'T-shirts' }
   ];
   if (sql.includes('FROM style_keywords')) return [
@@ -52,12 +59,18 @@ const rowsForQuery = sql => {
     { term: 'hoodies', canonical: 'hooded sweatshirts', synonym_type: 'product_type' },
     { term: 'beanie', canonical: 'beanies', synonym_type: 'product_type' },
     { term: 'sweatshirt', canonical: 'sweatshirts', synonym_type: 'product_type' },
+    { term: 'pants', canonical: 'trousers', synonym_type: 'product_type' },
     { term: 't shirt', canonical: 't-shirts', synonym_type: 'product_type' },
     { term: 'zip', canonical: 'zipped', synonym_type: 'attribute' },
     { term: 'mens', canonical: 'mens', synonym_type: 'gender' },
     { term: 'quarter zip', canonical: 'quarter-zip', synonym_type: 'attribute' },
+    { term: 'backpack', canonical: 'bag', synonym_type: 'product_type' },
+    { term: 'backpacks', canonical: 'bags', synonym_type: 'product_type' },
     { term: 'hivis', canonical: 'hi-vis', synonym_type: 'colour' },
-    { term: 'vest', canonical: 'vests (t-shirt)', synonym_type: 'product_type' }
+    { term: 'vest', canonical: 'vests (t-shirt)', synonym_type: 'product_type' },
+    { term: 'glove', canonical: 'gloves', synonym_type: 'product_type' },
+    { term: 'helmet', canonical: 'helmets', synonym_type: 'product_type' },
+    { term: 'goggle', canonical: 'goggles', synonym_type: 'product_type' }
   ];
   return [];
 };
@@ -128,6 +141,46 @@ test('prefix tsquery safely broadens unclassified words', () => {
   assert.equal(prefixTsQuery(['full-zip', 'hoodie']), 'fullzip:* | hoodie:*');
 });
 
+test('misspelled garment terms resolve to catalogue product types', async () => {
+  assert.equal((await parseSearchQuery('swet')).productType, 'sweatshirts');
+  assert.equal((await parseSearchQuery('sweatshrt')).productType, 'sweatshirts');
+  assert.equal((await parseSearchQuery('traus')).productType, 'trousers');
+  assert.equal((await parseSearchQuery('ponts')).productType, 'trousers');
+  assert.equal((await parseSearchQuery('hodie')).productType, 'hooded sweatshirts');
+  assert.equal((await parseSearchQuery('jaket')).productType, 'jackets');
+  assert.equal((await parseSearchQuery('apran')).productType, 'aprons');
+  assert.equal((await parseSearchQuery('sewtshirt')).productType, 'sweatshirts');
+  assert.equal((await parseSearchQuery('cops')).productType, 'caps');
+  assert.equal((await parseSearchQuery('glovs')).productType, 'gloves');
+  assert.equal((await parseSearchQuery('helment')).productType, 'helmets');
+});
+
+test('PPE item singulars and plurals resolve identically', async () => {
+  for (const [singular, plural] of [['glove', 'gloves'], ['helmet', 'helmets'], ['goggle', 'goggles']]) {
+    assert.equal((await parseSearchQuery(singular)).productType, plural);
+    assert.equal((await parseSearchQuery(plural)).productType, plural);
+  }
+});
+
+test('backpack spelling and spacing variants resolve identically', async () => {
+  const variants = ['backpack', 'back pack', 'back-pack', 'bagpack', 'bag pack'];
+  const parsed = await Promise.all(variants.map(query => parseSearchQuery(query)));
+
+  parsed.slice(1).forEach(result => assert.deepEqual(result, parsed[0]));
+});
+
+test('plural backpack variants resolve identically', async () => {
+  const variants = ['backpacks', 'back packs', 'back-packs', 'bagpacks', 'bag packs'];
+  const parsed = await Promise.all(variants.map(query => parseSearchQuery(query)));
+
+  parsed.slice(1).forEach(result => assert.deepEqual(result, parsed[0]));
+});
+
+test('configured phrase synonyms ignore spaces and hyphens', async () => {
+  assert.deepEqual(await parseSearchQuery('t shirt'), await parseSearchQuery('tshirt'));
+  assert.deepEqual(await parseSearchQuery('quarter zip'), await parseSearchQuery('quarter-zip'));
+});
+
 test('hi-vis vest resolves to safetywear instead of fashion vests', async () => {
   const parsed = await parseSearchQuery('hivis vest');
 
@@ -167,4 +220,11 @@ test('hi-vis garment subtypes use strict name constraints', async () => {
   const where = search.conditions.join(' AND ');
   assert.match(where, /feature_slugs/);
   assert.match(where, /style_name ~\* ANY/);
+});
+
+test('hi viz misspelling keeps certified high-visibility constraints', async () => {
+  const parsed = await parseSearchQuery('hi viz');
+
+  assert.deepEqual(parsed.requiredFeatures, ['high-visibility']);
+  assert.deepEqual(parsed.freeText, []);
 });

@@ -31,12 +31,26 @@ function toSlugMap(rows) {
     return map;
 }
 
+function normalizeSearchInput(rawQuery) {
+    return String(rawQuery || '')
+        .toLowerCase()
+        .normalize('NFKC')
+        .replace(/\b(?:back|bag)[\s-]*pack(s?)\b/g, 'backpack$1')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 async function loadLookups() {
     if (lookupCache && Date.now() - lookupCacheTimestamp < 600000) return lookupCache;
 
     const [brands, types, keywords, fabrics, sectors, colours, sports, genders, ageGroups] = await Promise.all([
         queryWithTimeout('SELECT name FROM brands', []),
-        queryWithTimeout('SELECT name FROM product_types', []),
+        queryWithTimeout(`
+            SELECT pt.name, COUNT(DISTINCT s.style_code)::int AS product_count
+            FROM product_types pt
+            LEFT JOIN styles s ON s.product_type_id = pt.id
+            GROUP BY pt.id, pt.name
+        `, []),
         queryWithTimeout('SELECT name, slug, keyword_type FROM style_keywords', []),
         queryWithTimeout('SELECT name, slug FROM fabrics', []),
         queryWithTimeout('SELECT name, slug FROM related_sectors', []),
@@ -52,6 +66,7 @@ async function loadLookups() {
     lookupCache = {
         brands: toNameSet(brands.rows),
         types: toNameSet(types.rows),
+        typeCounts: new Map(types.rows.map(row => [normalizedName(row.name), Number(row.product_count) || 0])),
         sports: toSlugMap([
             ...keywordRows.filter(row => row.keyword_type === 'sport'),
             ...sports.rows
@@ -72,7 +87,7 @@ async function loadLookups() {
 }
 
 async function parseSearchQuery(rawQuery) {
-    const query = rawQuery.toLowerCase().trim();
+    const query = normalizeSearchInput(rawQuery);
     const hasHiVisIntent = /\b(?:hi[\s-]?vis|hi[\s-]?viz|high[\s-]?visibility)\b/.test(query);
     const lookups = await loadLookups();
     await synonyms.ensureLoaded();
@@ -112,6 +127,16 @@ async function parseSearchQuery(rawQuery) {
 
     function assignProductType(term) {
         if (!result.productType) result.productType = term;
+    }
+
+    function catalogueProductType(term) {
+        const normalized = normalizedName(term);
+        if (lookups.types.has(normalized)) return normalized;
+        if (lookups.types.has(`${normalized}s`)) return `${normalized}s`;
+        if (normalized.endsWith('s') && lookups.types.has(normalized.slice(0, -1))) {
+            return normalized.slice(0, -1);
+        }
+        return normalized;
     }
 
     function classifyTerm(term, resolvedItem) {
@@ -183,6 +208,29 @@ async function parseSearchQuery(rawQuery) {
     }
 
     for (let index = 0; index < terms.length; index++) {
+        if (consumed[index] || resolved[index]?.type !== 'unknown') continue;
+        const fuzzyType = synonyms.findFuzzyProductType(terms[index], [...lookups.types]);
+        if (!fuzzyType) continue;
+        const candidates = [fuzzyType, ...fuzzyType.alternatives]
+            .map(candidate => ({
+                type: catalogueProductType(candidate.canonical),
+                score: candidate.score
+            }))
+            .filter((candidate, candidateIndex, allCandidates) => (
+                allCandidates.findIndex(other => other.type === candidate.type) === candidateIndex
+            ));
+        const topScore = candidates[0].score;
+        const selected = candidates
+            .filter(candidate => candidate.score >= topScore - 0.06)
+            .sort((left, right) => (
+                (lookups.typeCounts.get(right.type) || 0) - (lookups.typeCounts.get(left.type) || 0)
+                || right.score - left.score
+            ))[0];
+        assignProductType(selected.type);
+        consumed[index] = true;
+    }
+
+    for (let index = 0; index < terms.length; index++) {
         if (!consumed[index]) result.freeText.push(terms[index]);
     }
 
@@ -221,7 +269,7 @@ async function parseSearchQuery(rawQuery) {
         result.requiredNameGroups = matchedGroups;
         const descriptorTerms = new Set(matchedGroups.flat());
         result.freeText = [...new Set(result.freeText.filter(term => (
-            !/^(?:hi-?vis|hi-?viz)$/.test(term)
+            !/^(?:hi|vis|viz|hi-?vis|hi-?viz)$/.test(term)
             && !descriptorTerms.has(term)
             && !descriptorGroups.some(group => group.pattern.test(term))
         )))];
@@ -239,4 +287,4 @@ async function warmSearchCache() {
     await Promise.all([loadLookups(), synonyms.ensureLoaded()]);
 }
 
-module.exports = { parseSearchQuery, invalidateCache, warmSearchCache };
+module.exports = { parseSearchQuery, normalizeSearchInput, invalidateCache, warmSearchCache };

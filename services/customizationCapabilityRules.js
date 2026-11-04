@@ -1,4 +1,4 @@
-const RULESET_VERSION = '2026-09-22.1';
+const RULESET_VERSION = '2026-11-03.1';
 const STATUSES = Object.freeze({ AVAILABLE: 'AVAILABLE', POA: 'POA', UNAVAILABLE: 'UNAVAILABLE', HIDDEN: 'HIDDEN' });
 const METHODS = Object.freeze({
   embroidery: { label: 'Embroidery', type: 'stitch', globalStatus: STATUSES.AVAILABLE, customerFacing: true },
@@ -13,7 +13,7 @@ const product = (dtf, screenPrint, embroidery) => ({ dtf, screen_print: screenPr
 
 const PRODUCT_CAPABILITIES = Object.freeze({
   cotton_tshirt: product(A,A,P), heavy_premium_tshirt: product(A,A,A), polyester_tshirt: product(A,P,P),
-  performance_tshirt: product(A,P,P), hi_vis_tshirt: product(A,P,P), long_sleeve_tshirt: product(A,A,A),
+  performance_tshirt: product(A,P,P), hi_vis_tshirt: product(P,P,P), long_sleeve_tshirt: product(A,A,A),
   cotton_polo: product(A,A,A), polyester_polo: product(A,P,A), performance_polo: product(A,P,A), long_sleeve_polo: product(A,A,A),
   work_shirt: product(A,P,A), formal_shirt: product(P,U,A), oxford_shirt: product(P,U,A), blouse: product(P,U,A),
   tunic: product(A,P,A), scrub_top: product(A,P,A), scrub_trousers: product(P,U,P), lab_coat: product(A,P,A), beauty_tunic: product(A,P,A),
@@ -24,9 +24,10 @@ const PRODUCT_CAPABILITIES = Object.freeze({
   softshell_jacket: product(A,U,A), softshell_bodywarmer: product(A,U,A), padded_jacket: product(P,U,A),
   waterproof_jacket: product(P,U,A), windbreaker: product(A,P,A), technical_jacket: product(P,U,A),
   bomber_jacket: product(A,P,A), parka: product(P,U,A), padded_bodywarmer: product(P,U,A), bodywarmer: product(A,U,A),
-  hi_vis_vest: product(A,A,P), hi_vis_waistcoat: product(A,A,P), hi_vis_polo: product(A,P,A),
-  hi_vis_sweatshirt: product(A,A,A), hi_vis_hoodie: product(A,A,A), hi_vis_fleece: product(P,U,A),
-  hi_vis_softshell: product(A,U,A), hi_vis_jacket: product(P,U,A), hi_vis_bomber: product(P,U,A), hi_vis_trousers: product(P,U,P),
+  // Hi-vis branding always needs placement approval so reflective/protective areas remain clear.
+  hi_vis_vest: product(P,P,P), hi_vis_waistcoat: product(P,P,P), hi_vis_polo: product(P,P,P),
+  hi_vis_sweatshirt: product(P,P,P), hi_vis_hoodie: product(P,P,P), hi_vis_fleece: product(P,U,P),
+  hi_vis_softshell: product(P,U,P), hi_vis_jacket: product(P,U,P), hi_vis_bomber: product(P,U,P), hi_vis_trousers: product(P,U,P),
   coverall: product(A,P,A), boiler_suit: product(A,P,A), bib_and_brace: product(A,P,A),
   workwear_trousers: product(P,U,A), cargo_trousers: product(P,U,A), workwear_shorts: product(P,U,A),
   chef_jacket: product(A,P,A), chef_trousers: product(P,U,P), chef_hat: product(P,U,A),

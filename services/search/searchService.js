@@ -143,6 +143,8 @@ async function buildSearchConditions(rawQuery, viewAlias = 'psm', paramIndex = 1
           ${viewAlias}.search_vector @@ to_tsquery('english', $${ftsParamIndex})
           OR ${viewAlias}.style_name % $${textParamIndex}
           OR ${viewAlias}.style_name ILIKE ('%' || $${textParamIndex} || '%')
+          OR word_similarity($${textParamIndex}, ${viewAlias}.style_name) >= 0.42
+          OR word_similarity($${textParamIndex}, ${viewAlias}.brand) >= 0.45
           OR ${viewAlias}.style_code ILIKE $${textParamIndex}
         )`,
         weight: 40
@@ -166,7 +168,12 @@ async function buildSearchConditions(rawQuery, viewAlias = 'psm', paramIndex = 1
     ? `(ts_rank_cd(${viewAlias}.search_vector, to_tsquery('english', $${ftsParamIndex}), 32) * 100)`
     : '0';
   const textSimilarityScore = textParamIndex > 0
-    ? `(GREATEST(similarity(${viewAlias}.style_name, $${textParamIndex}), similarity(${viewAlias}.brand, $${textParamIndex})) * 40)`
+    ? `(GREATEST(
+        similarity(${viewAlias}.style_name, $${textParamIndex}),
+        similarity(${viewAlias}.brand, $${textParamIndex}),
+        word_similarity($${textParamIndex}, ${viewAlias}.style_name),
+        word_similarity($${textParamIndex}, ${viewAlias}.brand)
+      ) * 40)`
     : '0';
 
   const relevanceSelect = `
@@ -199,9 +206,15 @@ async function buildSearchConditions(rawQuery, viewAlias = 'psm', paramIndex = 1
 async function buildFuzzyFallback(rawQuery, viewAlias = 'psm', paramIndex = 1) {
   const searchText = rawQuery.toLowerCase().trim();
   return {
-    conditions: [`(${viewAlias}.style_name % $${paramIndex} OR ${viewAlias}.brand % $${paramIndex})`],
+    conditions: [`(
+      word_similarity($${paramIndex}, ${viewAlias}.style_name) >= 0.42
+      OR word_similarity($${paramIndex}, ${viewAlias}.brand) >= 0.45
+    )`],
     params: [searchText],
-    relevanceSelect: `(GREATEST(similarity(${viewAlias}.style_name, $${paramIndex}), similarity(${viewAlias}.brand, $${paramIndex})) * 100)::int as relevance_score`,
+    relevanceSelect: `(GREATEST(
+      word_similarity($${paramIndex}, ${viewAlias}.style_name),
+      word_similarity($${paramIndex}, ${viewAlias}.brand)
+    ) * 100)::int as relevance_score`,
     relevanceOrder: 'relevance_score DESC',
     nextParamIndex: paramIndex + 1
   };
@@ -212,9 +225,6 @@ async function getSearchSuggestions(query, requestedLimit = 12) {
   if (!searchTerm) return { brands: [], types: [], products: [], total: 0 };
 
   const limit = Math.min(12, Math.max(1, Number(requestedLimit) || 12));
-  const words = searchTerm.toLowerCase().split(/\s+/).filter(Boolean);
-  const lookupParams = words.map(word => `%${word}%`);
-  const lookupCondition = words.map((_, index) => `name ILIKE $${index + 1}`).join(' OR ') || 'FALSE';
   const search = searchTerm.length === 1
     ? {
         conditions: ['(psm.style_code ILIKE $1 OR psm.brand ILIKE $1 OR psm.style_name ILIKE $1)'],
@@ -229,6 +239,11 @@ async function getSearchSuggestions(query, requestedLimit = 12) {
         )::int as relevance_score`
       }
     : await buildSearchConditions(searchTerm, 'psm', 1);
+  const brandLookupTerm = searchTerm.toLowerCase();
+  const typeLookupTerm = search.parsed?.productType || brandLookupTerm;
+  const brandLookupParams = [[`%${brandLookupTerm}%`], brandLookupTerm];
+  const typeLookupParams = [[`%${typeLookupTerm}%`], typeLookupTerm];
+  const lookupCondition = `(name ILIKE ANY($1::text[]) OR word_similarity($2, name) >= 0.42)`;
   const productLimitIndex = search.params.length + 1;
   const productWhere = search.conditions.length > 0 ? `AND ${search.conditions.join(' AND ')}` : '';
 
@@ -238,13 +253,13 @@ async function getSearchSuggestions(query, requestedLimit = 12) {
       WHERE ${lookupCondition}
       ORDER BY name ASC
       LIMIT 3
-    `, lookupParams),
+    `, brandLookupParams),
     queryWithTimeout(`
       SELECT name, slug FROM product_types
       WHERE ${lookupCondition}
       ORDER BY name ASC
       LIMIT 3
-    `, lookupParams),
+    `, typeLookupParams),
     queryWithTimeout(`
       WITH matching AS (
         SELECT

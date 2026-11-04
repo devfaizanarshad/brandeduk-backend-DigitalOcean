@@ -10,6 +10,7 @@ const { queryWithTimeout } = require('../../config/database');
 
 // In-memory synonym map: Map<term, { canonical, type }>
 let synonymMap = new Map();
+let compactSynonymMap = new Map();
 let lastRefreshTime = 0;
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -33,6 +34,10 @@ const FALLBACK_SYNONYMS = {
     'pants': { canonical: 'trousers', type: 'product_type' },
     'rucksack': { canonical: 'bag', type: 'product_type' },
     'backpack': { canonical: 'bag', type: 'product_type' },
+    'backpacks': { canonical: 'bags', type: 'product_type' },
+    'glove': { canonical: 'gloves', type: 'product_type' },
+    'goggle': { canonical: 'goggles', type: 'product_type' },
+    'helmet': { canonical: 'helmets', type: 'product_type' },
 
     // Colours
     'grey': { canonical: 'gray', type: 'colour' },
@@ -72,6 +77,30 @@ const FALLBACK_SYNONYMS = {
     'childrens': { canonical: 'kids', type: 'gender' }
 };
 
+function compactTerm(term) {
+    return String(term || '').toLowerCase().replace(/[\s_-]+/g, '');
+}
+
+function rebuildCompactSynonymMap() {
+    const compactMap = new Map();
+    const ambiguousKeys = new Set();
+
+    for (const [term, entry] of synonymMap.entries()) {
+        const key = compactTerm(term);
+        if (!key || key === term || ambiguousKeys.has(key)) continue;
+
+        const existing = compactMap.get(key);
+        if (existing && (existing.canonical !== entry.canonical || existing.type !== entry.type)) {
+            compactMap.delete(key);
+            ambiguousKeys.add(key);
+            continue;
+        }
+        compactMap.set(key, entry);
+    }
+
+    compactSynonymMap = compactMap;
+}
+
 /**
  * Load synonyms from database into memory
  */
@@ -92,6 +121,7 @@ async function refreshSynonyms() {
         }
 
         synonymMap = newMap;
+        rebuildCompactSynonymMap();
         lastRefreshTime = Date.now();
         console.log(`[SYNONYMS] Loaded ${synonymMap.size} synonyms from database`);
     } catch (err) {
@@ -101,6 +131,7 @@ async function refreshSynonyms() {
             for (const [term, data] of Object.entries(FALLBACK_SYNONYMS)) {
                 synonymMap.set(term, data);
             }
+            rebuildCompactSynonymMap();
             lastRefreshTime = Date.now();
         }
     }
@@ -113,7 +144,7 @@ async function refreshSynonyms() {
  */
 function resolveSynonym(term) {
     const lower = term.toLowerCase().trim();
-    const entry = synonymMap.get(lower);
+    const entry = synonymMap.get(lower) || compactSynonymMap.get(compactTerm(lower));
     if (entry) {
         return { original: lower, canonical: entry.canonical, type: entry.type };
     }
@@ -154,6 +185,66 @@ function resolveTokens(tokens) {
     return resolved;
 }
 
+function fuzzyText(value) {
+    return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function bigramSimilarity(leftValue, rightValue) {
+    const left = fuzzyText(leftValue);
+    const right = fuzzyText(rightValue);
+    if (left === right) return 1;
+    if (left.length < 2 || right.length < 2) return 0;
+
+    const rightPairs = new Map();
+    for (let index = 0; index < right.length - 1; index++) {
+        const pair = right.slice(index, index + 2);
+        rightPairs.set(pair, (rightPairs.get(pair) || 0) + 1);
+    }
+
+    let matches = 0;
+    for (let index = 0; index < left.length - 1; index++) {
+        const pair = left.slice(index, index + 2);
+        const available = rightPairs.get(pair) || 0;
+        if (available > 0) {
+            matches++;
+            rightPairs.set(pair, available - 1);
+        }
+    }
+
+    return (2 * matches) / ((left.length - 1) + (right.length - 1));
+}
+
+function findFuzzyProductType(term, catalogueTypes = []) {
+    const input = fuzzyText(term);
+    if (input.length < 4) return null;
+
+    const candidates = [];
+    for (const [synonymTerm, entry] of synonymMap.entries()) {
+        if (entry.type !== 'product_type') continue;
+        candidates.push({ value: synonymTerm, canonical: entry.canonical });
+        candidates.push({ value: entry.canonical, canonical: entry.canonical });
+    }
+    for (const type of catalogueTypes) {
+        candidates.push({ value: type, canonical: type });
+    }
+
+    const bestByCanonical = new Map();
+    for (const candidate of candidates) {
+        const candidateText = fuzzyText(candidate.value);
+        if (!candidateText || candidateText[0] !== input[0]) continue;
+        const score = bigramSimilarity(input, candidateText);
+        const canonical = String(candidate.canonical || '').toLowerCase();
+        const existing = bestByCanonical.get(canonical);
+        if (!existing || score > existing.score) bestByCanonical.set(canonical, { canonical, score });
+    }
+
+    const matches = [...bestByCanonical.values()]
+        .filter(match => match.score >= 0.3)
+        .sort((left, right) => right.score - left.score);
+    if (!matches.length) return null;
+    return { ...matches[0], alternatives: matches.slice(1) };
+}
+
 /**
  * Ensure synonyms are loaded (lazy init + periodic refresh)
  */
@@ -167,6 +258,7 @@ module.exports = {
     refreshSynonyms,
     resolveSynonym,
     resolveTokens,
+    findFuzzyProductType,
     ensureLoaded,
     getSynonymCount: () => synonymMap.size
 };

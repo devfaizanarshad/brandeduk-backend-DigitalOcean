@@ -263,6 +263,8 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
 
     // Always filter by Live status
     conditions.push(`psm.sku_status = 'Live'`);
+    // Supplier placeholder prices represent unavailable variants, not real stock.
+    conditions.push(`psm.sell_price IS NOT NULL AND psm.sell_price < 999.99`);
 
     // Product type filter
     let productTypeJoin = '';
@@ -845,6 +847,8 @@ async function buildProductListQuery(filters, page, limit) {
   const sort = filters.sort || 'newest';
   const order = filters.order || 'DESC';
   const viewAlias = 'psm';
+  // Keep unavailable/placeholder-priced SKUs out of results, counts and pagination.
+  conditions.push(`${viewAlias}.sell_price IS NOT NULL AND ${viewAlias}.sell_price < 999.99`);
   const searchText = filters.q || filters.text;
 
   // Intelligent search (V3 — Hybrid FTS + Trigram via search service)
@@ -1591,11 +1595,10 @@ async function buildProductListQuery(filters, page, limit) {
     batchResult.rows.forEach(row => {
       // If price filters are active, ignore SKUs whose sell_price is outside the requested range
       const sellPriceValue = row.sell_price !== null && row.sell_price !== undefined ? parseFloat(row.sell_price) : null;
+      if (!Number.isFinite(sellPriceValue) || sellPriceValue >= 999.99) {
+        return;
+      }
       if ((priceMinFilter !== null && priceMinFilter !== undefined) || (priceMaxFilter !== null && priceMaxFilter !== undefined)) {
-        // Require a valid sell_price when price filters are used
-        if (!Number.isFinite(sellPriceValue)) {
-          return;
-        }
         if (priceMinFilter !== null && priceMinFilter !== undefined && sellPriceValue < priceMinFilter) {
           return;
         }

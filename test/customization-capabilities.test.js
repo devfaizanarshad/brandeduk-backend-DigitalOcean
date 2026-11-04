@@ -43,3 +43,8 @@ test('uses the most restrictive product, position, and SKU status', () => {
 test('unknown product or position defaults to manual approval', () => {
   assert.equal(resolve('missing', 'missing', 'dtf').status, 'POA');
 });
+
+test('hi-vis branding requires review before reflective areas can be decorated', () => {
+  assert.equal(resolve('hi_vis_vest', 'left_chest', 'dtf').status, 'POA');
+  assert.equal(resolve('hi_vis_jacket', 'upper_back', 'embroidery').status, 'POA');
+});

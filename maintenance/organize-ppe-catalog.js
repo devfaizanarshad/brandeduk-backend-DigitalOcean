@@ -71,7 +71,10 @@ async function stageProducts(client, sourceRootId) {
         AND (seed.id = $1 OR seed.slug IN ('ppe', 'personal-protection'))
     )
       AND LOWER(COALESCE(pt.name, '')) <> 'snoods'
-      AND LOWER(COALESCE(s.style_name, '')) !~ '(snood|morf|face covering|disposable face mask)'
+      AND (
+        LOWER(COALESCE(s.style_name, '')) !~ '(snood|morf|mask|face covering)'
+        OR LOWER(COALESCE(s.style_name, '')) ~ '(certified respirator|ffp[123]|en 149)'
+      )
     GROUP BY p.id, p.style_code, pt.name, s.style_name
   `, [sourceRootId]);
 
