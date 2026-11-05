@@ -5,6 +5,32 @@ const { ensureCustomerTables } = require('./customerCheckoutService');
 const { sendPaymentSuccessEmail } = require('../utils/emailService');
 const { buildProductDetailQuery } = require('./productService');
 const { resolvePrice: resolveCustomizationPrice } = require('./customizationPricingService');
+const { priceLine } = require('./variantPricing');
+
+async function validateGarmentPrices(basket, loadProduct = buildProductDetailQuery) {
+  if (!Array.isArray(basket) || !basket.length) throw Object.assign(new Error('The basket is empty'), { status: 400 });
+  const quantities = new Map();
+  for (const item of basket) {
+    const code = normalizeString(item.code || item.productCode).toUpperCase();
+    quantities.set(code, (quantities.get(code) || 0) + normalizeQuantity(item.quantity || item.qty || item.totalQty));
+  }
+  const products = new Map(await Promise.all([...quantities.keys()].map(async code => [code, await loadProduct(code, { fresh: true })])));
+  let total = 0;
+  for (const item of basket) {
+    const code = normalizeString(item.code || item.productCode).toUpperCase();
+    const product = products.get(code);
+    if (!product) throw Object.assign(new Error(`Product ${code} is unavailable`), { status: 409 });
+    const priced = priceLine(product, item, quantities.get(code));
+    const quantity = normalizeQuantity(item.quantity || item.qty || item.totalQty);
+    if (priced.quantity !== quantity || Math.abs(Number(item.unitPrice) - priced.unitPrice) > 0.001 ||
+        !Number.isFinite(Number(item.unitPrice)) || Math.abs(Number(item.itemTotal) - priced.itemTotal) > 0.001 ||
+        !Number.isFinite(Number(item.itemTotal))) {
+      throw Object.assign(new Error(`The price for ${code} has changed. Return to your basket and refresh before paying.`), { status: 409 });
+    }
+    total = roundMoney(total + priced.itemTotal);
+  }
+  return total;
+}
 
 const DEFAULT_CURRENCY = (process.env.STRIPE_CURRENCY || 'gbp').toLowerCase();
 const MIN_PAYMENT_AMOUNT = parseInt(process.env.STRIPE_MIN_AMOUNT || '50', 10);
@@ -153,7 +179,7 @@ async function calculateAuthoritativeQuote(quoteData, dependencies = {}) {
       error.status = 409;
       throw error;
     }
-    return [code, { product, unitPrice: selectPriceBreak(product, quantity) }];
+    return [code, { product, quantity }];
   }));
   const productsByCode = new Map(productEntries);
 
@@ -161,8 +187,10 @@ async function calculateAuthoritativeQuote(quoteData, dependencies = {}) {
   const pricedBasket = basket.map((item) => {
     const code = normalizeString(item.code || item.productCode).toUpperCase();
     const quantity = normalizeQuantity(item.quantity || item.qty || item.totalQty);
-    const unitPrice = productsByCode.get(code).unitPrice;
-    const itemTotal = roundMoney(unitPrice * quantity);
+    const entry = productsByCode.get(code);
+    const priced = priceLine(entry.product, item, entry.quantity);
+    if (priced.quantity !== quantity) throw Object.assign(new Error('Size quantities do not match basket quantity'), { status: 400 });
+    const { unitPrice, itemTotal } = priced;
     garmentCost = roundMoney(garmentCost + itemTotal);
     return { ...item, code, quantity, unitPrice, itemTotal };
   });
@@ -256,7 +284,7 @@ async function calculateAuthoritativeQuote(quoteData, dependencies = {}) {
   };
 }
 
-async function validatePaymentInput(body) {
+async function validatePaymentInput(body, dependencies = {}) {
   const quoteData = body.quoteData && typeof body.quoteData === 'object' ? body.quoteData : body;
   const customer = quoteData.customer || body.customer || {};
   const summary = quoteData.summary && typeof quoteData.summary === 'object' ? quoteData.summary : {};
@@ -295,13 +323,19 @@ async function validatePaymentInput(body) {
     throw error;
   }
 
+  const garmentCost = await validateGarmentPrices(quoteData.basket, dependencies.buildProductDetailQuery);
+  if (!Number.isFinite(Number(summary.garmentCost)) || Math.abs(Number(summary.garmentCost) - garmentCost) > 0.001 ||
+      amount < Math.round(garmentCost * (1 + VAT_RATE) * 100)) {
+    throw Object.assign(new Error('Basket garment totals have changed. Refresh your basket before paying.'), { status: 409 });
+  }
+
   return {
     quoteData: {
       ...quoteData,
       summary: {
         ...summary,
         currency: currency.toUpperCase(),
-        pricingSource: 'frontend',
+        pricingSource: 'variant-validated',
       },
     },
     customer,

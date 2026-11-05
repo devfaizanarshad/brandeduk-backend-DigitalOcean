@@ -28,7 +28,7 @@ const PAGINATION_CONFIG = {
  * Uses a prefix that matches the cache invalidation patterns
  */
 function getCacheKey(filters, page, limit, type = 'products') {
-  const cacheVersion = filters.q || filters.text ? 'search-v8' : 'catalog-v1';
+  const cacheVersion = filters.q || filters.text ? 'search-v9-cost-floor' : 'catalog-v2-cost-floor';
   const normalizedFilters = {};
   Object.keys(filters).sort().forEach(key => {
     const value = filters[key];
@@ -1701,6 +1701,8 @@ async function buildProductListQuery(filters, page, limit) {
         // If there are multiple values, use the minimum price
         if (!product.sellPrice || sell < product.sellPrice) {
           product.sellPrice = sell;
+          product.cartonPrice = Number(row.carton_price) > 0 ? Number(row.carton_price) : null;
+          product.singlePrice = Number(row.single_price) > 0 ? Number(row.single_price) : null;
         }
       }
 
@@ -1774,6 +1776,8 @@ async function buildProductListQuery(filters, page, limit) {
 
       const customTiers = overridesBatchMap.get(styleCode.toUpperCase());
       const priceBreaks = buildPriceBreaks(basePrice, customTiers && customTiers.length > 0 ? customTiers : globalTiers);
+      const costFloor = product.cartonPrice || product.singlePrice || 0;
+      priceBreaks.forEach(tier => { tier.price = Math.max(tier.price, Math.ceil(costFloor * 100 - 1e-8) / 100); });
 
       // Always hardcode customization options
       const customization = ['embroidery', 'print'];
@@ -2771,11 +2775,11 @@ async function buildAlternativeProductsQuery(styleCode, limit = 5) {
   return result.rows;
 }
 
-async function buildProductDetailQuery(styleCode) {
+async function buildProductDetailQuery(styleCode, options = {}) {
   // Versioned because the detail payload now includes resolved fabric/weight
   // metadata; do not serve an older cached response with an empty weight.
-  const cacheKey = `product:v7:${styleCode}`;
-  const cached = await getCached(cacheKey);
+  const cacheKey = `product:v8-variant-pricing:${styleCode}`;
+  const cached = options.fresh ? null : await getCached(cacheKey);
   if (cached) {
     console.log(`[CACHE] Hit for product detail: ${styleCode}`);
     return cached;
@@ -2805,7 +2809,12 @@ async function buildProductDetailQuery(styleCode) {
       p.single_price,
       p.pack_price,
       p.carton_price,
-      p.sell_price,
+      CASE WHEN COALESCE(NULLIF(p.carton_price, 0), NULLIF(p.single_price, 0)) > 0
+        AND COALESCE(NULLIF(p.carton_price, 0), NULLIF(p.single_price, 0)) < 999.99
+        AND COALESCE(pmo.markup_percent, pr.markup_percent) IS NOT NULL
+      THEN ROUND(COALESCE(NULLIF(p.carton_price, 0), NULLIF(p.single_price, 0))
+        * (1 + COALESCE(pmo.markup_percent, pr.markup_percent) / 100), 2)
+      ELSE NULL END AS sell_price,
       t.name as tag,
       COALESCE(pmo.markup_percent, pr.markup_percent) as markup_percent,
       s.is_best_seller,
@@ -2907,6 +2916,7 @@ async function buildProductDetailQuery(styleCode) {
         color: row.colour_name || row.primary_colour || 'Unknown',
         size: row.size,
         sell_price: row.sell_price != null ? parseFloat(row.sell_price) : null,
+        minimumPrice: Number(row.carton_price) > 0 ? Number(row.carton_price) : Number(row.single_price),
         stock: parseInt(row.stock_quantity) || 0
       });
     }
@@ -2916,6 +2926,15 @@ async function buildProductDetailQuery(styleCode) {
   // This matches the product list API which uses MIN(sell_price) per style_code
   const basePrice = minSellPrice || 0;
   const priceBreaks = await buildPriceBreaksWithOverrides(basePrice, styleCode);
+  const detailCostFloor = cartonPrice || singlePrice || 0;
+  priceBreaks.forEach(tier => { tier.price = Math.max(tier.price, Math.ceil(detailCostFloor * 100 - 1e-8) / 100); });
+  for (const variant of variants) {
+    variant.priceBreaks = priceBreaks.map(tier => ({
+      ...tier,
+      price: Math.max(Math.ceil(variant.minimumPrice * 100 - 1e-8) / 100,
+        Math.round(variant.sell_price * (1 - tier.percentage / 100) * 100) / 100),
+    }));
+  }
 
   const sizes = Array.from(sizesSet).sort((a, b) => {
     const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
