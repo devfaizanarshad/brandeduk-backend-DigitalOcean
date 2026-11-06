@@ -3,7 +3,11 @@ const { getCategoryIdsFromSlugs } = require('./categoryService');
 const cache = require('./cacheService');
 const search = require('./search');
 const { resolveCustomizationTemplate } = require('./customizationTemplateResolver');
-const { addVariantDiscounts, addColourDiscounts, buildDiscountSummary } = require('./variantDiscounts');
+const {
+  addVerifiedVariantPromotions,
+  addVerifiedColourPromotions,
+  buildPromotionSummary
+} = require('./supplierPromotions');
 const { DEFAULT_PRICE_BREAK_TIERS } = require('./priceBreakDefaults');
 
 // Unified cache configuration using cacheService
@@ -2773,7 +2777,7 @@ async function buildAlternativeProductsQuery(styleCode, limit = 5) {
 async function buildProductDetailQuery(styleCode, options = {}) {
   // Versioned because the detail payload now includes resolved fabric/weight
   // metadata; do not serve an older cached response with an empty weight.
-  const cacheKey = `product:v10-variant-discounts-23pct-final:${styleCode}`;
+  const cacheKey = `product:v11-verified-promotions-23pct-final:${styleCode}`;
   const cached = options.fresh ? null : await getCached(cacheKey);
   if (cached) {
     console.log(`[CACHE] Hit for product detail: ${styleCode}`);
@@ -2930,7 +2934,9 @@ async function buildProductDetailQuery(styleCode, options = {}) {
         Math.round(variant.sell_price * (1 - tier.percentage / 100) * 100) / 100),
     }));
   }
-  const variantsWithDiscounts = addVariantDiscounts(variants);
+  // A lower colour/size price is not proof of a supplier promotion. Only
+  // explicitly verified supplier metadata is allowed to create an "Off" badge.
+  const variantsWithPromotions = addVerifiedVariantPromotions(variants);
 
   const sizes = Array.from(sizesSet).sort((a, b) => {
     const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
@@ -2942,7 +2948,7 @@ async function buildProductDetailQuery(styleCode, options = {}) {
     return a.localeCompare(b);
   });
 
-  const colors = addColourDiscounts(Array.from(colorsMap.values()), variantsWithDiscounts);
+  const colors = addVerifiedColourPromotions(Array.from(colorsMap.values()), variantsWithPromotions);
 
   if (colors.length === 0) {
     colors.push({
@@ -3015,8 +3021,8 @@ async function buildProductDetailQuery(styleCode, options = {}) {
     priceBreaks: priceBreaks || [],
     colors: colors,
     sizes: sizes.length > 0 ? sizes : [],
-    variants: variantsWithDiscounts,
-    discountSummary: buildDiscountSummary(variantsWithDiscounts),
+    variants: variantsWithPromotions,
+    promotionSummary: buildPromotionSummary(variantsWithPromotions),
     images: images,
     description: firstRow.description || '',
     fabric: firstRow.fabric_description || '',
