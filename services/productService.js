@@ -3,6 +3,8 @@ const { getCategoryIdsFromSlugs } = require('./categoryService');
 const cache = require('./cacheService');
 const search = require('./search');
 const { resolveCustomizationTemplate } = require('./customizationTemplateResolver');
+const { addVariantDiscounts, addColourDiscounts, buildDiscountSummary } = require('./variantDiscounts');
+const { DEFAULT_PRICE_BREAK_TIERS } = require('./priceBreakDefaults');
 
 // Unified cache configuration using cacheService
 const CACHE_TTL = 60 * 1000; // 1 minute base TTL (ms)
@@ -28,7 +30,7 @@ const PAGINATION_CONFIG = {
  * Uses a prefix that matches the cache invalidation patterns
  */
 function getCacheKey(filters, page, limit, type = 'products') {
-  const cacheVersion = filters.q || filters.text ? 'search-v9-cost-floor' : 'catalog-v2-cost-floor';
+  const cacheVersion = filters.q || filters.text ? 'search-v10-23pct-final' : 'catalog-v3-23pct-final';
   const normalizedFilters = {};
   Object.keys(filters).sort().forEach(key => {
     const value = filters[key];
@@ -1904,14 +1906,7 @@ let globalPriceBreaksCacheTimestamp = 0;
 const PRICE_BREAKS_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
 // Fallback discount tiers (used if database is unavailable)
-const FALLBACK_DISCOUNT_TIERS = [
-  { min_qty: 1, max_qty: 9, discount_percent: 0 },
-  { min_qty: 10, max_qty: 24, discount_percent: 8 },
-  { min_qty: 25, max_qty: 49, discount_percent: 10 },
-  { min_qty: 50, max_qty: 99, discount_percent: 15 },
-  { min_qty: 100, max_qty: 249, discount_percent: 25 },
-  { min_qty: 250, max_qty: 99999, discount_percent: 30 }
-];
+const FALLBACK_DISCOUNT_TIERS = DEFAULT_PRICE_BREAK_TIERS;
 
 /**
  * Get global price break tiers from database with caching
@@ -2778,7 +2773,7 @@ async function buildAlternativeProductsQuery(styleCode, limit = 5) {
 async function buildProductDetailQuery(styleCode, options = {}) {
   // Versioned because the detail payload now includes resolved fabric/weight
   // metadata; do not serve an older cached response with an empty weight.
-  const cacheKey = `product:v8-variant-pricing:${styleCode}`;
+  const cacheKey = `product:v10-variant-discounts-23pct-final:${styleCode}`;
   const cached = options.fresh ? null : await getCached(cacheKey);
   if (cached) {
     console.log(`[CACHE] Hit for product detail: ${styleCode}`);
@@ -2935,6 +2930,7 @@ async function buildProductDetailQuery(styleCode, options = {}) {
         Math.round(variant.sell_price * (1 - tier.percentage / 100) * 100) / 100),
     }));
   }
+  const variantsWithDiscounts = addVariantDiscounts(variants);
 
   const sizes = Array.from(sizesSet).sort((a, b) => {
     const sizeOrder = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'];
@@ -2946,7 +2942,7 @@ async function buildProductDetailQuery(styleCode, options = {}) {
     return a.localeCompare(b);
   });
 
-  const colors = Array.from(colorsMap.values());
+  const colors = addColourDiscounts(Array.from(colorsMap.values()), variantsWithDiscounts);
 
   if (colors.length === 0) {
     colors.push({
@@ -3019,7 +3015,8 @@ async function buildProductDetailQuery(styleCode, options = {}) {
     priceBreaks: priceBreaks || [],
     colors: colors,
     sizes: sizes.length > 0 ? sizes : [],
-    variants: variants,
+    variants: variantsWithDiscounts,
+    discountSummary: buildDiscountSummary(variantsWithDiscounts),
     images: images,
     description: firstRow.description || '',
     fabric: firstRow.fabric_description || '',

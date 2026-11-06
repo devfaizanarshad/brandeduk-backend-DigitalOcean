@@ -1,4 +1,5 @@
 const express = require('express');
+const { FINAL_TIER_DISCOUNT_PERCENT } = require('../services/priceBreakDefaults');
 const router = express.Router();
 const { queryWithTimeout } = require('../config/database');
 const cache = require('../services/cacheService');
@@ -106,39 +107,45 @@ function buildPriceBreaks(basePrice) {
     '25-49': 0.10,   // 10% discount
     '50-99': 0.15,   // 15% discount
     '100-249': 0.25, // 25% discount
-    '250+': 0.30     // 30% discount
+    '250+': FINAL_TIER_DISCOUNT_PERCENT / 100 // 23% discount
   };
 
   // Calculate all 6 price break tiers based on base price and discount percentages
   breaks.push({
     min: 1,
     max: 9,
-    price: Math.round(basePrice * 100) / 100
+    price: Math.round(basePrice * 100) / 100,
+    percentage: 0
   });
   breaks.push({
     min: 10,
     max: 24,
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['10-24']) * 100) / 100
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['10-24']) * 100) / 100,
+    percentage: 8
   });
   breaks.push({
     min: 25,
     max: 49,
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['25-49']) * 100) / 100
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['25-49']) * 100) / 100,
+    percentage: 10
   });
   breaks.push({
     min: 50,
     max: 99,
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['50-99']) * 100) / 100
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['50-99']) * 100) / 100,
+    percentage: 15
   });
   breaks.push({
     min: 100,
     max: 249,
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['100-249']) * 100) / 100
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['100-249']) * 100) / 100,
+    percentage: 25
   });
   breaks.push({
     min: 250,
     max: 99999,
-    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['250+']) * 100) / 100
+    price: Math.round(basePrice * (1 - DISCOUNT_TIERS['250+']) * 100) / 100,
+    percentage: FINAL_TIER_DISCOUNT_PERCENT
   });
 
   return breaks;
