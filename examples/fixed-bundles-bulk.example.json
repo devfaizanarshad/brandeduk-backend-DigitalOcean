@@ -1,0 +1,20 @@
+{
+  "bundles": [
+    {
+      "reference": "starter-polo-10",
+      "name": "10 Polo Shirt Starter Bundle",
+      "slug": "10-polo-shirt-starter-bundle",
+      "description": "A simple fixed bundle for small teams.",
+      "priceExVat": 99.99,
+      "featuredImageUrl": null,
+      "isFeatured": false,
+      "displayOrder": 0,
+      "components": [
+        {
+          "styleCode": "UC101",
+          "quantity": 10
+        }
+      ]
+    }
+  ]
+}

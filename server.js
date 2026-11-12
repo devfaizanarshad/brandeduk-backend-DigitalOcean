@@ -37,6 +37,8 @@ const adminCustomizationRoutes = require('./routes/adminCustomization');
 const basketShareRoutes = require('./routes/basketShares');
 const analyticsRoutes = require('./routes/analytics');
 const adminAnalyticsRoutes = require('./routes/adminAnalytics');
+const bundlesRoutes = require('./routes/bundles');
+const adminBundlesRoutes = require('./routes/adminBundles');
 const { handleStripeWebhook } = require('./routes/stripeQuotes');
 const { requireAdmin } = require('./utils/auth');
 const { buildCorsOptions } = require('./utils/security');
@@ -182,6 +184,8 @@ app.use('/api/admin/customization', requireAdmin, adminCustomizationRoutes);
 app.use('/api/basket-shares', basketShareRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/admin/analytics', requireAdmin, adminAnalyticsRoutes);
+app.use('/api/bundles', bundlesRoutes);
+app.use('/api/admin/bundles', requireAdmin, adminBundlesRoutes);
 app.use('/api/admin', requireAdmin, adminRoutes);
 
 if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_API_DOCS === 'true') {
