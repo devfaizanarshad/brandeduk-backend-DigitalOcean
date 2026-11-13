@@ -15,6 +15,12 @@ async function verifyFixedBundles() {
       COUNT(*) FILTER (WHERE catalogue_status = 'missing_products')::integer AS missing_product_bundles,
       COUNT(*) FILTER (WHERE pricing_status = 'margin_review')::integer AS margin_review_bundles,
       COUNT(*) FILTER (WHERE pricing_status = 'cost_review')::integer AS cost_review_bundles
+      , COUNT(*) FILTER (WHERE included_decoration_methods = '["print"]'::jsonb)::integer AS print_only_bundles
+      , COUNT(*) FILTER (WHERE included_decoration_methods = '["print", "embroidery"]'::jsonb)::integer AS print_or_embroidery_bundles
+      , COUNT(*) FILTER (WHERE free_delivery)::integer AS free_delivery_bundles
+      , COUNT(*) FILTER (WHERE included_logo_count = 1)::integer AS one_logo_bundles
+      , COUNT(*) FILTER (WHERE logo_position IS NOT NULL)::integer AS specified_logo_positions
+      , COUNT(*) FILTER (WHERE free_gift IS NOT NULL)::integer AS free_gift_bundles
     FROM bundles
     WHERE source_key = $1
   `, [SOURCE_KEY], 10000);
@@ -46,6 +52,12 @@ async function verifyFixedBundles() {
   if (summary.missing_components !== 7) errors.push(`Expected 7 missing components, found ${summary.missing_components}`);
   if (summary.missing_product_bundles !== 7) errors.push(`Expected 7 missing-product bundles, found ${summary.missing_product_bundles}`);
   if (summary.active !== 0) errors.push(`Expected 0 active bundles, found ${summary.active}`);
+  if (summary.print_only_bundles !== 26) errors.push(`Expected 26 print-only bundles, found ${summary.print_only_bundles}`);
+  if (summary.print_or_embroidery_bundles !== 68) errors.push(`Expected 68 print-or-embroidery bundles, found ${summary.print_or_embroidery_bundles}`);
+  if (summary.free_delivery_bundles !== 67) errors.push(`Expected 67 free-delivery bundles, found ${summary.free_delivery_bundles}`);
+  if (summary.one_logo_bundles !== 94) errors.push(`Expected 94 one-logo bundles, found ${summary.one_logo_bundles}`);
+  if (summary.specified_logo_positions !== 0) errors.push(`Expected 0 specified logo positions, found ${summary.specified_logo_positions}`);
+  if (summary.free_gift_bundles !== 0) errors.push(`Expected 0 free-gift bundles, found ${summary.free_gift_bundles}`);
   if (JSON.stringify(summary.missing_codes) !== JSON.stringify(EXPECTED_MISSING_CODES)) {
     errors.push(`Unexpected missing codes: ${summary.missing_codes.join(', ')}`);
   }

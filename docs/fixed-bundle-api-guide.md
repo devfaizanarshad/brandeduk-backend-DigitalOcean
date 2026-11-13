@@ -8,12 +8,12 @@ The storefront should only use the public `GET` endpoints. Bulk updates must run
 
 ## Storefront endpoints
 
-- `GET /api/bundles` lists active bundles.
-- `GET /api/bundles/:slug` returns one active bundle and its required products.
+- `GET /api/bundles` lists all non-archived bundles for storefront development and preview.
+- `GET /api/bundles/:slug` returns one non-archived bundle and its required products.
 - `GET /api/bundles/:slug/components/:componentId/options` returns live colour and size SKU choices.
 - `POST /api/bundles/:slug/validate-selection` checks that selected SKUs and quantities exactly match the bundle.
 
-Draft, incomplete and unapproved bundles never appear through these endpoints.
+Use the `orderable` field before enabling an Add to Basket or Buy button. Draft, incomplete and unapproved bundles return `orderable: false` and may be displayed for preview, but selection validation refuses ordering them.
 
 ## Safe bulk workflow
 
@@ -46,6 +46,11 @@ Use `examples/fixed-bundles-bulk.example.json` as the starting file.
       "name": "10 Polo Shirt Starter Bundle",
       "slug": "10-polo-shirt-starter-bundle",
       "priceExVat": 99.99,
+      "includedDecorationMethods": ["print"],
+      "includedLogoCount": 1,
+      "logoPosition": null,
+      "freeDelivery": true,
+      "freeGift": null,
       "components": [
         { "styleCode": "UC101", "quantity": 10 }
       ]
@@ -53,5 +58,7 @@ Use `examples/fixed-bundles-bulk.example.json` as the starting file.
   ]
 }
 ```
+
+`logoPosition` must stay `null` unless an approved position is explicitly confirmed. Never guess a position from the garment type.
 
 Validation reports unknown products, duplicate references, duplicate slugs, invalid prices, invalid quantities, active bundles and archived bundles with readable messages.

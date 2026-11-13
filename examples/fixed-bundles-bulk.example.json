@@ -9,6 +9,11 @@
       "featuredImageUrl": null,
       "isFeatured": false,
       "displayOrder": 0,
+      "includedDecorationMethods": ["print"],
+      "includedLogoCount": 1,
+      "logoPosition": null,
+      "freeDelivery": true,
+      "freeGift": null,
       "components": [
         {
           "styleCode": "UC101",

@@ -60,6 +60,11 @@ async function run() {
       name: 'Temporary Bulk API Bundle',
       slug,
       priceExVat: 30,
+      includedDecorationMethods: ['print'],
+      includedLogoCount: 1,
+      logoPosition: null,
+      freeDelivery: true,
+      freeGift: null,
       components: [{ styleCode: 'UC101', quantity: 2 }],
     }],
   };
@@ -112,6 +117,11 @@ async function run() {
     const detail = await request(`/api/admin/bundles/${bundleId}`, { token });
     assert.equal(detail.payload.bundle.status, 'draft');
     assert.equal(detail.payload.bundle.pricingStatus, 'pending_customization_review');
+    assert.deepEqual(detail.payload.bundle.includedDecorationMethods, ['print']);
+    assert.equal(detail.payload.bundle.includedLogoCount, 1);
+    assert.equal(detail.payload.bundle.logoPosition, null);
+    assert.equal(detail.payload.bundle.freeDelivery, true);
+    assert.equal(detail.payload.bundle.freeGift, null);
   });
 
   await check('updates same reference instead of duplicating', async () => {

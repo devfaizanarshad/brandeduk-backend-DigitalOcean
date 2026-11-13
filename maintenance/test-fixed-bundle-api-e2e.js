@@ -98,20 +98,41 @@ async function run() {
         slug,
         priceExVat: 25.5,
         description: 'Temporary automated test',
+        includedDecorationMethods: ['print', 'embroidery'],
+        includedLogoCount: 1,
+        logoPosition: null,
+        freeDelivery: true,
+        freeGift: null,
         components: [{ styleCode: 'UC101', quantity: 2 }],
       },
     });
     assert.equal(response.status, 201);
     assert.equal(response.payload.bundle.status, 'draft');
     assert.equal(response.payload.bundle.catalogueStatus, 'complete');
+    assert.deepEqual(response.payload.bundle.includedDecorationMethods, ['print', 'embroidery']);
+    assert.equal(response.payload.bundle.includedLogoCount, 1);
+    assert.equal(response.payload.bundle.logoPosition, null);
+    assert.equal(response.payload.bundle.freeDelivery, true);
+    assert.equal(response.payload.bundle.freeGift, null);
     bundleId = response.payload.bundle.id;
     componentId = response.payload.bundle.components[0].id;
     createdBundleIds.add(bundleId);
   });
 
-  await check('keeps drafts private', async () => {
+  await check('returns drafts as non-orderable previews', async () => {
     const response = await request(`/api/bundles/${slug}`);
-    assert.equal(response.status, 404);
+    assert.equal(response.status, 200);
+    assert.equal(response.payload.bundle.status, 'draft');
+    assert.equal(response.payload.bundle.orderable, false);
+  });
+
+  await check('blocks ordering a draft preview', async () => {
+    const response = await request(`/api/bundles/${slug}/validate-selection`, {
+      method: 'POST',
+      body: { components: [{ componentId, selections: [{ skuCode: skus.get('UC101'), quantity: 2 }] }] },
+    });
+    assert.equal(response.status, 400);
+    assert.match(response.payload.errors.join(' '), /not approved for ordering/);
   });
 
   await check('loads draft through authenticated admin detail', async () => {
@@ -230,6 +251,14 @@ async function run() {
   await check('blocks active price changes', async () => {
     const response = await request(`/api/admin/bundles/${bundleId}`, {
       method: 'PATCH', token, body: { priceExVat: 20 },
+    });
+    assert.equal(response.status, 400);
+    assert.match(response.payload.errors.join(' '), /Unpublish/);
+  });
+
+  await check('blocks active included-benefit changes', async () => {
+    const response = await request(`/api/admin/bundles/${bundleId}`, {
+      method: 'PATCH', token, body: { freeDelivery: false },
     });
     assert.equal(response.status, 400);
     assert.match(response.payload.errors.join(' '), /Unpublish/);

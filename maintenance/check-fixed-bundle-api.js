@@ -8,7 +8,7 @@ async function checkFixedBundleApi() {
     ? await getBundle(adminList.bundles[0].id, { admin: true })
     : null;
   const result = {
-    valid: adminList.total === 94 && publicList.total === 0 && Boolean(sample?.components.length),
+    valid: adminList.total === 94 && publicList.total === 94 && Boolean(sample?.components.length),
     adminBundleCount: adminList.total,
     publicBundleCount: publicList.total,
     sampleBundle: sample?.name || null,

@@ -3,7 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const { pool, queryWithTimeout } = require('../config/database');
 
-const API_MIGRATION = path.join(__dirname, '..', 'maintenance', 'migrations', '004_fixed_bundle_api.sql');
+const API_MIGRATIONS = [
+  path.join(__dirname, '..', 'maintenance', 'migrations', '004_fixed_bundle_api.sql'),
+  path.join(__dirname, '..', 'maintenance', 'migrations', '006_fixed_bundle_benefits.sql'),
+];
 const BUNDLE_STATUSES = new Set(['draft', 'active', 'archived']);
 const PRICING_STATUSES = new Set([
   'pending_customization_review',
@@ -17,7 +20,7 @@ let schemaPromise;
 
 function ensureBundleApiSchema() {
   if (!schemaPromise) {
-    schemaPromise = queryWithTimeout(fs.readFileSync(API_MIGRATION, 'utf8'), [], 30000)
+    schemaPromise = queryWithTimeout(API_MIGRATIONS.map(file => fs.readFileSync(file, 'utf8')).join('\n'), [], 30000)
       .catch(error => {
         schemaPromise = null;
         throw error;
@@ -47,6 +50,9 @@ function money(value) {
 }
 
 function normalizeBundleRow(row) {
+  const orderable = row.status === 'active'
+    && row.catalogue_status === 'complete'
+    && row.pricing_status === 'approved';
   return {
     id: Number(row.id),
     slug: row.slug,
@@ -61,6 +67,14 @@ function normalizeBundleRow(row) {
     featuredImageUrl: row.featured_image_url,
     isFeatured: Boolean(row.is_featured),
     displayOrder: Number(row.display_order || 0),
+    includedDecorationMethods: Array.isArray(row.included_decoration_methods) ? row.included_decoration_methods : [],
+    includedLogoCount: Number(row.included_logo_count || 0),
+    logoPosition: row.logo_position,
+    freeDelivery: Boolean(row.free_delivery),
+    freeGift: row.free_gift,
+    sourceIncludeText: row.source_include_text,
+    orderable,
+    availabilityMessage: orderable ? null : (row.publish_block_reason || 'This bundle is currently available for preview only.'),
     publishBlockReason: row.publish_block_reason,
     sourceKey: row.source_key,
     sourceBundleNumber: Number(row.source_bundle_number),
@@ -121,6 +135,40 @@ function validateBundleInput(input, { partial = false } = {}) {
     if (!Number.isInteger(displayOrder) || displayOrder < 0) errors.push('displayOrder must be a non-negative integer');
     else output.displayOrder = displayOrder;
   }
+  if (Object.hasOwn(input, 'includedDecorationMethods')) {
+    const methods = input.includedDecorationMethods;
+    const allowedMethods = new Set(['print', 'embroidery']);
+    if (!Array.isArray(methods) || methods.some(method => !allowedMethods.has(method))) {
+      errors.push('includedDecorationMethods may contain only print and embroidery');
+    } else {
+      output.includedDecorationMethods = [...new Set(methods)];
+    }
+  }
+  if (Object.hasOwn(input, 'includedLogoCount')) {
+    const count = Number.parseInt(input.includedLogoCount, 10);
+    if (!Number.isInteger(count) || count < 0 || count > 10) errors.push('includedLogoCount must be between 0 and 10');
+    else output.includedLogoCount = count;
+  }
+  if (Object.hasOwn(input, 'logoPosition')) {
+    const position = input.logoPosition == null ? null : String(input.logoPosition).trim();
+    if (position && position.length > 160) errors.push('logoPosition must not exceed 160 characters');
+    else output.logoPosition = position || null;
+  }
+  if (Object.hasOwn(input, 'freeDelivery')) output.freeDelivery = Boolean(input.freeDelivery);
+  if (Object.hasOwn(input, 'freeGift')) {
+    const gift = input.freeGift;
+    if (gift == null) {
+      output.freeGift = null;
+    } else {
+      const name = String(gift.name || '').trim();
+      const quantity = Number.parseInt(gift.quantity, 10);
+      if (!name || name.length > 200 || !Number.isInteger(quantity) || quantity < 1 || quantity > 1000) {
+        errors.push('freeGift must contain a valid name and quantity');
+      } else {
+        output.freeGift = { name, quantity };
+      }
+    }
+  }
 
   return { valid: errors.length === 0, errors, value: output };
 }
@@ -156,9 +204,7 @@ async function listBundles({ admin = false, page = 1, limit = 24, status, search
       conditions.push(`status = $${values.length}`);
     }
   } else {
-    conditions.push(`status = 'active'`);
-    conditions.push(`catalogue_status = 'complete'`);
-    conditions.push(`pricing_status = 'approved'`);
+    conditions.push(`status <> 'archived'`);
   }
 
   if (search) {
@@ -191,7 +237,7 @@ async function getBundle(identifier, { admin = false } = {}) {
   await ensureBundleApiSchema();
   const isId = admin && /^\d+$/.test(String(identifier));
   const values = [isId ? Number(identifier) : String(identifier).toLowerCase()];
-  const visibility = admin ? '' : `AND status = 'active' AND catalogue_status = 'complete' AND pricing_status = 'approved'`;
+  const visibility = admin ? '' : `AND status <> 'archived'`;
   const result = await queryWithTimeout(`
     SELECT *
     FROM bundles
@@ -299,6 +345,19 @@ async function validateBundleSelection(slug, input) {
   if (!parsed.valid) return { found: true, valid: false, errors: parsed.errors };
   const bundle = await getBundle(slug);
   if (!bundle) return { found: false, valid: false, errors: ['Bundle not found'] };
+  if (!bundle.orderable) {
+    return {
+      found: true,
+      valid: false,
+      errors: ['Bundle is available for preview but is not approved for ordering'],
+      bundle: {
+        id: bundle.id,
+        slug: bundle.slug,
+        name: bundle.name,
+        orderable: false,
+      },
+    };
+  }
 
   const errors = [];
   const submittedComponents = new Map();
@@ -416,10 +475,12 @@ async function createBundle(input, adminUserId) {
       INSERT INTO bundles (
         bundle_type, source_key, source_bundle_number, slug, name, description,
         price_ex_vat, currency, status, catalogue_status, pricing_status,
-        total_item_quantity, publish_block_reason, featured_image_url, is_featured, display_order
+        total_item_quantity, publish_block_reason, featured_image_url, is_featured, display_order,
+        included_decoration_methods, included_logo_count, logo_position, free_delivery, free_gift
       ) VALUES (
         'fixed', $1, 1, $2, $3, $4, $5, 'GBP', 'draft', 'pending',
-        'pending_customization_review', $6, 'Customization and pricing approval required.', $7, $8, $9
+        'pending_customization_review', $6, 'Customization and pricing approval required.', $7, $8, $9,
+        $10::jsonb, $11, $12, $13, $14::jsonb
       ) RETURNING id
     `, [
       sourceKey,
@@ -431,6 +492,11 @@ async function createBundle(input, adminUserId) {
       bundle.featuredImageUrl || null,
       bundle.isFeatured || false,
       bundle.displayOrder || 0,
+      JSON.stringify(bundle.includedDecorationMethods || []),
+      bundle.includedLogoCount || 0,
+      bundle.logoPosition || null,
+      bundle.freeDelivery || false,
+      bundle.freeGift == null ? null : JSON.stringify(bundle.freeGift),
     ]);
     const bundleId = result.rows[0].id;
     const resolved = await replaceComponents(client, bundleId, componentsValidation.value);
@@ -476,11 +542,22 @@ async function updateBundle(bundleId, input, adminUserId) {
     featuredImageUrl: 'featured_image_url',
     isFeatured: 'is_featured',
     displayOrder: 'display_order',
+    includedLogoCount: 'included_logo_count',
+    logoPosition: 'logo_position',
+    freeDelivery: 'free_delivery',
   };
   for (const [key, column] of Object.entries(mappings)) {
     if (!Object.hasOwn(validation.value, key)) continue;
     values.push(validation.value[key]);
     fields.push(`${column} = $${values.length}`);
+  }
+  if (Object.hasOwn(validation.value, 'includedDecorationMethods')) {
+    values.push(JSON.stringify(validation.value.includedDecorationMethods));
+    fields.push(`included_decoration_methods = $${values.length}::jsonb`);
+  }
+  if (Object.hasOwn(validation.value, 'freeGift')) {
+    values.push(validation.value.freeGift == null ? null : JSON.stringify(validation.value.freeGift));
+    fields.push(`free_gift = $${values.length}::jsonb`);
   }
   if (!fields.length) return { valid: false, errors: ['No supported fields were supplied'] };
 
@@ -494,10 +571,18 @@ async function updateBundle(bundleId, input, adminUserId) {
     }
     if (
       currentResult.rows[0].status === 'active'
-      && (Object.hasOwn(validation.value, 'priceExVat') || Object.hasOwn(validation.value, 'slug'))
+      && [
+        'priceExVat',
+        'slug',
+        'includedDecorationMethods',
+        'includedLogoCount',
+        'logoPosition',
+        'freeDelivery',
+        'freeGift',
+      ].some(field => Object.hasOwn(validation.value, field))
     ) {
       await client.query('ROLLBACK');
-      return { valid: false, errors: ['Unpublish the bundle before changing its price or slug'] };
+      return { valid: false, errors: ['Unpublish the bundle before changing its price, slug or included benefits'] };
     }
     values.push(Number(bundleId));
     const result = await client.query(`

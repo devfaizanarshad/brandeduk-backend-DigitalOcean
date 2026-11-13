@@ -7,6 +7,8 @@ const SOURCE_KEY = 'gocustom-2026-11-09';
 const SOURCE_DATE = '2026-11-09';
 const DEFAULT_SOURCE = path.join(__dirname, 'data', 'gocustom-bundles-2026-11-09.json');
 const MIGRATION = path.join(__dirname, 'migrations', '003_fixed_bundles.sql');
+const BENEFITS_SOURCE = path.join(__dirname, 'data', 'gocustom-bundle-benefits-2026-11-09.json');
+const BENEFITS_MIGRATION = path.join(__dirname, 'migrations', '006_fixed_bundle_benefits.sql');
 
 const STYLE_ALIASES = Object.freeze({
   HVW100: 'YK001',
@@ -99,10 +101,16 @@ function loadDeals(sourcePath) {
   const rawDeals = Array.isArray(parsed) ? parsed : parsed.deals;
   if (!Array.isArray(rawDeals)) throw new Error('Bundle source must be an array or contain a deals array');
 
-  const deals = rawDeals.map(normalizeDeal).sort((left, right) => left.sourceNumber - right.sourceNumber);
+  const benefits = JSON.parse(fs.readFileSync(BENEFITS_SOURCE, 'utf8'));
+  const benefitsByNumber = new Map(benefits.map(benefit => [benefit.sourceNumber, benefit]));
+  const deals = rawDeals.map(normalizeDeal).map(deal => ({
+    ...deal,
+    benefits: benefitsByNumber.get(deal.sourceNumber),
+  })).sort((left, right) => left.sourceNumber - right.sourceNumber);
   const sourceNumbers = new Set(deals.map(deal => deal.sourceNumber));
   if (sourceNumbers.size !== deals.length) throw new Error('Bundle source contains duplicate source numbers');
   if (deals.length !== 94) throw new Error(`Expected 94 bundles, received ${deals.length}`);
+  if (deals.some(deal => !deal.benefits)) throw new Error('Bundle benefit data is incomplete');
 
   return {
     deals,
@@ -169,11 +177,14 @@ async function upsertBundle(client, deal, classification, sourceHash) {
     INSERT INTO bundles (
       bundle_type, source_key, source_bundle_number, slug, name, price_ex_vat, currency,
       status, catalogue_status, pricing_status, source_document_status, total_item_quantity,
-      competitor_price_ex_vat, publish_block_reason, source_product_text, source_metadata
+      competitor_price_ex_vat, publish_block_reason, source_product_text, source_metadata,
+      included_decoration_methods, included_logo_count, logo_position, free_delivery,
+      free_gift, source_include_text
     )
     VALUES (
       'fixed', $1, $2, $3, $4, $5, 'GBP', 'draft', $6, $7, $8, $9, $10, $11, $12,
-      jsonb_build_object('source_date', $13::text, 'source_hash', $14::text)
+      jsonb_build_object('source_date', $13::text, 'source_hash', $14::text),
+      $15::jsonb, $16, $17, $18, $19::jsonb, $20
     )
     ON CONFLICT (source_key, source_bundle_number) DO UPDATE SET
       slug = EXCLUDED.slug,
@@ -187,6 +198,12 @@ async function upsertBundle(client, deal, classification, sourceHash) {
       publish_block_reason = EXCLUDED.publish_block_reason,
       source_product_text = EXCLUDED.source_product_text,
       source_metadata = EXCLUDED.source_metadata,
+      included_decoration_methods = EXCLUDED.included_decoration_methods,
+      included_logo_count = EXCLUDED.included_logo_count,
+      logo_position = EXCLUDED.logo_position,
+      free_delivery = EXCLUDED.free_delivery,
+      free_gift = EXCLUDED.free_gift,
+      source_include_text = EXCLUDED.source_include_text,
       status = 'draft',
       updated_at = CURRENT_TIMESTAMP
     WHERE bundles.status <> 'active'
@@ -206,6 +223,12 @@ async function upsertBundle(client, deal, classification, sourceHash) {
     deal.sourceProductText,
     SOURCE_DATE,
     sourceHash,
+    JSON.stringify(deal.benefits.includedDecorationMethods),
+    deal.benefits.includedLogoCount,
+    deal.benefits.logoPosition,
+    deal.benefits.freeDelivery,
+    deal.benefits.freeGift == null ? null : JSON.stringify(deal.benefits.freeGift),
+    deal.benefits.sourceIncludeText,
   ]);
   if (!result.rows[0]) {
     throw new Error(`Refusing to overwrite active bundle ${deal.sourceNumber}`);
@@ -220,6 +243,7 @@ async function importDeals(sourcePath, dryRun = false) {
   try {
     await client.query('BEGIN');
     await client.query(fs.readFileSync(MIGRATION, 'utf8'));
+    await client.query(fs.readFileSync(BENEFITS_MIGRATION, 'utf8'));
 
     const styleCodes = [...new Set(deals.flatMap(deal => deal.components.map(component => component.canonicalCode)))];
     const catalogue = await loadCatalogue(client, styleCodes);

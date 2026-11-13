@@ -152,6 +152,10 @@ function isAdminRole(role) {
   return role === 'admin' || role === 'super_admin';
 }
 
+function isBundleManagerRole(role) {
+  return isAdminRole(role) || role === 'bundle_editor';
+}
+
 async function requireAdmin(req, res, next) {
   return requireAuth(req, res, (error) => {
     if (error) return next(error);
@@ -162,11 +166,23 @@ async function requireAdmin(req, res, next) {
   });
 }
 
+async function requireBundleManager(req, res, next) {
+  return requireAuth(req, res, (error) => {
+    if (error) return next(error);
+    if (!isBundleManagerRole(req.user?.role)) {
+      return res.status(403).json({ success: false, message: 'Bundle management access required' });
+    }
+    return next();
+  });
+}
+
 module.exports = {
   hashPassword,
   optionalAuth,
   requireAdmin,
+  requireBundleManager,
   requireAuth,
+  isBundleManagerRole,
   isAdminRole,
   signJwt,
   verifyJwt,

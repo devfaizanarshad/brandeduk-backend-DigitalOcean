@@ -1147,21 +1147,6 @@ router.put('/price-breaks/:id', async (req, res) => {
 });
 
 /**
- * GET /api/admin/price-breaks
- * Get global system-wide price breaks
- */
-router.get('/price-breaks', async (req, res) => {
-  try {
-    const query = 'SELECT min_qty, max_qty, discount_percent FROM price_breaks ORDER BY min_qty';
-    const result = await queryWithTimeout(query, [], 10000);
-    res.json({ items: result.rows });
-  } catch (error) {
-    console.error('[ADMIN] Failed to fetch global price breaks:', error.message);
-    res.status(500).json({ error: 'Internal server error', message: error.message });
-  }
-});
-
-/**
  * PUT /api/admin/price-breaks
  * Update global system-wide price breaks (Full Replace)
  */
@@ -1169,22 +1154,51 @@ router.put('/price-breaks', async (req, res) => {
   const client = await require('../config/database').pool.connect();
   try {
     const { tiers } = req.body;
-    if (!tiers || !Array.isArray(tiers)) {
+    if (!Array.isArray(tiers) || tiers.length === 0) {
       return res.status(400).json({ error: 'Bad request', message: 'tiers array is required' });
     }
+
+    const normalizedTiers = tiers.map((tier, index) => {
+      const minQty = Number.parseInt(tier.min_qty, 10);
+      const maxQty = Number.parseInt(tier.max_qty, 10);
+      const discountPercent = Number.parseFloat(tier.discount_percent);
+      if (
+        !Number.isInteger(minQty)
+        || !Number.isInteger(maxQty)
+        || minQty < 1
+        || maxQty < minQty
+        || !Number.isFinite(discountPercent)
+        || discountPercent < 0
+        || discountPercent > 100
+      ) {
+        const error = new Error(`Invalid price break at index ${index}`);
+        error.status = 400;
+        throw error;
+      }
+      return {
+        minQty,
+        maxQty,
+        discountPercent,
+        tierName: maxQty >= 99999 ? `${minQty}+` : `${minQty}-${maxQty}`,
+      };
+    });
 
     await client.query('BEGIN');
     await client.query('DELETE FROM price_breaks');
 
     const results = [];
-    for (const tier of tiers) {
-      const { min_qty, max_qty, discount_percent } = tier;
+    for (const tier of normalizedTiers) {
       const query = `
-        INSERT INTO price_breaks (min_qty, max_qty, discount_percent)
-        VALUES ($1, $2, $3)
+        INSERT INTO price_breaks (min_qty, max_qty, discount_percent, tier_name)
+        VALUES ($1, $2, $3, $4)
         RETURNING *
       `;
-      const result = await client.query(query, [parseInt(min_qty), parseInt(max_qty), parseFloat(discount_percent)]);
+      const result = await client.query(query, [
+        tier.minQty,
+        tier.maxQty,
+        tier.discountPercent,
+        tier.tierName,
+      ]);
       results.push(result.rows[0]);
     }
 
@@ -1198,7 +1212,10 @@ router.put('/price-breaks', async (req, res) => {
   } catch (error) {
     if (client) await client.query('ROLLBACK');
     console.error('[ADMIN] Failed to update global price breaks:', error.message);
-    res.status(500).json({ error: 'Internal server error', message: error.message });
+    res.status(error.status || 500).json({
+      error: error.status === 400 ? 'Bad request' : 'Internal server error',
+      message: error.message,
+    });
   } finally {
     client.release();
   }

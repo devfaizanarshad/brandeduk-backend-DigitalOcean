@@ -3,13 +3,16 @@ const path = require('path');
 const { pool, queryWithTimeout } = require('../config/database');
 const { validateBundleInput, validateComponentsInput } = require('./fixedBundleService');
 
-const MIGRATION = path.join(__dirname, '..', 'maintenance', 'migrations', '005_fixed_bundle_bulk_api.sql');
+const MIGRATIONS = [
+  path.join(__dirname, '..', 'maintenance', 'migrations', '005_fixed_bundle_bulk_api.sql'),
+  path.join(__dirname, '..', 'maintenance', 'migrations', '006_fixed_bundle_benefits.sql'),
+];
 const MAX_BULK_BUNDLES = 100;
 let schemaPromise;
 
 function ensureBulkSchema() {
   if (!schemaPromise) {
-    schemaPromise = queryWithTimeout(fs.readFileSync(MIGRATION, 'utf8'), [], 30000)
+    schemaPromise = queryWithTimeout(MIGRATIONS.map(file => fs.readFileSync(file, 'utf8')).join('\n'), [], 30000)
       .catch(error => {
         schemaPromise = null;
         throw error;
@@ -155,11 +158,12 @@ async function upsertBulkBundles(input, adminUserId) {
             bundle_type, source_key, source_bundle_number, external_reference, slug,
             name, description, price_ex_vat, currency, status, catalogue_status,
             pricing_status, total_item_quantity, publish_block_reason,
-            featured_image_url, is_featured, display_order
+            featured_image_url, is_featured, display_order, included_decoration_methods,
+            included_logo_count, logo_position, free_delivery, free_gift
           ) VALUES (
             'fixed', $1, 1, $2, $3, $4, $5, $6, 'GBP', 'draft', 'complete',
             'pending_customization_review', $7, 'Customization and pricing approval required.',
-            $8, $9, $10
+            $8, $9, $10, $11::jsonb, $12, $13, $14, $15::jsonb
           ) RETURNING id
         `, [
           `bulk:${bundle.reference}`,
@@ -172,6 +176,11 @@ async function upsertBulkBundles(input, adminUserId) {
           bundle.featuredImageUrl || null,
           bundle.isFeatured || false,
           bundle.displayOrder || 0,
+          JSON.stringify(bundle.includedDecorationMethods || []),
+          bundle.includedLogoCount || 0,
+          bundle.logoPosition || null,
+          bundle.freeDelivery || false,
+          bundle.freeGift == null ? null : JSON.stringify(bundle.freeGift),
         ]);
         bundleId = result.rows[0].id;
       } else {
@@ -190,6 +199,11 @@ async function upsertBulkBundles(input, adminUserId) {
             featured_image_url = $7,
             is_featured = $8,
             display_order = $9,
+            included_decoration_methods = $10::jsonb,
+            included_logo_count = $11,
+            logo_position = $12,
+            free_delivery = $13,
+            free_gift = $14::jsonb,
             updated_at = CURRENT_TIMESTAMP
           WHERE id = $1
         `, [
@@ -202,6 +216,11 @@ async function upsertBulkBundles(input, adminUserId) {
           bundle.featuredImageUrl || null,
           bundle.isFeatured || false,
           bundle.displayOrder || 0,
+          JSON.stringify(bundle.includedDecorationMethods || []),
+          bundle.includedLogoCount || 0,
+          bundle.logoPosition || null,
+          bundle.freeDelivery || false,
+          bundle.freeGift == null ? null : JSON.stringify(bundle.freeGift),
         ]);
         await client.query('DELETE FROM bundle_components WHERE bundle_id = $1', [bundleId]);
       }
@@ -253,6 +272,11 @@ function getBulkTemplate() {
       featuredImageUrl: null,
       isFeatured: false,
       displayOrder: 0,
+      includedDecorationMethods: ['print'],
+      includedLogoCount: 1,
+      logoPosition: null,
+      freeDelivery: true,
+      freeGift: null,
       components: [{ styleCode: 'UC101', quantity: 10 }],
     }],
   };

@@ -13,11 +13,33 @@ test('accepts a valid fixed bundle definition', () => {
     priceExVat: 99.49,
     slug: 'Starter Workwear Bundle',
     displayOrder: 3,
+    includedDecorationMethods: ['print', 'embroidery'],
+    includedLogoCount: 1,
+    logoPosition: null,
+    freeDelivery: true,
+    freeGift: null,
   });
 
   assert.equal(result.valid, true);
   assert.equal(result.value.slug, 'starter-workwear-bundle');
   assert.equal(result.value.priceExVat, 99.49);
+  assert.deepEqual(result.value.includedDecorationMethods, ['print', 'embroidery']);
+  assert.equal(result.value.includedLogoCount, 1);
+  assert.equal(result.value.logoPosition, null);
+  assert.equal(result.value.freeDelivery, true);
+  assert.equal(result.value.freeGift, null);
+});
+
+test('rejects unsupported decoration and malformed gifts', () => {
+  const result = validateBundleInput({
+    name: 'Invalid Benefit Bundle',
+    priceExVat: 10,
+    includedDecorationMethods: ['laser'],
+    includedLogoCount: 20,
+    freeGift: { name: '', quantity: 0 },
+  });
+  assert.equal(result.valid, false);
+  assert.equal(result.errors.length, 3);
 });
 
 test('rejects invalid bundle prices and names', () => {

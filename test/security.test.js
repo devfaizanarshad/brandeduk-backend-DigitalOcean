@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { isAdminRole } = require('../utils/auth');
+const { isAdminRole, isBundleManagerRole } = require('../utils/auth');
 const { buildCorsOptions } = require('../utils/security');
 
 test('admin role check permits only administrator roles', () => {
@@ -9,6 +9,14 @@ test('admin role check permits only administrator roles', () => {
   assert.equal(isAdminRole('super_admin'), true);
   assert.equal(isAdminRole('customer'), false);
   assert.equal(isAdminRole(undefined), false);
+});
+
+test('bundle manager role permits bundle editors and administrators', () => {
+  assert.equal(isBundleManagerRole('bundle_editor'), true);
+  assert.equal(isBundleManagerRole('admin'), true);
+  assert.equal(isBundleManagerRole('super_admin'), true);
+  assert.equal(isBundleManagerRole('customer'), false);
+  assert.equal(isAdminRole('bundle_editor'), false);
 });
 
 test('CORS permits the storefront and rejects untrusted origins', async () => {
