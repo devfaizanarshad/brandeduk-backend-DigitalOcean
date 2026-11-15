@@ -190,7 +190,7 @@ function validateComponentsInput(components) {
   return { valid: errors.length === 0, errors, value };
 }
 
-async function listBundles({ admin = false, page = 1, limit = 24, status, search } = {}) {
+async function listBundles({ admin = false, page = 1, limit = 24, status, search, include } = {}) {
   await ensureBundleApiSchema();
   const safePage = parsePositiveInteger(page, 1);
   const safeLimit = parsePositiveInteger(limit, 24, 100);
@@ -223,9 +223,15 @@ async function listBundles({ admin = false, page = 1, limit = 24, status, search
     LIMIT $${values.length - 1} OFFSET $${values.length}
   `, values, 15000);
   const total = countResult.rows[0].total;
+  let bundles = rowsResult.rows.map(normalizeBundleRow);
+  if (include === 'components') {
+    // One query for the whole page, so clients don't need a request per bundle.
+    const componentsByBundle = await fetchComponents(bundles.map(bundle => bundle.id));
+    bundles = bundles.map(bundle => ({ ...bundle, components: componentsByBundle.get(bundle.id) || [] }));
+  }
 
   return {
-    bundles: rowsResult.rows.map(normalizeBundleRow),
+    bundles,
     page: safePage,
     limit: safeLimit,
     total,
@@ -233,21 +239,12 @@ async function listBundles({ admin = false, page = 1, limit = 24, status, search
   };
 }
 
-async function getBundle(identifier, { admin = false } = {}) {
-  await ensureBundleApiSchema();
-  const isId = admin && /^\d+$/.test(String(identifier));
-  const values = [isId ? Number(identifier) : String(identifier).toLowerCase()];
-  const visibility = admin ? '' : `AND status <> 'archived'`;
+// Components (with catalogue product details) for one or many bundles in a
+// single query. Returns Map(bundleId -> normalized component list).
+async function fetchComponents(bundleIds) {
+  const grouped = new Map(bundleIds.map(id => [id, []]));
+  if (!bundleIds.length) return grouped;
   const result = await queryWithTimeout(`
-    SELECT *
-    FROM bundles
-    WHERE ${isId ? 'id' : 'slug'} = $1 ${visibility}
-    LIMIT 1
-  `, values, 10000);
-  if (!result.rows.length) return null;
-
-  const bundle = normalizeBundleRow(result.rows[0]);
-  const componentsResult = await queryWithTimeout(`
     SELECT
       component.*,
       style.style_name,
@@ -264,12 +261,33 @@ async function getBundle(identifier, { admin = false } = {}) {
     LEFT JOIN brands brand ON brand.id = style.brand_id
     LEFT JOIN product_types product_type ON product_type.id = style.product_type_id
     LEFT JOIN products product ON product.style_code = component.catalogue_style_code
-    WHERE component.bundle_id = $1
+    WHERE component.bundle_id = ANY($1::bigint[])
     GROUP BY component.id, style.style_name, brand.name, product_type.name
-    ORDER BY component.line_order
-  `, [bundle.id], 15000);
+    ORDER BY component.bundle_id, component.line_order
+  `, [bundleIds], 20000);
+  for (const row of result.rows) {
+    const list = grouped.get(Number(row.bundle_id));
+    if (list) list.push(normalizeComponentRow(row));
+  }
+  return grouped;
+}
 
-  return { ...bundle, components: componentsResult.rows.map(normalizeComponentRow) };
+async function getBundle(identifier, { admin = false } = {}) {
+  await ensureBundleApiSchema();
+  const isId = admin && /^\d+$/.test(String(identifier));
+  const values = [isId ? Number(identifier) : String(identifier).toLowerCase()];
+  const visibility = admin ? '' : `AND status <> 'archived'`;
+  const result = await queryWithTimeout(`
+    SELECT *
+    FROM bundles
+    WHERE ${isId ? 'id' : 'slug'} = $1 ${visibility}
+    LIMIT 1
+  `, values, 10000);
+  if (!result.rows.length) return null;
+
+  const bundle = normalizeBundleRow(result.rows[0]);
+  const componentsByBundle = await fetchComponents([bundle.id]);
+  return { ...bundle, components: componentsByBundle.get(bundle.id) || [] };
 }
 
 async function getComponentOptions(slug, componentId, { page = 1, limit = 100 } = {}) {
