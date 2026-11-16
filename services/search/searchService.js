@@ -145,10 +145,17 @@ async function buildSearchConditions(rawQuery, viewAlias = 'psm', paramIndex = 1
           OR ${viewAlias}.style_name ILIKE ('%' || $${textParamIndex} || '%')
           OR word_similarity($${textParamIndex}, ${viewAlias}.style_name) >= 0.42
           OR word_similarity($${textParamIndex}, ${viewAlias}.brand) >= 0.45
-          OR ${viewAlias}.style_code ILIKE $${textParamIndex}
+          OR ${viewAlias}.style_code ILIKE ($${textParamIndex} || '%')
         )`,
         weight: 40
       });
+      // Partial style codes without digits (e.g. "JH") should match by prefix and rank first.
+      if (!/\s/.test(searchText)) {
+        softMatches.push({
+          expression: `${viewAlias}.style_code ILIKE ($${textParamIndex} || '%')`,
+          weight: 150
+        });
+      }
     }
   }
 
