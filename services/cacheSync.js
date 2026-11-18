@@ -28,6 +28,15 @@ const DEBOUNCE_MS = 1000; // Wait 1 second to batch rapid changes
 let lastInvalidationTimestamp = 0;
 const MIN_INVALIDATION_INTERVAL = 500; // Minimum ms between invalidations
 
+/** Rebuild the in-memory search typeahead after catalogue changes (debounced). */
+function refreshSearchSuggestions() {
+    try {
+        require('./search/suggestEngine').markStale();
+    } catch (err) {
+        console.warn('[CACHE SYNC] Could not schedule search suggestion refresh:', err.message);
+    }
+}
+
 /**
  * Listen for cache invalidation messages from other PM2 instances
  */
@@ -61,6 +70,8 @@ function setupIPCListener() {
             } catch (err) {
                 console.warn('[CACHE SYNC] Could not clear productService cache:', err.message);
             }
+
+            refreshSearchSuggestions();
         }
     });
 
@@ -103,6 +114,8 @@ async function broadcastCacheInvalidation(options = {}) {
     } catch (err) {
         console.warn('[CACHE SYNC] Could not clear productService cache:', err.message);
     }
+
+    refreshSearchSuggestions();
 
     // Broadcast to other PM2 instances via IPC
     if (process.send) {

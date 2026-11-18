@@ -12,8 +12,20 @@
  */
 
 const { buildSearchConditions, buildFuzzyFallback, getSearchSuggestions } = require('./searchService');
-const { parseSearchQuery, invalidateCache: invalidateParserCache, warmSearchCache } = require('./searchQueryParser');
+const { parseSearchQuery, invalidateCache: invalidateParserCache, warmSearchCache: warmParserCache } = require('./searchQueryParser');
 const { refreshSynonyms, ensureLoaded: ensureSynonymsLoaded } = require('./searchSynonyms');
+const suggestEngine = require('./suggestEngine');
+
+/** Warm parser lookups and build the in-memory typeahead index (called at startup). */
+async function warmSearchCache() {
+    suggestEngine.startAutoRefresh();
+    const [parser, engine] = await Promise.allSettled([
+        warmParserCache(),
+        suggestEngine.isReady() ? Promise.resolve() : suggestEngine.build('startup')
+    ]);
+    if (parser.status === 'rejected') throw parser.reason;
+    if (engine.status === 'rejected') throw engine.reason;
+}
 
 module.exports = {
     buildSearchConditions,
@@ -23,5 +35,6 @@ module.exports = {
     refreshSynonyms,
     ensureSynonymsLoaded,
     warmSearchCache,
-    invalidateParserCache
+    invalidateParserCache,
+    suggestEngine
 };

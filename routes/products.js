@@ -440,12 +440,27 @@ router.get('/filters', async (req, res) => {
 });
 
 /**
- * GET /api/products/suggest
+ * GET /api/products/suggest?q=&limit=
+ * Typeahead for the header search. Served from the in-memory suggest engine
+ * (~1ms, no database work); falls back to SQL until the engine's first build.
+ * GET /api/products/suggest?popular=1 returns popular searches for an empty box.
  */
 router.get('/suggest', async (req, res) => {
   try {
     const { q, limit } = req.query;
-    if (!q || !String(q).trim()) return res.json({ brands: [], types: [], products: [], total: 0 });
+    const suggestEngine = require('../services/search/suggestEngine');
+    if (!q || !String(q).trim()) {
+      const popular = req.query.popular === '1' ? suggestEngine.popular() : [];
+      if (popular.length) res.set('Cache-Control', 'public, max-age=300');
+      return res.json({ brands: [], types: [], products: [], total: 0, popular });
+    }
+
+    const fast = suggestEngine.suggest(String(q), { limit });
+    if (fast) {
+      res.set('Cache-Control', 'public, max-age=60');
+      return res.json(fast);
+    }
+    suggestEngine.ensureBuilt();
 
     const rc = await routeCache(req, cache.TTL.PRODUCTS);
     if (rc.cached) return res.json(rc.cached);
