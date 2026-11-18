@@ -464,31 +464,61 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
 
     // 🚀 ENHANCED: Single combined query with JOINs to lookup tables for names
     // Returns: filter_type, slug, name, count for fully dynamic frontend
+    // PERFORMANCE: one DISTINCT across every column produced a row per colour/size
+    // combination (~119k rows for the full catalogue), which every facet then had to
+    // sort. Each facet only needs its own (style, value) pairs from the same filtered
+    // rows, so attributes that vary per variant get their own narrow DISTINCT sets and
+    // the rest collapse to ~one row per style. Counts are COUNT(DISTINCT style_code)
+    // over identical pairs, so results are unchanged.
+    // With filters (search, type, colour...) the condition is evaluated once and the
+    // narrow sets re-read only the matching variant rows by primary key. Without
+    // filters every row matches, so a straight scan of the view is cheaper.
+    const isUnfiltered = base.params.length === 0 && !base.productTypeJoin;
+    const filteredRows = isUnfiltered
+      ? `
+        FROM product_search_mv psm
+        ${base.whereClause}`
+      : `
+        FROM product_search_mv psm
+        WHERE psm.id IN (SELECT id FROM filtered_ids)`;
+    const filteredIdsCte = isUnfiltered ? '' : `
+      filtered_ids AS MATERIALIZED (
+        SELECT psm.id
+        FROM product_search_mv psm
+        ${base.productTypeJoin}
+        ${base.whereClause}
+      ),`;
     const combinedQuery = `
-      WITH base_products AS (
-        SELECT DISTINCT 
+      WITH ${filteredIdsCte}
+      base_products AS (
+        SELECT DISTINCT
           psm.style_code,
           psm.gender_slug,
           psm.age_group_slug,
           psm.tag_slug,
-          psm.primary_colour,
-          psm.colour_shade,
           psm.brand,
           psm.sleeve_slugs,
           psm.neckline_slugs,
           psm.fabric_slugs,
-          psm.size_slugs,
           psm.style_keyword_slugs,
           psm.weight_slugs,
           psm.fit_slugs,
           psm.feature_slugs,
-          psm.effects_arr,
-          psm.accreditation_slugs,
           psm.sector_slugs,
           psm.sport_slugs
-        FROM product_search_mv psm
-        ${base.productTypeJoin}
-        ${base.whereClause}
+        ${filteredRows}
+      ),
+      base_colours AS (
+        SELECT DISTINCT psm.style_code, psm.primary_colour, psm.colour_shade
+        ${filteredRows}
+      ),
+      base_sizes AS (
+        SELECT DISTINCT psm.style_code, psm.size_slugs
+        ${filteredRows}
+      ),
+      base_variant_arrays AS (
+        SELECT DISTINCT psm.style_code, psm.effects_arr, psm.accreditation_slugs
+        ${filteredRows}
       ),
       
       -- Gender aggregation with lookup
@@ -541,7 +571,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
           LOWER(primary_colour) as slug, 
           INITCAP(primary_colour) as name,
           COUNT(DISTINCT style_code)::int as count
-        FROM base_products
+        FROM base_colours
         WHERE primary_colour IS NOT NULL AND primary_colour != ''
         GROUP BY LOWER(primary_colour), INITCAP(primary_colour)
         ORDER BY count DESC
@@ -555,7 +585,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
           LOWER(colour_shade) as slug, 
           colour_shade as name,
           COUNT(DISTINCT style_code)::int as count
-        FROM base_products
+        FROM base_colours
         WHERE colour_shade IS NOT NULL AND colour_shade != ''
         GROUP BY LOWER(colour_shade), colour_shade
         ORDER BY count DESC
@@ -615,7 +645,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
           s.name,
           COUNT(DISTINCT bp.style_code)::int as count,
           s.size_order
-        FROM base_products bp, unnest(bp.size_slugs) as arr_slug
+        FROM base_sizes bp, unnest(bp.size_slugs) as arr_slug
         JOIN sizes s ON arr_slug = s.slug
         WHERE bp.size_slugs IS NOT NULL AND array_length(bp.size_slugs, 1) > 0
         GROUP BY s.slug, s.name, s.size_order
@@ -690,7 +720,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
           e.slug, 
           e.name,
           COUNT(DISTINCT bp.style_code)::int as count
-        FROM base_products bp, unnest(bp.effects_arr) as arr_slug
+        FROM base_variant_arrays bp, unnest(bp.effects_arr) as arr_slug
         JOIN effects e ON arr_slug = e.slug
         WHERE bp.effects_arr IS NOT NULL AND array_length(bp.effects_arr, 1) > 0
         GROUP BY e.slug, e.name
@@ -705,7 +735,7 @@ async function buildFilterAggregations(filters, viewAlias = 'psm', preFilteredSt
           a.slug, 
           a.name,
           COUNT(DISTINCT bp.style_code)::int as count
-        FROM base_products bp, unnest(bp.accreditation_slugs) as arr_slug
+        FROM base_variant_arrays bp, unnest(bp.accreditation_slugs) as arr_slug
         JOIN accreditations a ON arr_slug = a.slug
         WHERE bp.accreditation_slugs IS NOT NULL AND array_length(bp.accreditation_slugs, 1) > 0
         GROUP BY a.slug, a.name
@@ -1249,22 +1279,38 @@ async function buildProductListQuery(filters, page, limit) {
     MIN(${viewAlias}.featured_order) as featured_order
   `;
 
-  const optimizedQuery = `
-    WITH style_codes_filtered AS (
-      SELECT DISTINCT ${viewAlias}.style_code
-      ${hasSearch && searchRelevanceSelect ? `, ${searchRelevanceSelect}` : ''}
-      FROM product_search_mv ${viewAlias}
-      ${productTypeJoin}
-      ${whereClause}
+  // One row per matching style with everything the ORDER BY needs.
+  // PERFORMANCE: the variant view and products are aggregated per style *before*
+  // joining. Joining them row-by-row first multiplied ~26 variants by ~26 SKUs per
+  // style (14M rows for the full catalogue, ~20s) only to take MIN/MAX values, which
+  // per-style aggregation yields identically.
+  const styleMetaCte = `
+    style_mv_meta AS (
+      SELECT
+        mv_all.style_code,
+        MIN(mv_all.style_name) as style_name,
+        MIN(mv_all.created_at) as created_at,
+        MAX(mv_all.is_best_seller::int) as is_best,
+        MAX(mv_all.is_recommended::int) as is_recommended,
+        MAX(mv_all.is_featured::int) as is_featured,
+        MIN(mv_all.best_seller_order) as best_seller_order,
+        MIN(mv_all.recommended_order) as recommended_order,
+        MIN(mv_all.featured_order) as featured_order,
+        MIN(mv_all.sell_price) as min_mv_price,
+        MAX(mv_all.sell_price) as max_mv_price
+      FROM product_search_mv mv_all
+      WHERE mv_all.sku_status = 'Live'
+        AND mv_all.style_code IN (SELECT style_code FROM style_codes_filtered)
+      GROUP BY mv_all.style_code
     ),
     style_codes_with_meta AS (
-      SELECT 
+      SELECT
         scf.style_code,
-        MIN(${viewAlias}.style_name) as style_name,
-        MIN(p.sell_price) as sell_price,
-        MIN(${viewAlias}.created_at) as created_at,
-        MIN(COALESCE(pt.display_order, 999)) as product_type_priority,
-        MIN(CASE LOWER(COALESCE(pt.name, ''))
+        mv_meta.style_name,
+        price_meta.sell_price,
+        mv_meta.created_at,
+        COALESCE(pt.display_order, 999) as product_type_priority,
+        (CASE LOWER(COALESCE(pt.name, ''))
           WHEN 'gloves' THEN 10
           WHEN 'hi vis' THEN 20
           WHEN 'trousers' THEN 30
@@ -1288,26 +1334,51 @@ async function buildProductListQuery(filters, page, limit) {
           WHEN 'tabards' THEN 80
           ELSE 90
         END) as ppe_relevance_priority,
-        MIN(COALESCE(b.name, '')) as brand_name,
-        MIN(COALESCE(pdo.display_order, 999999)) as custom_display_order,
-        -- Flag-based priorities (only computed when sorting by best/recommended)
-        ${flagSelectClause}
-        ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
-      FROM style_codes_filtered scf
-      INNER JOIN product_search_mv ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
-      INNER JOIN products p ON ${viewAlias}.style_code = p.style_code AND p.sku_status = 'Live'
-      LEFT JOIN styles s ON ${viewAlias}.style_code = s.style_code
-        LEFT JOIN product_types pt ON s.product_type_id = pt.id
-        LEFT JOIN brands b ON s.brand_id = b.id
-        LEFT JOIN product_display_order pdo ON s.style_code = pdo.style_code AND (${pdoJoinCondition})
-        ${flagJoinClause}
-      WHERE ${viewAlias}.sku_status = 'Live'
-      GROUP BY scf.style_code
-      HAVING 
-        MIN(p.sell_price) IS NOT NULL
-        ${filters.priceMin !== null && filters.priceMin !== undefined ? `AND MIN(p.sell_price) >= $${priceFilterParamIndex}` : ''}
-        ${filters.priceMax !== null && filters.priceMax !== undefined ? `AND MIN(p.sell_price) <= $${priceFilterParamIndex + (filters.priceMin !== null && filters.priceMin !== undefined ? 1 : 0)}` : ''}
-      ),
+        COALESCE(b.name, '') as brand_name,
+        COALESCE(pdo_best.display_order, 999999) as custom_display_order,
+        mv_meta.is_best,
+        mv_meta.is_recommended,
+        mv_meta.is_featured,
+        mv_meta.best_seller_order,
+        mv_meta.recommended_order,
+        mv_meta.featured_order
+        ${hasSearch ? ', scf.relevance_score' : ''}
+      FROM (
+        SELECT style_code${hasSearch ? ', MAX(relevance_score) as relevance_score' : ''}
+        FROM style_codes_filtered
+        GROUP BY style_code
+      ) scf
+      INNER JOIN style_mv_meta mv_meta ON mv_meta.style_code = scf.style_code
+      INNER JOIN (
+        SELECT p.style_code, MIN(p.sell_price) as sell_price
+        FROM products p
+        WHERE p.sku_status = 'Live'
+          AND p.style_code IN (SELECT style_code FROM style_codes_filtered)
+        GROUP BY p.style_code
+      ) price_meta ON price_meta.style_code = scf.style_code
+      LEFT JOIN styles s ON scf.style_code = s.style_code
+      LEFT JOIN product_types pt ON s.product_type_id = pt.id
+      LEFT JOIN brands b ON s.brand_id = b.id
+      LEFT JOIN LATERAL (
+        SELECT MIN(pdo.display_order) as display_order
+        FROM product_display_order pdo
+        WHERE pdo.style_code = s.style_code AND (${pdoJoinCondition})
+      ) pdo_best ON TRUE
+      ${flagJoinClause}
+      WHERE price_meta.sell_price IS NOT NULL
+        ${filters.priceMin !== null && filters.priceMin !== undefined ? `AND price_meta.sell_price >= $${priceFilterParamIndex}` : ''}
+        ${filters.priceMax !== null && filters.priceMax !== undefined ? `AND price_meta.sell_price <= $${priceFilterParamIndex + (filters.priceMin !== null && filters.priceMin !== undefined ? 1 : 0)}` : ''}
+    )`;
+
+  const optimizedQuery = `
+    WITH style_codes_filtered AS (
+      SELECT DISTINCT ${viewAlias}.style_code
+      ${hasSearch && searchRelevanceSelect ? `, ${searchRelevanceSelect}` : ''}
+      FROM product_search_mv ${viewAlias}
+      ${productTypeJoin}
+      ${whereClause}
+    ),
+    ${styleMetaCte},
     paginated_style_codes AS (
       SELECT style_code, sell_price, custom_display_order, is_best, is_recommended, is_featured
       FROM style_codes_with_meta
@@ -1320,12 +1391,12 @@ async function buildProductListQuery(filters, page, limit) {
       FROM style_codes_with_meta
       ),
       price_range AS (
-        SELECT 
-          MIN(${viewAlias}.sell_price) as min_price,
-          MAX(${viewAlias}.sell_price) as max_price
-        FROM style_codes_filtered scf
-        INNER JOIN product_search_mv ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
-        WHERE ${viewAlias}.sku_status = 'Live' AND ${viewAlias}.sell_price IS NOT NULL
+        -- Same rows as before (every Live variant of a matching style), read from the
+        -- per-style summary instead of scanning the variant view a third time.
+        SELECT
+          MIN(min_mv_price) as min_price,
+          MAX(max_mv_price) as max_price
+        FROM style_mv_meta
       )
       SELECT 
       psc.style_code,
@@ -1374,61 +1445,7 @@ async function buildProductListQuery(filters, page, limit) {
           ${productTypeJoin}
           ${whereClause}
         ),
-        style_codes_with_meta AS (
-      SELECT 
-            scf.style_code,
-            MIN(${viewAlias}.style_name) as style_name,
-            MIN(p.sell_price) as sell_price,
-            MIN(${viewAlias}.created_at) as created_at,
-            MIN(COALESCE(pt.display_order, 999)) as product_type_priority,
-            MIN(CASE LOWER(COALESCE(pt.name, ''))
-              WHEN 'gloves' THEN 10
-              WHEN 'hi vis' THEN 20
-              WHEN 'trousers' THEN 30
-              WHEN 'coveralls' THEN 30
-              WHEN 'coverall' THEN 30
-              WHEN 'glasses' THEN 40
-              WHEN 'goggles' THEN 40
-              WHEN 'helmets' THEN 50
-              WHEN 'caps' THEN 50
-              WHEN 'boots' THEN 60
-              WHEN 'shoes' THEN 60
-              WHEN 'trainers' THEN 60
-              WHEN 'footwear' THEN 60
-              WHEN 'jackets' THEN 70
-              WHEN 'softshells' THEN 70
-              WHEN 'rain suits' THEN 70
-              WHEN 'gilets & body warmers' THEN 70
-              WHEN 'fleece' THEN 70
-              WHEN 'polos' THEN 80
-              WHEN 't-shirts' THEN 80
-              WHEN 'tabards' THEN 80
-              ELSE 90
-            END) as ppe_relevance_priority,
-            MIN(COALESCE(b.name, '')) as brand_name,
-            MIN(COALESCE(pdo.display_order, 999999)) as custom_display_order,
-            MAX(${viewAlias}.is_best_seller::int) as is_best,
-            MAX(${viewAlias}.is_recommended::int) as is_recommended,
-            MAX(${viewAlias}.is_featured::int) as is_featured,
-            MIN(${viewAlias}.best_seller_order) as best_seller_order,
-            MIN(${viewAlias}.recommended_order) as recommended_order,
-            MIN(${viewAlias}.featured_order) as featured_order
-            ${hasSearch ? ', MAX(scf.relevance_score) as relevance_score' : ''}
-          FROM style_codes_filtered scf
-          INNER JOIN product_search_mv ${viewAlias} ON scf.style_code = ${viewAlias}.style_code
-          INNER JOIN products p ON ${viewAlias}.style_code = p.style_code AND p.sku_status = 'Live'
-          LEFT JOIN styles s ON ${viewAlias}.style_code = s.style_code
-      LEFT JOIN product_types pt ON s.product_type_id = pt.id
-            LEFT JOIN brands b ON s.brand_id = b.id
-            LEFT JOIN product_display_order pdo ON s.style_code = pdo.style_code AND (${pdoJoinCondition})
-            ${flagJoinClause}
-          WHERE ${viewAlias}.sku_status = 'Live'
-          GROUP BY scf.style_code
-          HAVING 
-            MIN(p.sell_price) IS NOT NULL
-            ${filters.priceMin !== null && filters.priceMin !== undefined ? `AND MIN(p.sell_price) >= $${priceFilterParamIndex}` : ''}
-            ${filters.priceMax !== null && filters.priceMax !== undefined ? `AND MIN(p.sell_price) <= $${priceFilterParamIndex + (filters.priceMin !== null && filters.priceMin !== undefined ? 1 : 0)}` : ''}
-        ),
+        ${styleMetaCte},
         paginated_style_codes AS (
           SELECT style_code, sell_price, custom_display_order, is_best, is_recommended, is_featured
           FROM style_codes_with_meta

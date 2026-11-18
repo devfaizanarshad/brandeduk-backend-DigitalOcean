@@ -156,6 +156,7 @@ async function queryWithTimeout(text, params, timeoutMs = 20000) {
     let client = null;
     let timeoutId = null;
     let queryCompleted = false;
+    let connectionHealthy = false;
 
     try {
       // Get a dedicated client from the pool with timeout
@@ -182,6 +183,7 @@ async function queryWithTimeout(text, params, timeoutMs = 20000) {
       // Race between query and timeout
       const result = await Promise.race([queryPromise, timeoutPromise]);
       queryCompleted = true;
+      connectionHealthy = true;
 
       const duration = Date.now() - startTime;
       poolStats.completedQueries++;
@@ -227,7 +229,10 @@ async function queryWithTimeout(text, params, timeoutMs = 20000) {
 
       if (client) {
         try {
-          client.release(true); // Release with destroy=true to not reuse problematic connections
+          // Reuse connections that completed cleanly (saves a new Postgres backend +
+          // login per query). Destroy any connection whose query failed or timed out,
+          // because a timed-out query may still be running on it.
+          client.release(connectionHealthy ? undefined : true);
         } catch (releaseError) {
           // Ignore release errors
         }
