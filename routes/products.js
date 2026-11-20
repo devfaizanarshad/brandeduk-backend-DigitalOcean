@@ -442,6 +442,58 @@ router.get('/filters', async (req, res) => {
 });
 
 /**
+ * GET /api/products/promotions?limit=8&page=1
+ * Products on supplier promotion, for the "Deals" box/dropdown.
+ *
+ * Source today: the supplier "Offers" flag (Ralawise offers), best sellers first.
+ * Supplier feeds do not yet provide the size of each discount, so `promotion` is
+ * null and `minDiscount` is accepted but not applied. When discount data is
+ * imported, this endpoint can filter/sort by it without the frontend changing.
+ */
+const PROMOTION_FLAGS = ['offers'];
+
+router.get('/promotions', async (req, res) => {
+  try {
+    const rc = await routeCache(req, cache.TTL.PRODUCTS);
+    if (rc.cached) return res.json(rc.cached);
+
+    const limitNum = Math.min(48, Math.max(1, parseInt(req.query.limit, 10) || 8));
+    const pageNum = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const filters = {
+      q: '', supplier: [], priceMin: null, priceMax: null, gender: [], ageGroup: [], sleeve: [],
+      neckline: [], accreditations: [], primaryColour: [], colourShade: [], colour: [], style: [],
+      feature: [], size: [], fabric: [], flag: PROMOTION_FLAGS, isBestSeller: false,
+      isRecommended: false, isFeatured: false, weight: [], fit: [], sector: [], sport: [], tag: [],
+      effect: [], brand: [], productType: [], sort: 'best', order: 'DESC'
+    };
+
+    const { items, total } = await buildProductListQuery(filters, pageNum, limitNum);
+    const response = {
+      items: (items || []).map(item => ({
+        code: item.code,
+        name: item.name,
+        brand: item.brand || null,
+        productType: item.productType || null,
+        price: item.price,
+        image: item.image || null,
+        promotion: null
+      })),
+      total,
+      page: pageNum,
+      limit: limitNum,
+      source: 'supplier-offers-flag',
+      minDiscount: null,
+      viewAll: { path: '/shop-pc', query: { flag: PROMOTION_FLAGS[0] } }
+    };
+    await rc.store(response);
+    res.json(response);
+  } catch (error) {
+    console.error('[ERROR] Failed to fetch promotions:', error.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/products/suggest?q=&limit=
  * Typeahead for the header search. Served from the in-memory suggest engine
  * (~1ms, no database work); falls back to SQL until the engine's first build.
