@@ -11,7 +11,9 @@ const { parsePpeSearchIntent } = require('../services/ppeCatalog');
  * Uses the full URL as cache key. TTL defaults to PRODUCTS (3 days).
  */
 async function routeCache(req, ttl) {
-  const cacheVersion = req.path === '/suggest' ? 'suggest-v3' : 'v10-variant-pricing';
+  // Search requests get their own version so search fixes are not hidden by cached results.
+  const isSearch = !!(req.query.q || req.query.text);
+  const cacheVersion = req.path === '/suggest' ? 'suggest-v3' : (isSearch ? 'v11-search-hivis' : 'v10-variant-pricing');
   const rawKey = `products:route:${cacheVersion}:${req.originalUrl}`;
   let hash = 0;
   for (let i = 0; i < rawKey.length; i++) {

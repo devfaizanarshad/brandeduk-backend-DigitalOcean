@@ -100,7 +100,8 @@ test('parser separates strict identity filters from descriptive signals', async 
   const parsed = await parseSearchQuery('mens black organic zip hoodies');
 
   assert.equal(parsed.productType, 'hooded sweatshirts');
-  assert.deepEqual(parsed.genders, ['mens']);
+  // Catalogue genders are male/female/unisex; a gendered search keeps unisex products.
+  assert.deepEqual(parsed.genders, ['male', 'unisex']);
   assert.deepEqual(parsed.colours, ['black']);
   assert.deepEqual(parsed.fabrics, ['organic']);
   assert.deepEqual(parsed.features, ['zipped']);
@@ -233,4 +234,51 @@ test('hi viz misspelling keeps certified high-visibility constraints', async () 
 
   assert.deepEqual(parsed.requiredFeatures, ['high-visibility']);
   assert.deepEqual(parsed.freeText, []);
+});
+
+test('"high vis" and "high viz" are hi-vis searches, like "hi vis"', async () => {
+  // The website rewrites every hi-vis spelling to "high vis" before searching, so this
+  // must not fall back to loose word matching ("High Profile Curved Visor" caps,
+  // "hip apron", "high neck vest").
+  const reference = await parseSearchQuery('hi vis');
+  for (const query of ['high vis', 'high viz', 'High-Vis', 'highvis', 'high visibility']) {
+    const parsed = await parseSearchQuery(query);
+    assert.deepEqual(parsed.requiredFeatures, ['high-visibility'], query);
+    assert.deepEqual(parsed.freeText, reference.freeText, query);
+  }
+
+  const jacket = await parseSearchQuery('high vis jacket');
+  assert.deepEqual(jacket.requiredFeatures, ['high-visibility']);
+  assert.deepEqual(jacket.requiredNameGroups, [['jacket', 'jackets']]);
+});
+
+test('words that only start like hi-vis do not trigger the hi-vis filter', async () => {
+  for (const query of ['high profile visor cap', 'high neck vest', 'hip apron', 'vision']) {
+    const parsed = await parseSearchQuery(query);
+    assert.deepEqual(parsed.requiredFeatures, [], query);
+  }
+});
+
+test('gender words filter by catalogue gender and keep unisex products', async () => {
+  assert.deepEqual((await parseSearchQuery('ladies polo')).genders, ['female', 'unisex']);
+  assert.deepEqual((await parseSearchQuery("women's t shirt")).genders, ['female', 'unisex']);
+  assert.deepEqual((await parseSearchQuery('mens t shirt')).genders, ['male', 'unisex']);
+  assert.ok(!(await parseSearchQuery('ladies polo')).freeText.includes('ladies'));
+});
+
+test('quarter zip is one product feature, not the "quad guards" category', async () => {
+  for (const query of ['quarter zip', '1/4 zip', 'quarter zip sweatshirt']) {
+    const parsed = await parseSearchQuery(query);
+    assert.notEqual(parsed.productType, 'quad guards', query);
+    assert.equal(parsed.requiredNamePatterns.length, 1, query);
+  }
+  assert.equal((await parseSearchQuery('quarter zip sweatshirt')).productType, 'sweatshirts');
+});
+
+test('free text requires every word and only fuzzy-matches longer words', async () => {
+  const search = await buildSearchConditions('snorkel mug');
+  const where = search.conditions.join(' AND ');
+  assert.ok(search.params.includes('snorkel:* & mug:*'), 'all words must match');
+  assert.doesNotMatch(where, /ILIKE \('%'/, 'no substring matching');
+  assert.match(where, /char_length\(\$\d+\) >= 5/);
 });

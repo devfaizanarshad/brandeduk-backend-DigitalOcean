@@ -4,6 +4,7 @@
 
 const { parseSearchQuery } = require('./searchQueryParser');
 const { queryWithTimeout } = require('../../config/database');
+const suggestEngine = require('./suggestEngine');
 
 function prefixTsQuery(terms, operator = ' | ') {
   return terms
@@ -99,6 +100,10 @@ async function buildSearchConditions(rawQuery, viewAlias = 'psm', paramIndex = 1
     const index = addParam([...new Set(parsed.requiredFeatures)]);
     conditions.push(`${viewAlias}.feature_slugs::text[] && $${index}::text[]`);
   }
+  (parsed.requiredNamePatterns || []).forEach(pattern => {
+    const index = addParam(pattern);
+    conditions.push(`${viewAlias}.style_name ~* $${index}`);
+  });
   parsed.requiredNameGroups.forEach(group => {
     const patterns = group.map(term => `\\m${String(term).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\M`);
     const index = addParam(patterns);
@@ -134,17 +139,25 @@ async function buildSearchConditions(rawQuery, viewAlias = 'psm', paramIndex = 1
 
   const searchText = parsed.freeText.join(' ').trim();
   if (!parsed.styleCode && searchText) {
-    const tsQuery = prefixTsQuery(parsed.freeText);
+    // Every typed word must match (AND). Previously any single word, or a loose
+    // "sounds like" score, was enough: "mug" matched "Multi-sports", "pen" matched
+    // "5-panel", "overalls" matched "Oversized". Fuzzy matching is kept for genuine
+    // typos only (5+ characters, stricter threshold).
+    const tsQuery = prefixTsQuery(parsed.freeText, ' & ');
     if (tsQuery) {
       ftsParamIndex = addParam(tsQuery);
       textParamIndex = addParam(searchText);
+      const phraseParamIndex = addParam('\\m' + searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      // Typo matching only for words the catalogue does not contain.
+      const allWordsKnown = suggestEngine.knowsAllWords(parsed.freeText) === true;
       softMatches.push({
         expression: `(
           ${viewAlias}.search_vector @@ to_tsquery('english', $${ftsParamIndex})
-          OR ${viewAlias}.style_name % $${textParamIndex}
-          OR ${viewAlias}.style_name ILIKE ('%' || $${textParamIndex} || '%')
-          OR word_similarity($${textParamIndex}, ${viewAlias}.style_name) >= 0.42
-          OR word_similarity($${textParamIndex}, ${viewAlias}.brand) >= 0.45
+          OR ${viewAlias}.style_name ~* $${phraseParamIndex}
+          OR (${allWordsKnown ? 'FALSE' : 'TRUE'} AND char_length($${textParamIndex}) >= 5 AND (
+            strict_word_similarity($${textParamIndex}, ${viewAlias}.style_name) >= 0.5
+            OR word_similarity($${textParamIndex}, ${viewAlias}.brand) >= 0.5
+          ))
           OR ${viewAlias}.style_code ILIKE ($${textParamIndex} || '%')
         )`,
         weight: 40

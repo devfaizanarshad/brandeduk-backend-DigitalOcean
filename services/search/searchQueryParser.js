@@ -6,6 +6,13 @@ const { queryWithTimeout } = require('../../config/database');
 const synonyms = require('./searchSynonyms');
 
 let lookupCache = null;
+
+// Catalogue genders are male / female / unisex. A gendered search keeps unisex products.
+const GENDER_WORDS = new Map([
+    ['ladies', 'female'], ['lady', 'female'], ['women', 'female'], ['womens', 'female'],
+    ['woman', 'female'], ['female', 'female'], ['girls', 'female'],
+    ['men', 'male'], ['mens', 'male'], ['man', 'male'], ['male', 'male'], ['gents', 'male'], ['boys', 'male']
+]);
 let lookupCacheTimestamp = 0;
 
 function normalizedName(value) {
@@ -36,6 +43,11 @@ function normalizeSearchInput(rawQuery) {
         .toLowerCase()
         .normalize('NFKC')
         .replace(/\b(?:back|bag)[\s-]*pack(s?)\b/g, 'backpack$1')
+        .replace(/['’]/g, '')
+        // "quarter zip", "1/4 zip", "¼ zip" are one product feature, not two words.
+        .replace(/(?:\bquarter|\bqtr|1\/4|¼)[\s-]*zip(?:ped)?\b/g, 'quarterzip')
+        // UK shoppers say overalls; the catalogue calls them coveralls.
+        .replace(/\boveralls?\b/g, 'coveralls')
         .replace(/\s+/g, ' ')
         .trim();
 }
@@ -88,11 +100,13 @@ async function loadLookups() {
 
 async function parseSearchQuery(rawQuery) {
     const query = normalizeSearchInput(rawQuery);
-    const hasHiVisIntent = /\b(?:hi[\s-]?vis|hi[\s-]?viz|high[\s-]?visibility)\b/.test(query);
+    // "high vis" / "high viz" must count too: the website rewrites every hi-vis spelling
+    // to "high vis" before searching. Word boundaries keep "visor"/"vision" out.
+    const hasHiVisIntent = /\b(?:hi|high)[\s-]?vi[sz](?:ibility)?\b/.test(query);
     const lookups = await loadLookups();
     await synonyms.ensureLoaded();
 
-    const tokens = query.split(/\s+/);
+    const tokens = query.split(/\s+/).filter(token => token && token !== 'quarterzip');
     const result = {
         brand: null,
         productType: null,
@@ -111,8 +125,13 @@ async function parseSearchQuery(rawQuery) {
         requiredFeatures: [],
         requiredNameGroups: [],
         excludedNameTerms: [],
+        requiredNamePatterns: [],
         styleCode: null
     };
+
+    if (/\bquarterzip\b/.test(query)) {
+        result.requiredNamePatterns.push('(quarter|qtr|1/4|¼)[[:space:]-]*zip');
+    }
 
     const resolved = synonyms.resolveTokens(tokens);
     const terms = resolved.map(item => item.canonical);
@@ -140,6 +159,11 @@ async function parseSearchQuery(rawQuery) {
     }
 
     function classifyTerm(term, resolvedItem) {
+        const genderSlug = GENDER_WORDS.get(term) || GENDER_WORDS.get(resolvedItem && resolvedItem.original);
+        if (genderSlug) {
+            result.genders.push(genderSlug, 'unisex');
+            return true;
+        }
         if (resolvedItem && resolvedItem.type === 'gender') {
             result.genders.push(lookups.genders.get(term) || term);
             return true;
@@ -269,12 +293,13 @@ async function parseSearchQuery(rawQuery) {
         result.requiredNameGroups = matchedGroups;
         const descriptorTerms = new Set(matchedGroups.flat());
         result.freeText = [...new Set(result.freeText.filter(term => (
-            !/^(?:hi|vis|viz|hi-?vis|hi-?viz)$/.test(term)
+            !/^(?:hi|high|vis|viz|visibility|hi[\s-]?vis|hi[\s-]?viz)$/.test(term)
             && !descriptorTerms.has(term)
             && !descriptorGroups.some(group => group.pattern.test(term))
         )))];
     }
 
+    result.genders = [...new Set(result.genders)];
     return result;
 }
 

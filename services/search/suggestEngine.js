@@ -1376,6 +1376,20 @@ function suggest(rawQuery, options = {}) {
   return payload;
 }
 
+/**
+ * True when every word already appears in the live catalogue (names, types, brands,
+ * colours). Such words are spelled correctly, so they must not be fuzzy-matched to
+ * look-alikes ("backpack" is not "Snap Back", "scrub" is not "Scruffs").
+ * Returns null while the index is still building (callers keep their old behaviour).
+ */
+function knowsAllWords(words) {
+  const index = state.index;
+  if (!index) return null;
+  const tokens = tokenize((Array.isArray(words) ? words : [words]).join(' '));
+  if (!tokens.length) return false;
+  return tokens.every(token => index.postings.has(token.term));
+}
+
 function popular() {
   return state.index ? state.index.popular : [];
 }
@@ -1400,6 +1414,7 @@ module.exports = {
   startAutoRefresh,
   markStale,
   isReady,
+  knowsAllWords,
   suggest,
   popular,
   getStats,
