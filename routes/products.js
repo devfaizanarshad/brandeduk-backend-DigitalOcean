@@ -13,7 +13,7 @@ const { parsePpeSearchIntent } = require('../services/ppeCatalog');
 async function routeCache(req, ttl) {
   // Search requests get their own version so search fixes are not hidden by cached results.
   const isSearch = !!(req.query.q || req.query.text);
-  const cacheVersion = req.path === '/suggest' ? 'suggest-v3' : (isSearch ? 'v11-search-hivis' : 'v10-variant-pricing');
+  const cacheVersion = req.path === '/suggest' ? 'suggest-v3' : (isSearch ? 'v12-search-hivis-names' : 'v10-variant-pricing');
   const rawKey = `products:route:${cacheVersion}:${req.originalUrl}`;
   let hash = 0;
   for (let i = 0; i < rawKey.length; i++) {
