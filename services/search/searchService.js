@@ -97,8 +97,16 @@ async function buildSearchConditions(rawQuery, viewAlias = 'psm', paramIndex = 1
     conditions.push(`${viewAlias}.age_group_slug = ANY($${index}::text[])`);
   }
   if (parsed.requiredFeatures.length > 0) {
-    const index = addParam([...new Set(parsed.requiredFeatures)]);
-    conditions.push(`${viewAlias}.feature_slugs::text[] && $${index}::text[]`);
+    const features = [...new Set(parsed.requiredFeatures)];
+    const index = addParam(features);
+    if (features.includes('high-visibility')) {
+      // Some suppliers (e.g. all of Uneek) carry no feature tags, so a product also
+      // counts as hi-vis when its name says so. Word boundaries keep "visor" out.
+      const nameIndex = addParam('\\m(hi|high)[ -]?vi[sz](ibility)?\\M');
+      conditions.push(`(${viewAlias}.feature_slugs::text[] && $${index}::text[] OR ${viewAlias}.style_name ~* $${nameIndex})`);
+    } else {
+      conditions.push(`${viewAlias}.feature_slugs::text[] && $${index}::text[]`);
+    }
   }
   (parsed.requiredNamePatterns || []).forEach(pattern => {
     const index = addParam(pattern);

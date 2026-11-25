@@ -282,3 +282,18 @@ test('free text requires every word and only fuzzy-matches longer words', async 
   assert.doesNotMatch(where, /ILIKE \('%'/, 'no substring matching');
   assert.match(where, /char_length\(\$\d+\) >= 5/);
 });
+
+test('hi-vis searches also match products whose name says hi-vis (suppliers without feature tags)', async () => {
+  const search = await buildSearchConditions('hi vis');
+  const where = search.conditions.join(' AND ');
+  assert.match(where, /feature_slugs::text\[\] && \$\d+::text\[\] OR psm\.style_name ~\* \$\d+/);
+  // Postgres word boundaries (\m, \M) become \b to check the same pattern in JavaScript.
+  const raw = search.params.find(p => typeof p === 'string' && p.includes('vi[sz]'));
+  const pattern = new RegExp(raw.replace(/\\[mM]/g, '\\b'), 'i');
+  for (const name of ['Hi Vis Hooded Sweatshirt', 'Hi-vis bomber jacket', 'High-viz softshell jacket', 'High visibility polo', 'Hivis vest']) {
+    assert.ok(pattern.test(name), name);
+  }
+  for (const name of ['Snap Back Flat Visor Cap', 'High Profile Curved Visor', 'Vision tee']) {
+    assert.ok(!pattern.test(name), name);
+  }
+});
